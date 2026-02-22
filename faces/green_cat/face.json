@@ -1,0 +1,66 @@
+{
+  "name": "green_cat",
+  "description": "Green cat with vertical slit pupils.",
+  "canvas_w": 800,
+  "canvas_h": 800,
+  "fps": 60,
+  "bg_color": [
+    0,
+    0,
+    0
+  ],
+  "glow_color": [
+    60,
+    200,
+    40
+  ],
+  "glow_intensity": 1.2,
+  "eye_color": [
+    80,
+    255,
+    40
+  ],
+  "eye_left": {
+    "image": "eye_left.png",
+    "cx": 240,
+    "cy": 300,
+    "scale": 0.2
+  },
+  "eye_right": {
+    "image": "eye_right.png",
+    "cx": 560,
+    "cy": 300,
+    "scale": 0.2
+  },
+  "blink": true,
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "anchor_cx": 400,
+    "anchor_cy": 400,
+    "max_w": 200,
+    "scale": 0.75,
+    "min_w": 130,
+    "opacity": 0.7,
+    "color": [
+      200,
+      60,
+      110
+    ],
+    "dark_color": [
+      10,
+      5,
+      8
+    ],
+    "style": "rounded",
+    "n_teeth": 0
+  },
+  "mouth_images": {
+    "sil": "mouth_sil.png",
+    "pp": "mouth_pp.png",
+    "aa": "mouth_aa.png",
+    "oo": "mouth_oo.png",
+    "ee": "mouth_ee.png",
+    "ah": "mouth_ah.png"
+  }
+}

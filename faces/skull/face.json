@@ -1,0 +1,37 @@
+{
+  "name": "skull",
+  "description": "White skull with dark eye sockets and bony jaw.",
+  "canvas_w": 800,
+  "canvas_h": 800,
+  "fps": 60,
+  "bg_color": [0, 0, 0],
+  "face_base": "face_base.png",
+  "glow_color": [180, 180, 220],
+  "glow_intensity": 0.8,
+  "eye_color": [0, 0, 0],
+  "eye_left": {
+    "image": "eye_left.png",
+    "cx": 300,
+    "cy": 310,
+    "scale": 1.0
+  },
+  "eye_right": {
+    "image": "eye_right.png",
+    "cx": 500,
+    "cy": 310,
+    "scale": 1.0
+  },
+  "blink": false,
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "anchor_cx": 400,
+    "anchor_cy": 540,
+    "max_w": 200,
+    "min_w": 120,
+    "color": [240, 235, 220],
+    "dark_color": [0, 0, 0],
+    "style": "toothed",
+    "n_teeth": 8
+  }
+}

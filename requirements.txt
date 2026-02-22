@@ -1,0 +1,21 @@
+# Core rendering & audio
+pygame>=2.5.0
+pyaudio>=0.2.13
+numpy>=1.24.0
+
+# TTS with word timestamps (strongly recommended)
+edge-tts>=6.1.9
+
+# Audio format conversion (MP3→WAV from edge-tts)
+pydub>=0.25.1
+# pydub needs ffmpeg installed on your system:
+#   Mac:     brew install ffmpeg
+#   Ubuntu:  sudo apt install ffmpeg
+#   Windows: https://ffmpeg.org/download.html
+
+# Phoneme-to-ARPAbet (optional but improves accuracy ~85%→95%)
+# If not installed, fast regex fallback is used automatically
+g2p-en>=2.1.0
+
+# Offline TTS fallback (if no internet for edge-tts)
+# pyttsx3>=2.90

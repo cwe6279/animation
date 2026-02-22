@@ -1,0 +1,30 @@
+{
+  "name": "ghost",
+  "description": "Spooky ghost face. Drop in PNGs for custom art.",
+  "canvas_w": 800,
+  "canvas_h": 800,
+  "bg_color": [0, 0, 0],
+  "glow_color": [140, 140, 255],
+  "glow_intensity": 1.5,
+  "eye_color": [200, 200, 255],
+  "eye_left": {
+    "cx": 290,
+    "cy": 310
+  },
+  "eye_right": {
+    "cx": 510,
+    "cy": 310
+  },
+  "blink": true,
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "anchor_cx": 400,
+    "anchor_cy": 530,
+    "max_w": 180,
+    "min_w": 100,
+    "color": [180, 180, 255],
+    "dark_color": [5, 5, 20],
+    "style": "rounded"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "name": "pumpkin",
+  "description": "Classic Jack-o-lantern. Fully procedural \u2014 no art files needed.",
+  "canvas_w": 800,
+  "canvas_h": 800,
+  "bg_color": [
+    0,
+    0,
+    0
+  ],
+  "face_color": [
+    210,
+    100,
+    0
+  ],
+  "face_outline": [
+    140,
+    60,
+    0
+  ],
+  "glow_color": [
+    255,
+    160,
+    0
+  ],
+  "glow_intensity": 1.0,
+  "eye_color": [
+    255,
+    200,
+    0
+  ],
+  "eye_left": {
+    "cx": 280,
+    "cy": 320
+  },
+  "eye_right": {
+    "cx": 520,
+    "cy": 320
+  },
+  "blink": true,
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "anchor_cx": 400,
+    "anchor_cy": 540,
+    "max_w": 260,
+    "min_w": 160,
+    "color": [
+      255,
+      200,
+      0
+    ],
+    "dark_color": [
+      10,
+      10,
+      10
+    ],
+    "style": "toothed",
+    "n_teeth": 5
+  }
+}

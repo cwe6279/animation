@@ -1,0 +1,113 @@
+{
+  "_comment": "Copy this folder, rename it, and edit to create a new face.",
+
+  "name": "my_face",
+  "description": "Describe your face here.",
+  "canvas_w": 800,
+  "canvas_h": 800,
+  "fps": 60,
+  "bg_color": [0, 0, 0],
+
+  "_face_base_comment": "Uncomment to add a full face/head background image:",
+  "_face_base": "face_base.png",
+  "face_base_opacity": 1.0,
+
+  "glow_color": [255, 160, 0],
+  "glow_intensity": 1.0,
+
+  "eye_color": [255, 200, 0],
+  "eye_left": {
+    "_image_comment": "Remove underscore from _image to load a PNG, or omit for procedural",
+    "_image": "eye_left.png",
+    "cx": 300,
+    "cy": 300,
+    "scale": 1.0,
+    "opacity": 1.0
+  },
+  "eye_right": {
+    "_image": "eye_right.png",
+    "cx": 500,
+    "cy": 300,
+    "scale": 1.0,
+    "opacity": 1.0
+  },
+  "blink": true,
+
+  "draw_nose": false,
+  "nose": {
+    "_image_comment": "Remove underscore from _image to load a nose PNG",
+    "_image": "nose.png",
+    "cx": 400,
+    "cy": 440,
+    "scale": 1.0,
+    "opacity": 1.0
+  },
+
+  "draw_stem": false,
+
+  "mouth": {
+    "anchor_cx": 400,
+    "anchor_cy": 520,
+    "scale": 1.0,
+    "offset_x": 0,
+    "offset_y": 0,
+    "opacity": 1.0,
+    "max_w": 220,
+    "min_w": 140,
+    "color": [255, 200, 0],
+    "dark_color": [10, 10, 10],
+    "style": "rounded",
+    "n_teeth": 0
+  },
+
+  "mouth_images": {
+    "sil": "mouth_sil.png",
+    "pp":  "mouth_pp.png",
+    "aa":  "mouth_aa.png",
+    "oo":  "mouth_oo.png",
+    "ee":  "mouth_ee.png",
+    "ah":  "mouth_ah.png"
+  },
+
+  "_art_notes": [
+    "All PNGs are optional. Missing ones fall back to procedural drawing.",
+    "",
+    "CANVAS: 800x800px. Export every PNG at full artboard size with transparency.",
+    "",
+    "FILES:",
+    "  face_base.png  - full face/head background (omit for floating features on black)",
+    "  eye_left.png   - left eye art, positioned at cx/cy",
+    "  eye_right.png  - right eye art, positioned at cx/cy",
+    "  nose.png       - nose art, positioned at nose cx/cy (optional)",
+    "  mouth_sil.png  - closed mouth (resting state)",
+    "  mouth_pp.png   - lips pressed (m/b/p sounds)",
+    "  mouth_aa.png   - wide open (a/aw sounds)",
+    "  mouth_oo.png   - rounded (oo/ow sounds)",
+    "  mouth_ee.png   - wide smile (ee/ih sounds)",
+    "  mouth_ah.png   - relaxed open (uh/er sounds)",
+    "",
+    "POSITIONING (tweak in JSON, no re-export needed):",
+    "  eye cx/cy      - center point of eye art on canvas",
+    "  eye scale      - resize eye art (0.5 = half, 2.0 = double)",
+    "  eye opacity    - transparency (0.0 = invisible, 1.0 = fully opaque)",
+    "  nose cx/cy     - center point of nose art on canvas",
+    "  nose scale     - resize nose art",
+    "  nose opacity   - transparency for nose",
+    "  mouth offset_x - shift mouth art left/right in pixels",
+    "  mouth offset_y - shift mouth art up/down (negative = up)",
+    "  mouth scale    - resize mouth art around anchor point",
+    "  mouth opacity  - transparency for mouth",
+    "  anchor_cx/cy   - scale pivot + procedural mouth position",
+    "  face_base_opacity - transparency for face base image",
+    "",
+    "PROCEDURAL (used when PNGs are missing):",
+    "  eye_color      - color for procedural triangle eyes",
+    "  glow_color     - halo glow around procedural shapes",
+    "  glow_intensity - glow brightness (0=none, 1=normal, 2=intense)",
+    "  mouth color    - fill color for procedural mouth",
+    "  mouth style    - 'toothed' or 'rounded'",
+    "  mouth n_teeth  - tooth count for toothed style (0 for rounded)",
+    "  draw_nose      - true/false for procedural triangle nose",
+    "  nose_color     - color for procedural nose outline"
+  ]
+}
