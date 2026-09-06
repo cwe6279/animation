@@ -95,7 +95,8 @@ class VoiceLoop:
             return
         self._partial = ""
         if t.text.strip():
-            self._speech_end_at = time.monotonic() - getattr(self.stt, "endpoint_delay_s", 0.0)
+            self._speech_end_at = (time.monotonic() - getattr(self.stt, "endpoint_delay_s", 0.0)
+                                   - getattr(self.stt, "last_transcribe_s", 0.0))
             self.on_user_text(t.text.strip())
 
     # ── one turn ────────────────────────────────────────
@@ -284,6 +285,8 @@ def main(argv=None) -> int:
     p.add_argument("--tts", default=None,
                    help="elevenlabs (default when ELEVENLABS_API_KEY is set) or edge (free)")
     p.add_argument("--voice", default=None, help="TTS voice name/id")
+    p.add_argument("--voice-speed", type=float, default=None,
+                   help="Speaking rate multiplier, e.g. 1.15 (ElevenLabs Flash and edge honour it; v3 ignores it)")
     p.add_argument("--tts-model", default=None,
                    help="ElevenLabs model: eleven_v3 (default; performs [sigh]/[excited]-style tags) "
                         "or eleven_flash_v2_5 (~0.5 s faster, tags stripped)")
@@ -329,8 +332,9 @@ def main(argv=None) -> int:
     voice = args.voice or m.voices.get(args.tts)
     tts_model = args.tts_model or m.tts_model or ("eleven_v3" if args.tts == "elevenlabs" else None)
     character = args.character or m.character or None
+    speed = args.voice_speed or m.voice_speed
     try:
-        backend = make_backend(args.tts, voice=voice, model=tts_model)
+        backend = make_backend(args.tts, voice=voice, model=tts_model, speed=speed)
     except Exception as e:
         print(f"[error] TTS backend '{args.tts}' unavailable: {e}")
         return 1

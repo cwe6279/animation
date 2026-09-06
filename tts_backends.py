@@ -169,9 +169,9 @@ class EdgeTTSBackend(TTSBackend):
     sample_rate = 24000   # edge-tts serves 24 kHz mono MP3
 
     def __init__(self, voice: str = "en-US-GuyNeural", rate: str = "+0%",
-                 pitch: str = "+0Hz"):
+                 pitch: str = "+0Hz", speed: Optional[float] = None):
         self.voice = voice
-        self.rate = rate
+        self.rate = f"{round((speed - 1.0) * 100):+d}%" if speed else rate
         self.pitch = pitch
         if find_ffmpeg() is None:
             raise RuntimeError("EdgeTTSBackend needs ffmpeg to decode MP3 "
@@ -313,9 +313,10 @@ class ElevenLabsBackend(TTSBackend):
 
     def __init__(self, voice: str = "21m00Tcm4TlvDq8ikWAM", model: str = "eleven_flash_v2_5",
                  api_key: Optional[str] = None, stability: float = 0.5,
-                 similarity: float = 0.75):
+                 similarity: float = 0.75, speed: Optional[float] = None):
         self.voice_id = voice
         self.model = model
+        self.speed = speed          # 0.7-1.2; honoured by Flash/Turbo, ignored by v3
         self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
         if not self.api_key:
             raise RuntimeError("ElevenLabsBackend needs ELEVENLABS_API_KEY in the environment.")
@@ -327,6 +328,12 @@ class ElevenLabsBackend(TTSBackend):
         # stripped (they would read them aloud).
         self.supports_audio_tags = model.startswith("eleven_v3")
         self.transport = "http" if self.supports_audio_tags else "ws"
+
+    def _voice_settings(self) -> dict:
+        vs = {"stability": self.stability, "similarity_boost": self.similarity}
+        if self.speed:
+            vs["speed"] = max(0.7, min(1.2, float(self.speed)))
+        return vs
 
     def _url(self) -> str:
         return (f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input"
@@ -362,8 +369,7 @@ class ElevenLabsBackend(TTSBackend):
                 base_t = session_frames / self.sample_rate
                 wordizer = _AlignmentWordizer(base_t)
                 body = {"text": sentence, "model_id": self.model,
-                        "voice_settings": {"stability": self.stability,
-                                           "similarity_boost": self.similarity}}
+                        "voice_settings": self._voice_settings()}
                 async with http.post(url, headers={"xi-api-key": self.api_key}, json=body) as resp:
                     if resp.status != 200:
                         raise RuntimeError(f"ElevenLabs HTTP {resp.status}: {(await resp.text())[:300]}")
@@ -397,8 +403,7 @@ class ElevenLabsBackend(TTSBackend):
                                        heartbeat=20) as ws:
                 await ws.send_json({
                     "text": " ",
-                    "voice_settings": {"stability": self.stability,
-                                       "similarity_boost": self.similarity},
+                    "voice_settings": self._voice_settings(),
                     "generation_config": {"chunk_length_schedule": [50, 90, 120, 150]},
                 })
 

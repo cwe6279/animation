@@ -45,7 +45,8 @@ class STTBackend:
     name = "base"
     sample_rate = 16000
     speech_active = False           # True while the user seems to be talking
-    endpoint_delay_s = 0.0          # how long after real end-of-speech a final is produced
+    endpoint_delay_s = 0.0          # silence the endpointer waits for before deciding you stopped
+    last_transcribe_s = 0.0         # time the last final transcription took (batch backends)
 
     def feed(self, pcm: bytes) -> Optional[Transcript]:
         raise NotImplementedError
@@ -234,6 +235,7 @@ class WhisperSTT(STTBackend):
         segments, _ = self._model.transcribe(samples, language="en", beam_size=1, vad_filter=False,
                                              condition_on_previous_text=False)
         text = " ".join(seg.text.strip() for seg in segments).strip()
+        self.last_transcribe_s = time.monotonic() - t0
         silence = self._ep.silence_samples / self.sample_rate
         print(f"[stt] whisper {len(samples)/self.sample_rate:.1f}s audio in {(time.monotonic()-t0)*1000:.0f} ms "
               f"(+{silence*1000:.0f} ms waiting for you to stop)")
@@ -416,6 +418,7 @@ class OpenAICompatSTT(STTBackend):
             print(f"[stt] {self.name} transcription failed: {e}")
             return None
         text = (result if isinstance(result, str) else getattr(result, "text", "")).strip()
+        self.last_transcribe_s = time.monotonic() - t0
         print(f"[stt] {self.name} {len(audio)/2/self.sample_rate:.1f}s audio in "
               f"{(time.monotonic()-t0)*1000:.0f} ms (+{self.endpoint_delay_s*1000:.0f} ms waiting for you to stop)")
         return Transcript(text, True) if text else None

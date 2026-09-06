@@ -117,6 +117,7 @@ class FaceManifest:
     # tts_model picks the ElevenLabs model (e.g. "eleven_v3").
     voices:     Dict[str, str] = field(default_factory=dict)
     tts_model:  Optional[str] = None
+    voice_speed: Optional[float] = None # speaking rate multiplier (Flash / edge; v3 ignores)
     character:  str = ""                # persona line for the LLM
 
     _KNOWN_TOP = {
@@ -124,7 +125,7 @@ class FaceManifest:
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
         "eye_left", "eye_right", "eye_color", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "gaze", "draw_nose", "nose_color", "nose",
-        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "character",
+        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character",
     }
     _KNOWN_EYE = {"image", "cx", "cy", "scale", "opacity"}
     _KNOWN_MOUTH = {"anchor_cx", "anchor_cy", "max_w", "min_w", "scale", "offset_x", "offset_y",
@@ -171,6 +172,7 @@ class FaceManifest:
         m.mouth_images = {str(k).lower(): v for k, v in d.get("mouth_images", {}).items()}
         m.voices      = {str(k).lower(): str(v) for k, v in d.get("voices", {}).items()}
         m.tts_model   = d.get("tts_model") or None
+        m.voice_speed = float(d["voice_speed"]) if d.get("voice_speed") else None
         m.character   = str(d.get("character", ""))
 
         for side in ("eye_left", "eye_right"):

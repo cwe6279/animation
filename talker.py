@@ -417,7 +417,7 @@ def main(argv=None) -> int:
         m = assets.manifest
         try:
             backend = make_backend(args.tts, voice=args.voice or m.voices.get(args.tts.lower()),
-                                   model=args.tts_model or m.tts_model)
+                                   model=args.tts_model or m.tts_model, speed=m.voice_speed)
         except Exception as e:
             print(f"[error] TTS backend '{args.tts}' unavailable: {e}")
             return 1
