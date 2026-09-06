@@ -1,49 +1,47 @@
 """
 phoneme_scheduler.py
-Converts text → phonemes → timed viseme schedule
+====================
+Pure, incremental text -> phoneme -> viseme scheduling.
 
-Pipeline:
-  text (with optional [emotion] tags)
-    → strip emotion tags, record positions
-    → edge-tts word timestamps  (word start/end times in seconds)
-    → g2p-en phoneme strings    (per word)
-    → viseme codes              (per phoneme)
-    → spread across word duration
-    → sorted list of VisemeEvent(time, viseme, duration)
-    → sorted list of EmotionEvent(time, emotion)
+Everything in this module is synchronous and side-effect free, so it can be
+unit tested without audio hardware, a display, or network access.
 
-Fallback: if g2p-en not installed, uses a fast regex-based
-          English approximation that covers ~85% of common words.
+Pipeline (driven by speech_pipeline.SpeechPipeline):
+  text with optional [emotion] tags
+    -> split into sentences            (SentenceSplitter, streaming-friendly)
+    -> strip emotion tags per sentence (parse_emotion_tags)
+    -> TTS backend yields word timestamps as audio streams in
+    -> word_to_viseme_events() per word (g2p-en, or a regex fallback)
+    -> ScheduleReader.append() places the events on the shared audio timeline
+
+The renderer asks ScheduleReader for the current viseme + emotion each frame.
 """
 
 from __future__ import annotations
+
 import re
-import asyncio
-import tempfile
-import os
+import threading
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 from enum import Enum
+from typing import Iterable, List, Optional, Tuple
 
 
 # ─────────────────────────────────────────────────────
-# VISEME ENUM  (matches Preston Blair's classic 10-shape set
-#               extended with a few extras for clarity)
+# VISEME ENUM  (Preston Blair's classic set, extended)
 # ─────────────────────────────────────────────────────
 class Viseme(Enum):
-    # Shape name      mouth description
-    SIL   = "sil"   # closed / rest
-    PP    = "pp"    # pressed lips: p b m
-    FF    = "ff"    # lip-teeth: f v
-    TH    = "th"    # tongue tip: th ð
-    DD    = "dd"    # tongue up: t d n l
-    KK    = "kk"    # back open: k g ng
-    CH    = "ch"    # puckered forward: ch sh zh j
-    SS    = "ss"    # sibilant: s z
-    AA    = "aa"    # wide open: a aw ah æ
-    EE    = "ee"    # wide flat: ee ih
-    OO    = "oo"    # tight round: oo ow uh
-    AH    = "ah"    # neutral open: uh schwa er
+    SIL = "sil"   # closed / rest
+    PP  = "pp"    # pressed lips: p b m
+    FF  = "ff"    # lip-teeth: f v
+    TH  = "th"    # tongue tip: th dh
+    DD  = "dd"    # tongue up: t d n l
+    KK  = "kk"    # back open: k g ng
+    CH  = "ch"    # puckered forward: ch sh zh j
+    SS  = "ss"    # sibilant: s z
+    AA  = "aa"    # wide open: a aw ah ae
+    EE  = "ee"    # wide flat: ee ih
+    OO  = "oo"    # tight round: oo ow uh
+    AH  = "ah"    # neutral open: uh schwa er
 
 
 # ─────────────────────────────────────────────────────
@@ -57,128 +55,44 @@ class Emotion(Enum):
     SAD      = "sad"
     SURPRISE = "surprise"
 
-_EMOTION_NAMES = {e.value: e for e in Emotion}
+
+EMOTION_NAMES = {e.value: e for e in Emotion}
+
+
+def parse_emotion(name: Optional[str]) -> Optional[Emotion]:
+    """Case-insensitive lookup; returns None for unknown names."""
+    if not name:
+        return None
+    return EMOTION_NAMES.get(name.strip().lower())
 
 
 @dataclass
 class EmotionEvent:
-    time: float        # seconds from audio start
+    time: float        # seconds on the audio timeline
     emotion: Emotion
 
 
-def _parse_emotion_tags(text: str) -> Tuple[str, List[Tuple[int, Emotion]]]:
-    """
-    Strip [emotion] tags from text and record which word they precede.
+@dataclass
+class VisemeEvent:
+    time: float        # seconds on the audio timeline
+    viseme: Viseme
+    duration: float    # seconds this viseme lasts
 
-    Example:
-        "[angry]I'm so mad! [sad]But also hurt."
-        → ("I'm so mad! But also hurt.",
-           [(0, Emotion.ANGRY), (4, Emotion.SAD)])
-
-    Returns (clean_text, [(word_index, emotion), ...])
-    """
-    tag_pattern = re.compile(r'\[(\w+)\]')
-    tags: List[Tuple[int, Emotion]] = []
-    clean_parts = []
-    word_count = 0
-
-    pos = 0
-    for match in tag_pattern.finditer(text):
-        # Text before this tag — count its words
-        before = text[pos:match.start()]
-        if before.strip():
-            words_in_chunk = before.split()
-            clean_parts.append(before)
-            word_count += len(words_in_chunk)
-
-        tag_name = match.group(1).lower()
-        if tag_name in _EMOTION_NAMES:
-            tags.append((word_count, _EMOTION_NAMES[tag_name]))
-        pos = match.end()
-
-    # Remaining text after last tag
-    remainder = text[pos:]
-    if remainder:
-        clean_parts.append(remainder)
-
-    clean_text = "".join(clean_parts).strip()
-    # Collapse extra spaces from tag removal
-    clean_text = re.sub(r'  +', ' ', clean_text)
-    return clean_text, tags
-
-
-# ─────────────────────────────────────────────────────
-# ARPABET → VISEME MAP
-# Covers all 39 ARPAbet phonemes used by g2p-en
-# ─────────────────────────────────────────────────────
-ARPABET_TO_VISEME: dict[str, Viseme] = {
-    # Silence
-    "SIL": Viseme.SIL,
-    "SP":  Viseme.SIL,
-
-    # Stops
-    "P":  Viseme.PP,
-    "B":  Viseme.PP,
-    "T":  Viseme.DD,
-    "D":  Viseme.DD,
-    "K":  Viseme.KK,
-    "G":  Viseme.KK,
-
-    # Fricatives
-    "F":  Viseme.FF,
-    "V":  Viseme.FF,
-    "TH": Viseme.TH,
-    "DH": Viseme.TH,
-    "S":  Viseme.SS,
-    "Z":  Viseme.SS,
-    "SH": Viseme.CH,
-    "ZH": Viseme.CH,
-    "HH": Viseme.AH,
-
-    # Affricates
-    "CH": Viseme.CH,
-    "JH": Viseme.CH,
-
-    # Nasals
-    "M":  Viseme.PP,
-    "N":  Viseme.DD,
-    "NG": Viseme.KK,
-
-    # Liquids & glides
-    "L":  Viseme.DD,
-    "R":  Viseme.AH,
-    "W":  Viseme.OO,
-    "Y":  Viseme.EE,
-
-    # Vowels — stress markers stripped before lookup
-    "AA": Viseme.AA,
-    "AE": Viseme.AA,
-    "AH": Viseme.AH,
-    "AO": Viseme.AA,
-    "AW": Viseme.OO,
-    "AY": Viseme.AA,
-    "EH": Viseme.EE,
-    "ER": Viseme.AH,
-    "EY": Viseme.EE,
-    "IH": Viseme.EE,
-    "IY": Viseme.EE,
-    "OW": Viseme.OO,
-    "OY": Viseme.OO,
-    "UH": Viseme.OO,
-    "UW": Viseme.OO,
-}
+    @property
+    def end_time(self) -> float:
+        return self.time + self.duration
 
 
 # ─────────────────────────────────────────────────────
 # VISEME PROPERTIES (for renderer)
-# open_amount: 0..1  width_scale: 0..1  shape: round|wide|neutral
 # ─────────────────────────────────────────────────────
-@dataclass
+@dataclass(frozen=True)
 class VisemeProps:
-    open_amount: float   # vertical opening
-    width_scale: float   # horizontal width multiplier
+    open_amount: float   # vertical opening 0..1
+    width_scale: float   # horizontal width multiplier 0..1
     rounded: bool        # pursed/round vs flat
     label: str
+
 
 VISEME_PROPS: dict[Viseme, VisemeProps] = {
     Viseme.SIL: VisemeProps(0.00, 0.80, False, "silence"),
@@ -197,402 +111,474 @@ VISEME_PROPS: dict[Viseme, VisemeProps] = {
 
 
 # ─────────────────────────────────────────────────────
-# TIMED VISEME EVENT
+# ARPABET -> VISEME MAP  (all 39 ARPAbet phonemes + silence)
 # ─────────────────────────────────────────────────────
-@dataclass
-class VisemeEvent:
-    time: float      # seconds from audio start
-    viseme: Viseme
-    duration: float  # seconds this viseme lasts
-
-    def end_time(self) -> float:
-        return self.time + self.duration
+ARPABET_TO_VISEME: dict[str, Viseme] = {
+    "SIL": Viseme.SIL, "SP": Viseme.SIL,
+    # Stops
+    "P": Viseme.PP, "B": Viseme.PP, "T": Viseme.DD, "D": Viseme.DD,
+    "K": Viseme.KK, "G": Viseme.KK,
+    # Fricatives
+    "F": Viseme.FF, "V": Viseme.FF, "TH": Viseme.TH, "DH": Viseme.TH,
+    "S": Viseme.SS, "Z": Viseme.SS, "SH": Viseme.CH, "ZH": Viseme.CH,
+    "HH": Viseme.AH,
+    # Affricates
+    "CH": Viseme.CH, "JH": Viseme.CH,
+    # Nasals
+    "M": Viseme.PP, "N": Viseme.DD, "NG": Viseme.KK,
+    # Liquids & glides
+    "L": Viseme.DD, "R": Viseme.AH, "W": Viseme.OO, "Y": Viseme.EE,
+    # Vowels (stress digits stripped before lookup)
+    "AA": Viseme.AA, "AE": Viseme.AA, "AH": Viseme.AH, "AO": Viseme.AA,
+    "AW": Viseme.OO, "AY": Viseme.AA, "EH": Viseme.EE, "ER": Viseme.AH,
+    "EY": Viseme.EE, "IH": Viseme.EE, "IY": Viseme.EE, "OW": Viseme.OO,
+    "OY": Viseme.OO, "UH": Viseme.OO, "UW": Viseme.OO,
+}
 
 
 # ─────────────────────────────────────────────────────
-# FALLBACK: REGEX PHONEME APPROXIMATION
-# Fast pure-Python grapheme-to-phoneme for common English
-# patterns. No external deps. ~85% accuracy on common words.
+# TAG PARSING
 # ─────────────────────────────────────────────────────
+# Text carries [bracketed] performance tags in the ElevenLabs v3 style:
+# emotional states, reactions, tone cues, character cues ("[sigh]",
+# "[light chuckle]", "[British accent]"). Two consumers:
+#   * the voice: backends that support audio tags get the text with tags kept;
+#     others get the clean text (a plain TTS would read "sigh" aloud)
+#   * the face: tags are mapped onto the six eye expressions below; tags with
+#     no facial meaning (e.g. [whispers], [pauses]) leave the eyes alone.
+_TAG_RE = re.compile(r"\[([^\[\]]{1,40})\]")
 
+TAG_TO_EMOTION: dict[str, Emotion] = {}
+for _emo, _words in {
+    Emotion.HAPPY: ["happy", "excited", "cheerful", "cheerfully", "playful", "playfully", "laughs",
+                    "laughing", "laugh", "giggle", "giggles", "giggling", "chuckle", "chuckles",
+                    "chuckling", "joyful", "joy", "amused", "delighted", "warmly", "proud", "relieved",
+                    "relief", "sigh of relief", "grinning", "smiling", "smiles", "gleeful", "thrilled", "fondly",
+                    "teasing", "flirtatiously", "enthusiastic"],
+    Emotion.ANGRY: ["angry", "furious", "frustrated", "enraged", "shouting", "shouts", "yelling",
+                    "yells", "growls", "growling", "snaps", "snarls", "outraged", "mad", "livid",
+                    "fuming", "hostile", "threatening", "menacing"],
+    Emotion.ANNOYED: ["annoyed", "irritated", "sarcastically", "sarcastic", "whiny", "grumbles",
+                      "grumbling", "impatient", "impatiently", "exasperated", "bored", "unimpressed",
+                      "sighs heavily", "scoffs", "smug", "condescending", "dry", "dryly", "deadpan"],
+    Emotion.SAD: ["sad", "sorrowful", "sorrow", "tired", "exhausted", "regretful", "regret", "resigned",
+                  "hesitant", "hesitates", "hesitantly", "disappointed", "mournful", "crying", "sobbing",
+                  "sobs", "gloomy", "melancholy", "hurt", "apologetic", "wistful", "lonely",
+                  "heartbroken", "weary", "defeated", "somber", "sombre", "sigh", "sighs", "sighing",
+                  "quietly", "softly"],
+    Emotion.SURPRISE: ["surprise", "surprised", "awe", "amazed", "gasps", "gasp", "gasping", "shocked",
+                       "astonished", "startled", "stunned", "wow", "curious", "intrigued", "alarmed",
+                       "scared", "afraid", "terrified", "fearful", "nervous", "nervously", "anxious",
+                       "panicked", "wide-eyed", "bewildered", "confused", "puzzled"],
+    Emotion.NEUTRAL: ["neutral", "calm", "calmly", "matter-of-fact", "flatly", "flat", "serious",
+                      "thoughtful", "thoughtfully", "composed", "sternly", "firmly", "gently",
+                      "reassuring", "confident", "confidently", "whispers", "whispering", "whisper"],
+}.items():
+    for _w in _words:
+        TAG_TO_EMOTION[_w] = _emo
+
+
+def tag_to_emotion(tag: str) -> Optional[Emotion]:
+    """
+    Map a performance tag to a face emotion, or None if it says nothing about
+    the eyes ("[pauses]", "[British accent]"). Tries the whole tag, then its
+    words, then simple suffix trims ("nervously" -> "nervous", "sad tone" -> "sad").
+    """
+    t = tag.strip().lower()
+    if t in TAG_TO_EMOTION:
+        return TAG_TO_EMOTION[t]
+    words = [w for w in re.split(r"[\s,/-]+", t) if w and w not in ("tone", "voice", "of", "a", "with")]
+    for w in words:
+        if w in TAG_TO_EMOTION:
+            return TAG_TO_EMOTION[w]
+    for w in words:
+        for suffix in ("ly", "ed", "ing", "s"):
+            if w.endswith(suffix) and w[: -len(suffix)] in TAG_TO_EMOTION:
+                return TAG_TO_EMOTION[w[: -len(suffix)]]
+    return None
+
+
+def parse_tags(text: str) -> Tuple[str, str, List[Tuple[int, Emotion]]]:
+    """
+    Returns (clean_text, voice_text, [(word_index, emotion), ...]).
+
+      clean_text  tags removed (for TTS that cannot perform them, and for
+                  counting words)
+      voice_text  tags kept, normalized to one space around them (for v3)
+      emotions    face emotion changes keyed by the index of the clean-text
+                  word they precede; only tags with a facial meaning appear
+
+        "[angry] I'm so mad! [sigh] But also hurt."
+        -> ("I'm so mad! But also hurt.",
+            "[angry] I'm so mad! [sigh] But also hurt.",
+            [(0, ANGRY), (3, SAD)])
+    """
+    tags: List[Tuple[int, Emotion]] = []
+    clean_parts: List[str] = []
+    word_count = 0
+    pos = 0
+    for match in _TAG_RE.finditer(text):
+        before = text[pos:match.start()]
+        if before.strip():
+            clean_parts.append(before)
+            word_count += len(before.split())
+        emotion = tag_to_emotion(match.group(1))
+        if emotion is not None:
+            if tags and tags[-1][0] == word_count:
+                tags[-1] = (word_count, emotion)     # stacked tags: last one wins
+            else:
+                tags.append((word_count, emotion))
+        pos = match.end()
+    remainder = text[pos:]
+    if remainder.strip():
+        clean_parts.append(remainder)
+    clean_text = re.sub(r"\s{2,}", " ", "".join(clean_parts)).strip()
+    voice_text = re.sub(r"\s{2,}", " ", _TAG_RE.sub(lambda m: f" [{m.group(1).strip()}] ", text)).strip()
+    return clean_text, voice_text, tags
+
+
+def parse_emotion_tags(text: str) -> Tuple[str, List[Tuple[int, Emotion]]]:
+    """Backward-compatible wrapper: (clean_text, emotions)."""
+    clean, _, tags = parse_tags(text)
+    return clean, tags
+
+
+def strip_tags(text: str) -> str:
+    return parse_tags(text)[0]
+
+
+# ─────────────────────────────────────────────────────
+# SENTENCE SPLITTING  (batch and streaming)
+# ─────────────────────────────────────────────────────
+_SENTENCE_END_RE = re.compile(r"([.!?…]+[\"')\]]*)(\s+)")
+
+
+class SentenceSplitter:
+    """
+    Incrementally splits text into sentence-sized chunks so TTS can start on
+    the first sentence while the rest (e.g. an LLM response) is still arriving.
+
+        s = SentenceSplitter()
+        for chunk in llm_tokens:
+            for sentence in s.feed(chunk): ...
+        for sentence in s.flush(): ...
+
+    Emotion tags stay attached to the words that follow them because they sit
+    before those words in the text. Very short fragments are merged with the
+    next sentence so we don't fire a TTS request for "Oh." alone.
+    """
+
+    def __init__(self, min_chars: int = 12):
+        self.min_chars = min_chars
+        self._buf = ""
+        self._pending = ""   # short fragment waiting to be merged
+
+    def feed(self, text: str) -> List[str]:
+        self._buf += text
+        out: List[str] = []
+        while True:
+            m = _SENTENCE_END_RE.search(self._buf)
+            if not m:
+                break
+            sentence = self._buf[:m.end(1)]
+            self._buf = self._buf[m.end():]
+            out.extend(self._emit(sentence))
+        return out
+
+    def flush(self) -> List[str]:
+        out: List[str] = []
+        tail = (self._pending + " " + self._buf).strip()
+        self._pending = ""
+        self._buf = ""
+        if tail:
+            out.append(tail)
+        return out
+
+    def _emit(self, sentence: str) -> List[str]:
+        sentence = (self._pending + " " + sentence).strip() if self._pending else sentence.strip()
+        self._pending = ""
+        if not sentence:
+            return []
+        # Count only real words, not tags, when deciding if it's too short.
+        clean = strip_tags(sentence)
+        if len(clean) < self.min_chars:
+            self._pending = sentence
+            return []
+        return [sentence]
+
+
+def split_sentences(text: str, min_chars: int = 12) -> List[str]:
+    """Batch helper: split a whole string into sentence chunks."""
+    s = SentenceSplitter(min_chars=min_chars)
+    out = s.feed(text)
+    out.extend(s.flush())
+    return out
+
+
+# ─────────────────────────────────────────────────────
+# GRAPHEME -> ARPABET
+# ─────────────────────────────────────────────────────
 _GRAPHEME_RULES: List[Tuple[re.Pattern, List[str]]] = [
     # Digraphs & special combos first (order matters)
-    (re.compile(r'ch',   re.I), ["CH"]),
-    (re.compile(r'sh',   re.I), ["SH"]),
-    (re.compile(r'th',   re.I), ["TH"]),
-    (re.compile(r'wh',   re.I), ["W"]),
-    (re.compile(r'ph',   re.I), ["F"]),
-    (re.compile(r'ng',   re.I), ["NG"]),
-    (re.compile(r'ck',   re.I), ["K"]),
-    (re.compile(r'qu',   re.I), ["K", "W"]),
-    (re.compile(r'gh',   re.I), []),           # silent gh
+    (re.compile(r"ch"), ["CH"]),
+    (re.compile(r"sh"), ["SH"]),
+    (re.compile(r"th"), ["TH"]),
+    (re.compile(r"wh"), ["W"]),
+    (re.compile(r"ph"), ["F"]),
+    (re.compile(r"ng"), ["NG"]),
+    (re.compile(r"ck"), ["K"]),
+    (re.compile(r"qu"), ["K", "W"]),
+    (re.compile(r"gh"), []),           # silent gh
     # Vowel groups
-    (re.compile(r'ee|ea', re.I), ["IY"]),
-    (re.compile(r'oo',   re.I), ["UW"]),
-    (re.compile(r'ou|ow', re.I), ["AW"]),
-    (re.compile(r'oi|oy', re.I), ["OY"]),
-    (re.compile(r'ai|ay', re.I), ["EY"]),
-    (re.compile(r'au|aw', re.I), ["AO"]),
+    (re.compile(r"ee|ea"), ["IY"]),
+    (re.compile(r"oo"), ["UW"]),
+    (re.compile(r"ou|ow"), ["AW"]),
+    (re.compile(r"oi|oy"), ["OY"]),
+    (re.compile(r"ai|ay"), ["EY"]),
+    (re.compile(r"au|aw"), ["AO"]),
     # Single consonants
-    (re.compile(r'b', re.I), ["B"]),
-    (re.compile(r'c(?=[ei])', re.I), ["S"]),
-    (re.compile(r'c', re.I), ["K"]),
-    (re.compile(r'd', re.I), ["D"]),
-    (re.compile(r'f', re.I), ["F"]),
-    (re.compile(r'g(?=[ei])', re.I), ["JH"]),
-    (re.compile(r'g', re.I), ["G"]),
-    (re.compile(r'h', re.I), ["HH"]),
-    (re.compile(r'j', re.I), ["JH"]),
-    (re.compile(r'k', re.I), ["K"]),
-    (re.compile(r'l', re.I), ["L"]),
-    (re.compile(r'm', re.I), ["M"]),
-    (re.compile(r'n', re.I), ["N"]),
-    (re.compile(r'p', re.I), ["P"]),
-    (re.compile(r'r', re.I), ["R"]),
-    (re.compile(r's', re.I), ["S"]),
-    (re.compile(r't', re.I), ["T"]),
-    (re.compile(r'v', re.I), ["V"]),
-    (re.compile(r'w', re.I), ["W"]),
-    (re.compile(r'x', re.I), ["K", "S"]),
-    (re.compile(r'y', re.I), ["Y"]),
-    (re.compile(r'z', re.I), ["Z"]),
+    (re.compile(r"b"), ["B"]),
+    (re.compile(r"c(?=[ei])"), ["S"]),
+    (re.compile(r"c"), ["K"]),
+    (re.compile(r"d"), ["D"]),
+    (re.compile(r"f"), ["F"]),
+    (re.compile(r"g(?=[ei])"), ["JH"]),
+    (re.compile(r"g"), ["G"]),
+    (re.compile(r"h"), ["HH"]),
+    (re.compile(r"j"), ["JH"]),
+    (re.compile(r"k"), ["K"]),
+    (re.compile(r"l"), ["L"]),
+    (re.compile(r"m"), ["M"]),
+    (re.compile(r"n"), ["N"]),
+    (re.compile(r"p"), ["P"]),
+    (re.compile(r"r"), ["R"]),
+    (re.compile(r"s"), ["S"]),
+    (re.compile(r"t"), ["T"]),
+    (re.compile(r"v"), ["V"]),
+    (re.compile(r"w"), ["W"]),
+    (re.compile(r"x"), ["K", "S"]),
+    (re.compile(r"y"), ["Y"]),
+    (re.compile(r"z"), ["Z"]),
     # Single vowels (catch-all)
-    (re.compile(r'a', re.I), ["AE"]),
-    (re.compile(r'e', re.I), ["EH"]),
-    (re.compile(r'i', re.I), ["IH"]),
-    (re.compile(r'o', re.I), ["OW"]),
-    (re.compile(r'u', re.I), ["AH"]),
+    (re.compile(r"a"), ["AE"]),
+    (re.compile(r"e"), ["EH"]),
+    (re.compile(r"i"), ["IH"]),
+    (re.compile(r"o"), ["OW"]),
+    (re.compile(r"u"), ["AH"]),
 ]
 
-def _grapheme_to_arpabet_fallback(word: str) -> List[str]:
-    """Regex-based grapheme → ARPAbet approximation."""
-    phonemes = []
+_STRESS_RE = re.compile(r"\d")
+
+
+def grapheme_to_arpabet_fallback(word: str) -> List[str]:
+    """Regex-based grapheme -> ARPAbet approximation (~85% on common words)."""
+    phonemes: List[str] = []
     text = word.lower().strip(".,!?;:\"'")
     i = 0
     while i < len(text):
-        matched = False
         for pattern, phones in _GRAPHEME_RULES:
             m = pattern.match(text, i)
             if m:
                 phonemes.extend(phones)
                 i = m.end()
-                matched = True
                 break
-        if not matched:
+        else:
             i += 1  # skip unknown char
     return phonemes
 
 
-def _word_to_arpabet(word: str) -> List[str]:
-    """Convert word to ARPAbet phonemes. Tries g2p-en first."""
-    try:
-        from g2p_en import G2p
-        if not hasattr(_word_to_arpabet, '_g2p'):
-            _word_to_arpabet._g2p = G2p()
-        raw = _word_to_arpabet._g2p(word)
-        # Strip stress markers (0,1,2 digits)
-        return [re.sub(r'\d', '', p) for p in raw if p.strip() and p != ' ']
-    except Exception:
-        # ImportError (g2p not installed) or runtime error (NLTK data missing, etc.)
-        return _grapheme_to_arpabet_fallback(word)
+# g2p-en singleton. Import + model load takes 1-2 s the first time, so the
+# app warms it up in a background thread at startup (see warm_up_g2p).
+_g2p_lock = threading.Lock()
+_g2p_instance = None
+_g2p_unavailable = False
 
 
-def _arpabet_to_visemes(phonemes: List[str]) -> List[Viseme]:
-    result = []
-    for p in phonemes:
-        p_clean = re.sub(r'\d', '', p).upper()
-        v = ARPABET_TO_VISEME.get(p_clean, Viseme.AH)
-        result.append(v)
-    return result
-
-
-# ─────────────────────────────────────────────────────
-# MP3 → WAV CONVERSION
-# Tries: 1) system ffmpeg  2) imageio-ffmpeg bundle  3) pydub
-# ─────────────────────────────────────────────────────
-def _find_ffmpeg() -> str | None:
-    """Return path to ffmpeg binary, or None."""
-    import shutil
-    path = shutil.which("ffmpeg")
-    if path:
-        return path
-    try:
-        import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except ImportError:
-        return None
-
-
-def _convert_mp3_to_wav(mp3_path: str, wav_path: str):
-    """Convert MP3 to 22050 Hz mono WAV for pyaudio playback."""
-    import subprocess
-    ffmpeg = _find_ffmpeg()
-    if ffmpeg:
-        subprocess.run(
-            [ffmpeg, "-y", "-i", mp3_path, "-ar", "22050", "-ac", "1", wav_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            check=True
-        )
-        return
-    # Fallback: try pydub (needs its own ffmpeg config)
-    try:
-        from pydub import AudioSegment
-        seg = AudioSegment.from_mp3(mp3_path)
-        seg = seg.set_frame_rate(22050).set_channels(1)
-        seg.export(wav_path, format="wav")
-        return
-    except Exception:
-        pass
-    raise RuntimeError(
-        "ffmpeg not found. Install it:\n"
-        "  pip install imageio-ffmpeg\n"
-        "  OR download from https://ffmpeg.org and add to PATH"
-    )
-
-
-# ─────────────────────────────────────────────────────
-# EDGE-TTS WORD TIMESTAMP EXTRACTION
-# Returns list of (word, start_sec, end_sec)
-# ─────────────────────────────────────────────────────
-async def _edge_tts_with_timestamps(
-    text: str,
-    voice: str,
-    wav_path: str
-) -> List[Tuple[str, float, float]]:
-    """
-    Run edge-tts, save WAV, collect word boundary events.
-    Returns [(word, start_s, end_s), ...]
-    """
-    import edge_tts
-
-    word_events = []
-    communicate = edge_tts.Communicate(text, voice=voice, boundary="WordBoundary")
-
-    audio_chunks = []
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            audio_chunks.append(chunk["data"])
-        elif chunk["type"] == "WordBoundary":
-            # offset is in 100-nanosecond units
-            start_s = chunk["offset"]  / 1e7
-            dur_s   = chunk["duration"] / 1e7
-            word_events.append((chunk["text"], start_s, start_s + dur_s))
-
-    # Write raw audio (edge-tts gives MP3 by default)
-    raw_path = wav_path.replace(".wav", ".mp3")
-    with open(raw_path, "wb") as f:
-        for chunk in audio_chunks:
-            f.write(chunk)
-
-    # Convert MP3 → WAV (needed for pyaudio playback)
-    _convert_mp3_to_wav(raw_path, wav_path)
-
-    print(f"[scheduler] got {len(word_events)} word timestamps from edge-tts")
-    return word_events
-
-
-# ─────────────────────────────────────────────────────
-# MAIN SCHEDULER
-# ─────────────────────────────────────────────────────
-class PhonemeScheduler:
-    """
-    Converts text → (wav_path, List[VisemeEvent], List[EmotionEvent])
-    Ready to hand off to the renderer.
-
-    Supports inline emotion tags: "[angry]I'm mad! [sad]But also hurt."
-    Tags are stripped before TTS and mapped to timed EmotionEvents.
-    """
-
-    # Typical phoneme duration in ms (used when no TTS timestamps)
-    PHONEME_MS = 80
-
-    def __init__(self, voice: str = "en-US-GuyNeural"):
-        self.voice = voice
-
-    def build(
-        self,
-        text: str,
-        wav_path: str = None
-    ) -> Tuple[str, List[VisemeEvent], List[EmotionEvent]]:
-        """
-        Synchronous entry point.
-        Returns (wav_path, viseme_schedule, emotion_events) ready for playback.
-        """
-        # Parse and strip emotion tags before sending to TTS
-        clean_text, emotion_tags = _parse_emotion_tags(text)
-
-        if wav_path is None:
-            wav_path = os.path.join(tempfile.gettempdir(), "talker_tts.wav")
-        word_times = None
+def _ensure_nltk_data() -> None:
+    """g2p-en needs two NLTK corpora; fetch them once if missing (network)."""
+    import nltk
+    for res, pkg in (("taggers/averaged_perceptron_tagger_eng", "averaged_perceptron_tagger_eng"),
+                     ("corpora/cmudict", "cmudict")):
         try:
-            import edge_tts
-            word_times = asyncio.run(
-                _edge_tts_with_timestamps(clean_text, self.voice, wav_path)
-            )
-            schedule = self._build_schedule_from_word_times(word_times)
-        except ImportError:
-            print("[warn] edge-tts not found — using pyttsx3 + estimated timing")
-            wav_path = self._tts_pyttsx3(clean_text, wav_path)
-            schedule = self._build_schedule_estimated(clean_text)
+            nltk.data.find(res)
+        except LookupError:
+            print(f"[g2p] downloading NLTK data: {pkg}")
+            nltk.download(pkg, quiet=True)
 
-        # Map emotion tag word positions to timestamps
-        emotion_events = self._build_emotion_events(emotion_tags, word_times, clean_text)
-        if emotion_events:
-            print(f"[scheduler] {len(emotion_events)} emotion events: "
-                  + ", ".join(f"{e.emotion.value}@{e.time:.2f}s" for e in emotion_events))
 
-        return wav_path, schedule, emotion_events
+def _get_g2p():
+    global _g2p_instance, _g2p_unavailable
+    if _g2p_instance is not None or _g2p_unavailable:
+        return _g2p_instance
+    with _g2p_lock:
+        if _g2p_instance is None and not _g2p_unavailable:
+            try:
+                _ensure_nltk_data()
+                from g2p_en import G2p
+                inst = G2p()
+                inst("warm up")
+                _g2p_instance = inst
+            except Exception as e:  # ImportError, missing NLTK data, etc.
+                _g2p_unavailable = True
+                print(f"[g2p] g2p-en unavailable ({e.__class__.__name__}: "
+                      f"{str(e).strip().splitlines()[0] if str(e).strip() else ''}); "
+                      "using regex fallback")
+    return _g2p_instance
 
-    def _build_emotion_events(
-        self,
-        tags: List[Tuple[int, Emotion]],
-        word_times: Optional[List[Tuple[str, float, float]]],
-        clean_text: str
-    ) -> List[EmotionEvent]:
-        """Map emotion tag positions (word indices) to timestamps."""
-        if not tags:
-            return []
 
-        events = []
-        for word_idx, emotion in tags:
-            if word_times and word_idx < len(word_times):
-                # Use the start time of the word this tag precedes
-                t = word_times[word_idx][1]
-            elif word_times and word_idx >= len(word_times):
-                # Tag after all words — use end of last word
-                t = word_times[-1][2] if word_times else 0.0
-            else:
-                # No word timestamps (pyttsx3 fallback) — estimate from word index
-                words = clean_text.split()
-                avg_word_dur = 0.4  # rough estimate
-                t = word_idx * avg_word_dur
-            events.append(EmotionEvent(time=t, emotion=emotion))
+def warm_up_g2p() -> None:
+    """Load g2p-en now (blocking). Call from a background thread at startup."""
+    _get_g2p()
 
-        return events
 
-    def _build_schedule_from_word_times(
-        self,
-        word_times: List[Tuple[str, float, float]]
-    ) -> List[VisemeEvent]:
-        """
-        Spread phoneme visemes evenly across each word's time window.
-        Adds small leading SIL gaps between words.
-        """
-        events: List[VisemeEvent] = []
-
-        for word, t_start, t_end in word_times:
-            duration = max(t_end - t_start, 0.05)
-            phonemes = _word_to_arpabet(word)
-            if not phonemes:
-                events.append(VisemeEvent(t_start, Viseme.SIL, duration))
-                continue
-
-            visemes = _arpabet_to_visemes(phonemes)
-
-            # Remove consecutive duplicates — mouth doesn't re-hit same shape
-            deduped = [visemes[0]]
-            for v in visemes[1:]:
-                if v != deduped[-1]:
-                    deduped.append(v)
-            visemes = deduped
-
-            # Weight durations: consonants shorter, vowels longer
-            weights = []
-            for v in visemes:
-                props = VISEME_PROPS[v]
-                weights.append(0.6 + props.open_amount * 0.8)
-            total_w = sum(weights)
-
-            t = t_start
-            for v, w in zip(visemes, weights):
-                dur = duration * (w / total_w)
-                events.append(VisemeEvent(t, v, dur))
-                t += dur
-
-        events.sort(key=lambda e: e.time)
-        return events
-
-    def _build_schedule_estimated(self, text: str) -> List[VisemeEvent]:
-        """
-        No TTS timestamps available — estimate timing from
-        average phoneme durations (~80ms each).
-        """
-        events: List[VisemeEvent] = []
-        t = 0.0
-        words = re.findall(r"[a-zA-Z']+", text)
-        for word in words:
-            phonemes = _word_to_arpabet(word)
-            visemes  = _arpabet_to_visemes(phonemes)
-            for v in visemes:
-                dur = self.PHONEME_MS / 1000.0
-                events.append(VisemeEvent(t, v, dur))
-                t += dur
-            # inter-word gap
-            events.append(VisemeEvent(t, Viseme.SIL, 0.06))
-            t += 0.06
-        return events
-
-    def _tts_pyttsx3(self, text: str, wav_path: str) -> str:
+def word_to_arpabet(word: str) -> List[str]:
+    """Convert a word to ARPAbet phonemes (stress digits stripped)."""
+    g2p = _get_g2p()
+    if g2p is not None:
         try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            engine.setProperty('rate', 160)
-            engine.save_to_file(text, wav_path)
-            engine.runAndWait()
-        except Exception as e:
-            print(f"[error] pyttsx3 TTS failed: {e}")
-        return wav_path
+            raw = g2p(word)
+            return [_STRESS_RE.sub("", p) for p in raw if p.strip()]
+        except Exception:
+            pass
+    return grapheme_to_arpabet_fallback(word)
+
+
+def arpabet_to_visemes(phonemes: Iterable[str]) -> List[Viseme]:
+    return [ARPABET_TO_VISEME.get(_STRESS_RE.sub("", p).upper(), Viseme.AH)
+            for p in phonemes]
 
 
 # ─────────────────────────────────────────────────────
-# SCHEDULE READER  (called each frame by renderer)
+# WORD -> TIMED VISEME EVENTS
+# ─────────────────────────────────────────────────────
+MIN_WORD_SECONDS = 0.05
+
+
+def word_to_viseme_events(word: str, t_start: float, t_end: float) -> List[VisemeEvent]:
+    """
+    Spread a word's visemes across [t_start, t_end]. Consonants get less time
+    than vowels, and consecutive duplicate shapes are merged so the mouth
+    doesn't re-hit the same pose.
+    """
+    duration = max(t_end - t_start, MIN_WORD_SECONDS)
+    visemes = arpabet_to_visemes(word_to_arpabet(word))
+    if not visemes:
+        return [VisemeEvent(t_start, Viseme.SIL, duration)]
+
+    deduped = [visemes[0]]
+    for v in visemes[1:]:
+        if v != deduped[-1]:
+            deduped.append(v)
+
+    weights = [0.6 + VISEME_PROPS[v].open_amount * 0.8 for v in deduped]
+    total_w = sum(weights)
+    events: List[VisemeEvent] = []
+    t = t_start
+    for v, w in zip(deduped, weights):
+        dur = duration * (w / total_w)
+        events.append(VisemeEvent(t, v, dur))
+        t += dur
+    return events
+
+
+def estimate_word_times(text: str, phoneme_seconds: float = 0.08,
+                        gap_seconds: float = 0.06) -> List[Tuple[str, float, float]]:
+    """
+    No timestamps available: estimate word timing from phoneme counts.
+    Used by backends that can't report word boundaries.
+    """
+    out: List[Tuple[str, float, float]] = []
+    t = 0.0
+    for word in re.findall(r"[A-Za-z']+", text):
+        n = max(1, len(word_to_arpabet(word)))
+        dur = n * phoneme_seconds
+        out.append((word, t, t + dur))
+        t += dur + gap_seconds
+    return out
+
+
+# ─────────────────────────────────────────────────────
+# SCHEDULE READER  (queried each frame by the renderer)
 # ─────────────────────────────────────────────────────
 class ScheduleReader:
     """
-    Given a sorted list of VisemeEvents (and optional EmotionEvents)
-    and a playback clock, returns the current Viseme and Emotion
-    each frame. O(1) amortized via index tracking.
+    A growing, time-sorted list of viseme and emotion events on the shared
+    audio timeline. The speech pipeline appends from a background thread
+    while the render loop reads each frame; O(1) amortized per query.
+
+    Events must be appended in non-decreasing time order per utterance, and
+    utterances are placed on the timeline in playback order, so the list
+    stays sorted by construction.
     """
-    def __init__(self, schedule: List[VisemeEvent],
-                 emotion_events: Optional[List[EmotionEvent]] = None):
-        self.schedule = schedule
-        self._idx = 0
-        self.emotion_events = emotion_events or []
-        self._emo_idx = 0
 
-    def reset(self):
-        self._idx = 0
-        self._emo_idx = 0
+    def __init__(self, visemes: Optional[List[VisemeEvent]] = None,
+                 emotions: Optional[List[EmotionEvent]] = None):
+        self._lock = threading.Lock()
+        self.visemes: List[VisemeEvent] = list(visemes or [])
+        self.emotions: List[EmotionEvent] = list(emotions or [])
+        self._vidx = 0
+        self._eidx = 0
 
-    def current_viseme(self, playback_time: float) -> Viseme:
-        """Call each frame with current audio playback time in seconds."""
-        if not self.schedule:
-            return Viseme.SIL
+    # -- writers -------------------------------------------------------
+    def append(self, visemes: Iterable[VisemeEvent] = (),
+               emotions: Iterable[EmotionEvent] = ()) -> None:
+        with self._lock:
+            self.visemes.extend(visemes)
+            self.emotions.extend(emotions)
 
-        # Advance index to keep up with playback time
-        while (self._idx < len(self.schedule) - 1 and
-               self.schedule[self._idx].end_time() <= playback_time):
-            self._idx += 1
+    def clear(self) -> None:
+        with self._lock:
+            self.visemes.clear()
+            self.emotions.clear()
+            self._vidx = 0
+            self._eidx = 0
 
-        event = self.schedule[self._idx]
-        if playback_time < event.time:
-            return Viseme.SIL  # gap before first event
-        if playback_time >= event.end_time() and self._idx >= len(self.schedule) - 1:
-            return Viseme.SIL  # past the last event — return to neutral
+    def trim_before(self, t: float) -> None:
+        """Drop events that ended before time t (keeps memory flat in long sessions)."""
+        with self._lock:
+            keep = 0
+            while keep < len(self.visemes) and self.visemes[keep].end_time < t:
+                keep += 1
+            if keep:
+                del self.visemes[:keep]
+                self._vidx = max(0, self._vidx - keep)
+            ekeep = 0
+            # Keep the last emotion at or before t so it stays in effect.
+            while ekeep + 1 < len(self.emotions) and self.emotions[ekeep + 1].time <= t:
+                ekeep += 1
+            if ekeep:
+                del self.emotions[:ekeep]
+                self._eidx = max(0, self._eidx - ekeep)
 
-        return event.viseme
+    @property
+    def end_time(self) -> float:
+        with self._lock:
+            return self.visemes[-1].end_time if self.visemes else 0.0
 
-    def current_emotion(self, playback_time: float) -> Emotion:
-        """Return the most recent emotion at this playback time."""
-        if not self.emotion_events:
-            return Emotion.NEUTRAL
+    # -- readers -------------------------------------------------------
+    def current_viseme(self, t: float) -> Viseme:
+        with self._lock:
+            sched = self.visemes
+            if not sched:
+                return Viseme.SIL
+            # Clock went backwards (timeline reset)? Rescan from the start.
+            if self._vidx >= len(sched) or sched[self._vidx].time > t and self._vidx > 0:
+                self._vidx = 0
+            while self._vidx < len(sched) - 1 and sched[self._vidx].end_time <= t:
+                self._vidx += 1
+            ev = sched[self._vidx]
+            if t < ev.time or t >= ev.end_time:
+                return Viseme.SIL   # in a gap, or past the last event
+            return ev.viseme
 
-        # Advance index to the latest emotion event at or before playback_time
-        while (self._emo_idx < len(self.emotion_events) - 1 and
-               self.emotion_events[self._emo_idx + 1].time <= playback_time):
-            self._emo_idx += 1
-
-        event = self.emotion_events[self._emo_idx]
-        if playback_time < event.time:
-            return Emotion.NEUTRAL  # before first emotion tag
-        return event.emotion
+    def current_emotion(self, t: float) -> Emotion:
+        with self._lock:
+            evs = self.emotions
+            if not evs:
+                return Emotion.NEUTRAL
+            if self._eidx >= len(evs) or evs[self._eidx].time > t and self._eidx > 0:
+                self._eidx = 0
+            while self._eidx < len(evs) - 1 and evs[self._eidx + 1].time <= t:
+                self._eidx += 1
+            ev = evs[self._eidx]
+            return ev.emotion if t >= ev.time else Emotion.NEUTRAL

@@ -1,21 +1,27 @@
 # Core rendering & audio
-pygame>=2.5.0
+# pygame-ce is a drop-in fork with wheels for new Python releases (3.13/3.14);
+# plain `pygame` also works on Python <= 3.12.
+pygame-ce>=2.5.0
 pyaudio>=0.2.13
 numpy>=1.24.0
 
-# TTS with word timestamps (strongly recommended)
-edge-tts>=6.1.9
+# Streaming TTS with word timestamps (default backend; needs internet)
+edge-tts>=7.0.0
+# edge-tts serves MP3, decoded on the fly by ffmpeg. Install ffmpeg system-wide
+# (brew/apt install ffmpeg) or uncomment for a bundled binary:
+# imageio-ffmpeg>=0.5.1
 
-# Audio format conversion (MP3→WAV from edge-tts)
-pydub>=0.25.1
-# pydub needs ffmpeg installed on your system:
-#   Mac:     brew install ffmpeg
-#   Ubuntu:  sudo apt install ffmpeg
-#   Windows: https://ffmpeg.org/download.html
-
-# Phoneme-to-ARPAbet (optional but improves accuracy ~85%→95%)
-# If not installed, fast regex fallback is used automatically
+# Phoneme accuracy (optional; regex fallback is used automatically without it).
+# Its NLTK data (cmudict, tagger) is downloaded on first run.
 g2p-en>=2.1.0
 
-# Offline TTS fallback (if no internet for edge-tts)
-# pyttsx3>=2.90
+# Optional: cloud TTS with lower latency + raw PCM (set ELEVENLABS_API_KEY)
+# (no extra package: uses aiohttp, already pulled in by edge-tts)
+
+# Voice round trip (voice_loop.py): mic -> STT -> Claude -> face
+anthropic>=1.0
+vosk>=0.3.45            # local streaming speech-to-text (small model auto-downloads, ~40 MB)
+# faster-whisper>=1.0   # optional, more accurate STT (--stt whisper), slower per turn
+
+# Dev
+pytest>=8.0

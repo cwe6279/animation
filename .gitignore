@@ -27,3 +27,10 @@ Thumbs.db
 # Illustrator temp files
 *.ai
 ~*_.tmp
+
+# Tests
+.pytest_cache/
+
+# Secrets
+.env
+**/.env

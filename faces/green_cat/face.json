@@ -62,5 +62,19 @@
     "oo": "mouth_oo.png",
     "ee": "mouth_ee.png",
     "ah": "mouth_ah.png"
+  },
+  "voices": {
+    "elevenlabs": "sssn4wp3AspuK2kvy3Ym",
+    "edge": "en-US-AriaNeural"
+  },
+  "character": "a sly green Halloween cat: playful, a bit spooky, likes to tease",
+  "gaze": {
+    "amount": 12,
+    "interval": [
+      2.0,
+      6.0
+    ],
+    "speed": 2.5,
+    "while_speaking": 0.3
   }
 }
