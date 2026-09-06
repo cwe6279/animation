@@ -25,7 +25,10 @@ Ideas agreed on but not built yet, roughly in priority order.
 - Pre-open the ElevenLabs websocket for Flash sessions (saves ~100 ms).
 - Shorter system prompt variant for the voice loop.
 
-## Raspberry Pi
+## Raspberry Pi and kiosk deployment
+- **Wi-Fi and network setup without a keyboard**: first-boot captive portal or
+  a config file on the boot partition (SSID, password, API keys), plus a
+  status face state for "no network".
 - Cloud speech-to-text by default there (`--stt elevenlabs` or `--stt groq`).
 - Face at 30 fps; measure the renderer on the Pi 5.
 - Systemd unit + `--fullscreen` autostart; watchdog that restarts on crash.
@@ -36,6 +39,13 @@ Ideas agreed on but not built yet, roughly in priority order.
 - Wake word or push-to-talk button for noisy rooms.
 - Per-face `character.md` for longer personas (backstory, catchphrases).
 - Memory across sessions (what it learned about the visitor).
+
+## Beyond Halloween
+- The platform is general: parks, libraries, schools, museums. Faces for
+  historical figures and mascots; persona files that carry facts the
+  character must stick to; a "docent mode" prompt that answers questions
+  about an exhibit and declines off-topic ones gracefully.
+- Art from image models via `faces/ART_SPEC.md` (the locked spec).
 
 ## Faces
 - More faces: EVE ElevenLabs voice id; a second set of mouth art for the cat

@@ -1,6 +1,8 @@
 # Talker — Phoneme-Synced Animated Face
 
-A real-time animated talking face driven by streaming TTS and phoneme lip sync.
+A real-time animated talking character driven by streaming TTS and phoneme lip sync:
+a mascot at a park gate, a historical figure in a museum, a storyteller in a library,
+or a Halloween prop.
 Type or pipe in text and the face starts speaking the first sentence while the
 rest is still being synthesized — or still being written by an LLM.
 Designed for projection on black — faces render as floating features with glow effects.
@@ -32,6 +34,8 @@ talker/
   tests/                 <- pytest (no audio device or display needed)
   voice_loop.py          <- the round trip: mic -> STT -> Claude -> voice + face
   stt_backends.py        <- VoskSTT (streaming, local), WhisperSTT (faster-whisper)
+  docs/config-guide.html <- the tuning guide: every setting, where it lives, measured choices (open in a browser)
+  faces/ART_SPEC.md      <- locked spec to hand an image model or artist for new face art
   bench_stt.py           <- speech-to-text accuracy + speed across backends (synth or your clips)
   bench_llm.py           <- brains: first-token speed + adherence to the tag spec
   ROADMAP.md             <- agreed ideas not built yet (canned lines, fillers, Pi, ...)

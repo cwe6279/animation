@@ -1,0 +1,404 @@
+<title>Talker Tuning Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #F6F2EA;
+    --panel: #FFFFFF;
+    --panel-2: #EFEAE0;
+    --line: #DED7C9;
+    --ink: #1C1A20;
+    --ink-2: #5E5A66;
+    --accent: #0E7C8C;
+    --accent-ink: #085E6B;
+    --accent-soft: rgba(14, 124, 140, 0.11);
+    --ok: #2E7D4F;
+    --warn: #A8571A;
+    --code-bg: #F1ECE2;
+    --glow-pumpkin: #FFA000;
+    --glow-cat: #3CC828;
+    --glow-skull: #B4B4DC;
+    --glow-ghost: #8C8CFF;
+    --glow-eve: #46AAFF;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0B0D12;
+      --panel: #12151D;
+      --panel-2: #181C26;
+      --line: #262B38;
+      --ink: #E9E4D8;
+      --ink-2: #9B98A6;
+      --accent: #3FC3D6;
+      --accent-ink: #8ADEEA;
+      --accent-soft: rgba(63, 195, 214, 0.13);
+      --ok: #6FD39A;
+      --warn: #F0A16A;
+      --code-bg: #0F1218;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0B0D12;
+    --panel: #12151D;
+    --panel-2: #181C26;
+    --line: #262B38;
+    --ink: #E9E4D8;
+    --ink-2: #9B98A6;
+    --accent: #3FC3D6;
+    --accent-ink: #8ADEEA;
+    --accent-soft: rgba(63, 195, 214, 0.13);
+    --ok: #6FD39A;
+    --warn: #F0A16A;
+    --code-bg: #0F1218;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+  }
+  a { color: var(--accent-ink); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code, kbd, pre {
+    font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.92em;
+  }
+  code { background: var(--code-bg); padding: 0.1em 0.4em; border-radius: 4px; border: 1px solid var(--line); }
+  kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0.05em 0.45em; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.9rem 1.1rem;
+    overflow-x: auto;
+    line-height: 1.5;
+    margin: 0.75rem 0 1rem;
+  }
+  pre code { background: none; border: 0; padding: 0; }
+
+  .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 3rem; max-width: 1180px; margin: 0 auto; padding: 2.5rem 2rem 5rem; }
+  nav.toc { position: sticky; top: 1.5rem; align-self: start; font-size: 0.9rem; }
+  nav.toc .brand { font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif; font-weight: 700; font-size: 1.15rem; letter-spacing: -0.01em; margin-bottom: 1rem; }
+  nav.toc .brand span { display: inline-block; width: 0.55em; height: 0.55em; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); margin-right: 0.45em; vertical-align: middle; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+  nav.toc a { color: var(--ink-2); text-decoration: none; display: block; padding: 0.15rem 0; border-left: 2px solid transparent; padding-left: 0.6rem; }
+  nav.toc a:hover { color: var(--ink); border-left-color: var(--line); }
+  main { max-width: 74ch; }
+
+  header.hero { margin-bottom: 3rem; }
+  .eyebrow { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent-ink); font-weight: 600; }
+  h1 { font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif; font-weight: 700; font-size: clamp(2rem, 4vw, 2.8rem); line-height: 1.05; letter-spacing: -0.02em; margin: 0.4rem 0 0.8rem; text-wrap: balance; }
+  header p.lede { font-size: 1.1rem; color: var(--ink-2); margin: 0; max-width: 60ch; }
+
+  section { margin: 0 0 3.2rem; padding-top: 0.5rem; scroll-margin-top: 1rem; }
+  section > .eyebrow { display: flex; align-items: baseline; gap: 0.75rem; }
+  section > .eyebrow .file { text-transform: none; letter-spacing: 0; font-family: "IBM Plex Mono", monospace; font-weight: 400; color: var(--ink-2); font-size: 0.8rem; }
+  h2 { font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif; font-weight: 700; font-size: 1.55rem; letter-spacing: -0.015em; margin: 0.3rem 0 0.9rem; text-wrap: balance; }
+  h3 { font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif; font-weight: 600; font-size: 1.1rem; margin: 1.6rem 0 0.5rem; }
+  p { margin: 0 0 0.9rem; }
+  ul, ol { padding-left: 1.3rem; margin: 0 0 1rem; }
+  li { margin-bottom: 0.3rem; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+  .tablewrap { overflow-x: auto; margin: 0.6rem 0 1.2rem; border: 1px solid var(--line); border-radius: 6px; }
+  th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); background: var(--panel-2); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; }
+  .best { color: var(--ok); font-weight: 600; }
+
+  .tweak { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 0.7rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0 1.2rem; }
+  .tweak strong { color: var(--accent-ink); }
+
+  .faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.8rem; margin: 0.8rem 0 1.4rem; }
+  .face { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0.85rem 0.95rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .face .name { font-family: "Bricolage Grotesque", sans-serif; font-weight: 700; font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem; }
+  .face .dot { width: 0.8em; height: 0.8em; border-radius: 50%; box-shadow: 0 0 12px currentColor; background: currentColor; }
+  .face .meta { font-size: 0.84rem; color: var(--ink-2); }
+  .face .meta b { color: var(--ink); font-weight: 500; }
+
+  .flow { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: stretch; margin: 0.8rem 0 1.2rem; }
+  .flow .step { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 0.8rem; font-size: 0.88rem; min-width: 120px; flex: 1 1 130px; }
+  .flow .step .where { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-2); display: block; margin-bottom: 0.15rem; }
+  .flow .step.cloud .where { color: var(--accent-ink); }
+
+  .keys { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; align-items: baseline; margin: 0.6rem 0 1rem; }
+
+  @media (max-width: 820px) {
+    .shell { grid-template-columns: 1fr; gap: 1.5rem; padding: 1.5rem 1.1rem 4rem; }
+    nav.toc { position: static; }
+    nav.toc ol { flex-direction: row; flex-wrap: wrap; gap: 0.2rem 0.9rem; }
+    nav.toc a { border-left: 0; padding-left: 0; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+</style>
+
+<div class="shell">
+<nav class="toc" aria-label="Sections">
+  <div class="brand"><span></span>Talker</div>
+  <ol>
+    <li><a href="#pipeline">What runs where</a></li>
+    <li><a href="#start">Starting it</a></li>
+    <li><a href="#faces">Character library</a></li>
+    <li><a href="#new">Adding a character</a></li>
+    <li><a href="#prompt">Prompt and tags</a></li>
+    <li><a href="#keys">API keys</a></li>
+    <li><a href="#audio">Audio devices</a></li>
+    <li><a href="#display">Display and output</a></li>
+    <li><a href="#backends">Backends, measured</a></li>
+    <li><a href="#tools">Test tools</a></li>
+    <li><a href="#fix">When it misbehaves</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">Configuration reference</div>
+  <h1>Every knob on the talking face, and which file it lives in</h1>
+  <p class="lede">Talker is a projected character that listens, thinks, and talks back: a mascot at a park gate, a historical figure in a museum gallery, a storyteller in a library. This page lists what you can change, where, and what we measured when choosing the defaults.</p>
+</header>
+
+<section id="pipeline">
+  <div class="eyebrow">Overview</div>
+  <h2>What runs where</h2>
+  <p>One turn passes through six stages. Local stages cost CPU on the box running the face; cloud stages cost the same on a Raspberry Pi as on a desktop.</p>
+  <div class="flow">
+    <div class="step"><span class="where">local</span>Microphone capture, 16 kHz mono</div>
+    <div class="step"><span class="where">local or cloud</span>Speech to text <br><code>--stt</code></div>
+    <div class="step cloud"><span class="where">cloud</span>Brain, streamed <br><code>--llm</code></div>
+    <div class="step cloud"><span class="where">cloud</span>Voice, sentence by sentence <br><code>--tts</code></div>
+    <div class="step"><span class="where">local</span>Lip sync from word timings</div>
+    <div class="step"><span class="where">local</span>Face render, 30 or 60 fps</div>
+  </div>
+  <p>The face starts speaking the first sentence while the brain is still writing the rest. Every turn prints one <code>[turn]</code> line in the terminal: time from when you stopped talking to the transcript, to the first token, to the first audio. That line is the number to tune against.</p>
+</section>
+
+<section id="start">
+  <div class="eyebrow">Commands <span class="file">voice_loop.py · talker.py</span></div>
+  <h2>Starting it</h2>
+  <p>Activate the virtualenv first (<code>source .venv/bin/activate</code>). The conversation loop is <code>voice_loop.py</code>; <code>talker.py</code> only speaks text you give it.</p>
+<pre><code># Desktop: local Whisper, Claude, ElevenLabs v3, the cat's own voice and persona
+python voice_loop.py --face green_cat --mic-device gomic --output-device jabra --debug
+
+# Raspberry Pi: everything heavy in the cloud, fullscreen, 30 fps
+python voice_loop.py --face green_cat --profile pi --mic-device gomic --output-device jabra
+
+# No mic: type in the window, replies still go through the brain
+python voice_loop.py --face eve --text-only
+
+# Just say a line (supports [tags])
+python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
+  <div class="keys">
+    <kbd>Enter</kbd><span>focus the text box; type; <kbd>Enter</kbd> again sends it</span>
+    <kbd>Ctrl</kbd><span>+ <kbd>C</kbd> in the window: interrupt speech</span>
+    <kbd>F</kbd><span>toggle fullscreen</span>
+    <kbd>D</kbd><span>debug overlay: viseme, emotion, fps, queue, time to first audio</span>
+    <kbd>H</kbd><span>hide hints and text box</span>
+    <kbd>Esc</kbd><span>unfocus the text box, or quit</span>
+  </div>
+</section>
+
+<section id="faces">
+  <div class="eyebrow">Character library <span class="file">faces/&lt;name&gt;/face.json</span></div>
+  <h2>Five faces so far, each with its own voice and persona</h2>
+  <p>A face is a folder. The manifest carries art positions, glow colour, idle behaviour, the default voice per backend, and the persona line sent to the brain. Command line flags override any of them for one run. The current five came from a Halloween build; a face can just as well be a historical figure, a school mascot, or an exhibit's narrator.</p>
+  <div class="faces">
+    <div class="face">
+      <div class="name" style="color: var(--glow-pumpkin)"><span class="dot"></span><span style="color: var(--ink)">pumpkin</span></div>
+      <div class="meta">Fully procedural: triangle eyes, five-tooth mouth. <b>No art needed.</b></div>
+      <div class="meta">Voice, persona: not set yet</div>
+    </div>
+    <div class="face">
+      <div class="name" style="color: var(--glow-cat)"><span class="dot"></span><span style="color: var(--ink)">green_cat</span></div>
+      <div class="meta">PNG eyes and six mouth states. Idle glances 12 px.</div>
+      <div class="meta">ElevenLabs voice <b>sssn4wp3AspuK2kvy3Ym</b>, edge fallback Aria</div>
+      <div class="meta">Persona: sly Halloween cat, playful, likes to tease</div>
+    </div>
+    <div class="face">
+      <div class="name" style="color: var(--glow-skull)"><span class="dot"></span><span style="color: var(--ink)">skull</span></div>
+      <div class="meta">Face base and eye sockets as PNG, eight-tooth procedural jaw, no blink.</div>
+      <div class="meta">Voice, persona: not set yet</div>
+    </div>
+    <div class="face">
+      <div class="name" style="color: var(--glow-ghost)"><span class="dot"></span><span style="color: var(--ink)">ghost</span></div>
+      <div class="meta">Procedural, rounded mouth, glow at 1.5. Ready for art.</div>
+      <div class="meta">Voice, persona: not set yet</div>
+    </div>
+    <div class="face">
+      <div class="name" style="color: var(--glow-eve)"><span class="dot"></span><span style="color: var(--ink)">eve</span></div>
+      <div class="meta">Generated head and visor art, no mouth; eyes pulse with speech, glance 22 px, blink every 3 to 7 s.</div>
+      <div class="meta">Persona: EVE, terse, curious, impatient. <b>Voice id still needed.</b></div>
+    </div>
+  </div>
+  <div class="tweak"><strong>Most-tweaked fields:</strong> <code>character</code> (persona line), <code>voices.elevenlabs</code> (voice id), <code>glow_color</code>, <code>gaze.amount</code>, and the eye and mouth <code>cx</code>/<code>cy</code> positions.</div>
+</section>
+
+<section id="new">
+  <div class="eyebrow">Adding a character <span class="file">faces/_template/ → faces/&lt;name&gt;/</span></div>
+  <h2>A new face is a folder with a manifest and optional PNGs</h2>
+  <ol>
+    <li>Copy <code>faces/_template</code> to <code>faces/&lt;name&gt;</code> and edit <code>face.json</code>. Everything except the manifest is optional; missing art falls back to glowing procedural shapes.</li>
+    <li>Design on an 800 by 800 canvas and export each feature as a full-canvas PNG with transparency: <code>face_base.png</code>, <code>eye_left.png</code>, <code>eye_right.png</code>, <code>nose.png</code>, and up to six mouths <code>mouth_sil</code>, <code>mouth_pp</code>, <code>mouth_aa</code>, <code>mouth_oo</code>, <code>mouth_ee</code>, <code>mouth_ah</code>. Art is cropped to its opaque bounds at load, so full canvases cost nothing at runtime.</li>
+    <li>Set the persona and voice in the manifest, then run <code>python talker.py --face &lt;name&gt; --debug --text "Hello"</code> to check placement.</li>
+  </ol>
+  <p>EVE's art is generated by a script rather than drawn: edit the numbers at the top of <code>faces/eve/generate_art.py</code> and rerun it to reshape the head, visor, or eyes. To have an image model draw a face instead, hand it <code>faces/ART_SPEC.md</code>: it fixes the canvas, the layer set, the file names, and the mouth shapes so the output drops straight into a face folder.</p>
+  <h3>Manifest fields</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Field</th><th>What it does</th><th>Typical</th></tr>
+    <tr><td><code>canvas_w</code>, <code>canvas_h</code>, <code>fps</code></td><td>Canvas size and frame rate. <code>TALKER_FPS</code> in the environment overrides fps.</td><td>800, 800, 60</td></tr>
+    <tr><td><code>bg_color</code></td><td>Background. Keep black for projection.</td><td>[0, 0, 0]</td></tr>
+    <tr><td><code>glow_color</code>, <code>glow_intensity</code></td><td>Halo around procedural shapes and the ambient glow behind body art. 0 disables.</td><td>[255,160,0], 1.0</td></tr>
+    <tr><td><code>face_base</code>, <code>face_base_opacity</code></td><td>Optional full-face PNG behind everything.</td><td>"face_base.png", 1.0</td></tr>
+    <tr><td><code>eye_left</code>, <code>eye_right</code></td><td><code>image</code>, centre <code>cx</code>/<code>cy</code>, <code>scale</code>, <code>opacity</code>. Without an image, glowing triangles in <code>eye_color</code>.</td><td>cx 300 / 500, cy 300</td></tr>
+    <tr><td><code>blink</code>, <code>blink_interval</code>, <code>blink_speed</code></td><td>Blink on/off, random gap in seconds, snappiness. Emotions scale the gap: surprise blinks rarely, sad often.</td><td>true, [2.5, 5.5], 9</td></tr>
+    <tr><td><code>gaze</code></td><td>Idle glances: <code>amount</code> px, <code>interval</code> s, <code>speed</code>, and <code>while_speaking</code> 0 to 1 to damp movement while talking. Omit for none.</td><td>amount 12 to 22</td></tr>
+    <tr><td><code>eye_speech_pulse</code></td><td>Eyes grow by this fraction when the mouth is fully open. For faces without a mouth.</td><td>0 to 0.15</td></tr>
+    <tr><td><code>mouth</code></td><td><code>anchor_cx</code>/<code>anchor_cy</code>, <code>min_w</code>/<code>max_w</code>, <code>style</code> toothed or rounded, <code>n_teeth</code>, <code>color</code>, <code>scale</code>/<code>offset_x</code>/<code>offset_y</code> for PNG mouths, <code>opacity</code>. Opacity 0 removes the mouth entirely.</td><td>style rounded</td></tr>
+    <tr><td><code>mouth_images</code></td><td>Map of viseme key to PNG. Six images cover all twelve mouth shapes.</td><td>sil, pp, aa, oo, ee, ah</td></tr>
+    <tr><td><code>nose</code>, <code>draw_nose</code></td><td>Nose PNG, or a procedural triangle.</td><td>off</td></tr>
+    <tr><td><code>voices</code></td><td>Default voice per backend: <code>{"elevenlabs": "&lt;id&gt;", "edge": "en-US-AriaNeural"}</code>.</td><td></td></tr>
+    <tr><td><code>tts_model</code></td><td>ElevenLabs model for this face; default v3.</td><td>"eleven_v3"</td></tr>
+    <tr><td><code>character</code></td><td>Persona line appended to the shared prompt.</td><td>one sentence</td></tr>
+  </table></div>
+  <p>Unknown keys print a warning at load, which catches typos.</p>
+</section>
+
+<section id="prompt">
+  <div class="eyebrow">Prompt and tags <span class="file">llm_integration/system_prompt.md</span></div>
+  <h2>One shared prompt, one persona line per face</h2>
+  <p>Everything below the "System Prompt" heading in <code>system_prompt.md</code> is sent to the brain on every turn, with the face's <code>character</code> appended as "Character: …". The prompt teaches the performance-tag vocabulary and the rules: tags go before the words they colour, must fit the content, and most sentences should have none. A short voice rule keeps replies to one to three sentences with no markdown.</p>
+  <h3>How tags reach the voice and the eyes</h3>
+  <p>Tags are the ElevenLabs v3 vocabulary: emotional states, reactions, tone cues, character cues. The voice performs them only on ElevenLabs v3; Flash and edge get them stripped so nothing reads "sigh" aloud. Separately, tags with an emotional meaning move the eyes:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Eyes</th><th>Tags that trigger it</th></tr>
+    <tr><td>happy, smiling squint</td><td>happy, excited, cheerfully, playfully, laughs, giggle, chuckle, light chuckle, sigh of relief, warmly, proud, teasing</td></tr>
+    <tr><td>angry, narrowed and furrowed</td><td>angry, frustrated, furious, shouting, growls, menacing</td></tr>
+    <tr><td>annoyed, mild narrow</td><td>annoyed, irritated, sarcastically, whiny, deadpan, bored, exasperated, smug</td></tr>
+    <tr><td>sad, drooped</td><td>sad, sorrowful, tired, regretful, resigned tone, hesitant, sigh, quietly, softly, weary</td></tr>
+    <tr><td>surprise, wide open</td><td>surprised, gasps, awe, amazed, shocked, curious, scared, nervous, confused</td></tr>
+    <tr><td>neutral</td><td>calm, flatly, matter-of-fact, whispers, serious, thoughtful</td></tr>
+  </table></div>
+  <p>Accents, roles and beats like <code>[pauses]</code> affect only the voice. The map is <code>TAG_TO_EMOTION</code> in <code>phoneme_scheduler.py</code>; add words there to teach the eyes new tags.</p>
+  <div class="tweak"><strong>If the face feels busy:</strong> every model we tested tags more than the prompt asks, about two per reply. Tighten rule 3 in the prompt. <strong>For a longer persona</strong>, a historical figure's biography, speech habits, and the facts it should stick to, the <code>character</code> string can be as long as you like; the shared prompt handles delivery, the persona handles who is speaking.</div>
+</section>
+
+<section id="keys">
+  <div class="eyebrow">API keys <span class="file">.env (copy from .env.example)</span></div>
+  <h2>Keys live in .env and never in git</h2>
+  <p>Copy <code>.env.example</code> to <code>.env</code> in the project root. It is gitignored. Values already in the environment win over the file.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Key</th><th>Used for</th><th>Where to get it</th></tr>
+    <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Claude as the brain</td><td>console.anthropic.com, Settings, API keys. Create it inside a workspace; the API is prepaid, so add credits first. Organization-wide keys also need <code>ANTHROPIC_WORKSPACE_ID</code>.</td></tr>
+    <tr><td><code>ELEVENLABS_API_KEY</code></td><td>Voice (v3, Flash) and Scribe speech to text</td><td>elevenlabs.io, Settings, API keys. Enable text-to-speech, speech-to-text and voices permissions. Community voices must be added to My Voices before the API can use them.</td></tr>
+    <tr><td><code>GROQ_API_KEY</code></td><td>Groq brain and Groq Whisper speech to text</td><td>console.groq.com, Keys</td></tr>
+    <tr><td><code>OPENAI_API_KEY</code></td><td>OpenAI brain and transcription, for comparison</td><td>platform.openai.com, API keys. Prepaid, separate from ChatGPT.</td></tr>
+  </table></div>
+  <p>edge-tts, Vosk and local Whisper need no keys. The Whisper and Vosk models download to <code>~/.cache/talker</code> on first use.</p>
+</section>
+
+<section id="audio">
+  <div class="eyebrow">Audio devices <span class="file">voice_loop.py flags</span></div>
+  <h2>Pick devices by name, not number</h2>
+  <p>PortAudio renumbers devices whenever something is plugged in, so name fragments are safer: <code>--mic-device gomic --output-device jabra</code>. Matching is case-insensitive and prefers the PipeWire entry over the raw hardware one.</p>
+<pre><code>python voice_loop.py --list-devices                     # every input and output with its native rate
+python voice_loop.py --mic-test --mic-device gomic      # levels and live transcripts, nothing else
+python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also save clips for the benchmark</code></pre>
+  <ul>
+    <li><strong>Levels.</strong> Aim for 500 to 5,000 while talking on the mic test's scale; peaks above about 28,000 clip. Adjust gain in the system sound settings.</li>
+    <li><strong>Rates.</strong> Devices open at whatever they support and are resampled, so a 48 kHz speakerphone plays 24 kHz speech and a 48 kHz mic feeds a 16 kHz recognizer. <code>--mic-rate</code> forces the mic's open rate.</li>
+    <li><strong>Silence.</strong> <code>--silence-ms</code> sets how long a pause ends your turn. Default 600 for local recognizers, 500 for cloud. Lower feels snappier and cuts more sentences.</li>
+    <li><strong>Echo.</strong> The mic is ignored while the face speaks. <code>--barge-in</code> keeps listening and interrupts when you talk, which needs headphones or a mic that cannot hear the speaker.</li>
+  </ul>
+</section>
+
+<section id="display">
+  <div class="eyebrow">Display and output <span class="file">flags · face.json · TALKER_FPS</span></div>
+  <h2>Projection is one flag</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Setting</th><th>Effect</th></tr>
+    <tr><td><code>--fullscreen</code>, or <kbd>F</kbd></td><td>Face scaled to the display with black bars, cursor and overlay hidden. The face's coordinates never change.</td></tr>
+    <tr><td><code>--no-hud</code>, or <kbd>H</kbd></td><td>Hide the key hints and text box in a window.</td></tr>
+    <tr><td><code>--debug</code>, or <kbd>D</kbd></td><td>Overlay with viseme, emotion, open amount, fps, queued audio, time to first audio.</td></tr>
+    <tr><td><code>fps</code> in face.json, <code>TALKER_FPS</code></td><td>Render rate. 30 halves the work on a Pi; lip sync timing comes from the audio clock, not the frame rate.</td></tr>
+    <tr><td><code>--sync-offset</code></td><td>Shift the whole face against the audio in seconds. Negative moves the face earlier. Tune in 0.02 steps with the debug overlay on.</td></tr>
+    <tr><td><code>--lead</code></td><td>How far mouth shapes lead their sound, default 0.04 s, to offset the easing.</td></tr>
+    <tr><td><code>--no-audio</code></td><td>Render without a sound device, for a headless check.</td></tr>
+  </table></div>
+</section>
+
+<section id="backends">
+  <div class="eyebrow">Backends, measured <span class="file">2026-09-06 · Ryzen AI MAX+ 395, CPU only, home fibre</span></div>
+  <h2>Choosing ears, brain, and voice</h2>
+  <p>Numbers below came from the two benchmark scripts on this desktop. Rerun them on your hardware and with your own voice; synthesized clips are cleaner than a real room.</p>
+
+  <h3>Speech to text</h3>
+  <p>Twelve clips, six clean and six with noise at 10 dB. Word error rate, lower is better, and seconds per clip.</p>
+  <div class="tablewrap"><table>
+    <tr><th><code>--stt</code></th><th>Backend</th><th class="num">WER</th><th class="num">Noisy</th><th class="num">s/clip</th><th>Runs</th></tr>
+    <tr><td><code>whisper</code> default</td><td>faster-whisper base.en</td><td class="num">2.1%</td><td class="num">2.8%</td><td class="num">0.19</td><td>local; seconds per turn on a Pi</td></tr>
+    <tr><td><code>vosk</code></td><td>Vosk small</td><td class="num">4.1%</td><td class="num">7.0%</td><td class="num">0.19</td><td>local, live partials, weak in noise</td></tr>
+    <tr><td><code>groq</code></td><td>whisper-large-v3-turbo</td><td class="num best">0.7%</td><td class="num">1.4%</td><td class="num">0.46</td><td>cloud, cheap</td></tr>
+    <tr><td><code>openai --model gpt-4o-mini-transcribe</code></td><td>gpt-4o-mini-transcribe</td><td class="num best">0.0%</td><td class="num">0.0%</td><td class="num">0.77</td><td>cloud</td></tr>
+    <tr><td><code>elevenlabs</code></td><td>Scribe realtime</td><td class="num">1.4%</td><td class="num">1.4%</td><td class="num">0.51</td><td>cloud, live partials, server decides when you stopped</td></tr>
+  </table></div>
+
+  <h3>Brains</h3>
+  <p>Same cat persona, eight prompts. <em>Known</em> is the share of tags in the allowed vocabulary; <em>leading</em> the share placed before words; <em>md</em> replies with markdown or emoji.</p>
+  <div class="tablewrap"><table>
+    <tr><th><code>--llm</code> / model</th><th class="num">First token</th><th class="num">Known</th><th class="num">Leading</th><th class="num">Tags/sent</th><th class="num">md</th><th>Verdict</th></tr>
+    <tr><td><code>claude</code> opus-5, thinking off, default</td><td class="num">940 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.69</td><td class="num">0%</td><td>Best writing: specific, witty, in character</td></tr>
+    <tr><td><code>claude --model claude-haiku-4-5</code></td><td class="num">650 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.75</td><td class="num">0%</td><td>Good, wordier</td></tr>
+    <tr><td><code>groq</code> qwen/qwen3.8-27b</td><td class="num best">200 ms</td><td class="num">81%</td><td class="num">96%</td><td class="num">0.71</td><td class="num">0%</td><td>Fast and decent; invents tags like [sly grin] the eyes ignore</td></tr>
+    <tr><td><code>groq --model openai/gpt-oss-20b</code></td><td class="num">290 ms</td><td class="num">83%</td><td class="num">83%</td><td class="num">1.08</td><td class="num">12%</td><td>Over-tags, some markdown</td></tr>
+    <tr><td><code>groq --model openai/gpt-oss-120b</code></td><td class="num">375 ms</td><td class="num">100%</td><td class="num">88%</td><td class="num">1.00</td><td class="num">12%</td><td>Compliant but terse</td></tr>
+    <tr><td><code>openai</code> gpt-4o-mini</td><td class="num">500 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.54</td><td class="num">12%</td><td>Compliant, chirpy, many exclamation marks</td></tr>
+  </table></div>
+  <p>Opus with thinking on adds about a second. <code>--no-thinking</code> is the default in the Pi profile. <code>--effort</code> raises answer quality at the cost of speed.</p>
+
+  <h3>Voices</h3>
+  <div class="tablewrap"><table>
+    <tr><th><code>--tts</code> / <code>--tts-model</code></th><th class="num">First audio</th><th>Performs tags</th><th>Timing</th></tr>
+    <tr><td><code>elevenlabs</code> eleven_v3, default</td><td class="num">0.8 to 0.9 s</td><td>yes</td><td>per character</td></tr>
+    <tr><td><code>elevenlabs --tts-model eleven_flash_v2_5</code></td><td class="num best">0.25 s</td><td>no, stripped</td><td>per character</td></tr>
+    <tr><td><code>edge</code>, free</td><td class="num">0.2 to 0.5 s</td><td>no, stripped</td><td>per word</td></tr>
+  </table></div>
+
+  <h3>Profiles</h3>
+  <p><code>--profile pi</code> sets cloud speech to text (Groq, or ElevenLabs without a Groq key), the Groq brain when a key is present, fullscreen, 30 fps, and thinking off. Any flag you pass explicitly still wins, so <code>--llm claude</code> keeps Claude's writing on the Pi at about a second per reply.</p>
+</section>
+
+<section id="tools">
+  <div class="eyebrow">Test tools <span class="file">tests/ · bench_stt.py · bench_llm.py</span></div>
+  <h2>Prove it before you trust it</h2>
+<pre><code>pytest tests                                  # 36 tests, no mic or display needed
+python bench_stt.py --synth                   # recognizers on clean and noisy synthesized clips
+python bench_stt.py recordings/               # the same on your own recorded clips
+python bench_llm.py                           # brains: speed and how well they follow the tag spec
+python voice_loop.py --mic-test --mic-device gomic --stt elevenlabs   # try a recognizer live</code></pre>
+  <p>For your own clips, record with <code>--mic-test --record recordings/</code>, then correct the draft lines in <code>recordings/transcripts.txt</code> before running the benchmark.</p>
+</section>
+
+<section id="fix">
+  <div class="eyebrow">Troubleshooting</div>
+  <h2>When it misbehaves</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Symptom</th><th>Likely cause and fix</th></tr>
+    <tr><td>It speaks "Sorry, I could not think of an answer"</td><td>The brain call failed. The terminal has an <code>[error] LLM failed</code> line: usually a missing or unscoped key, or no credits.</td></tr>
+    <tr><td>Mic never hears anything</td><td>Wrong device or gain. Run <code>--mic-test</code> and check the level line; pick the device by name.</td></tr>
+    <tr><td>Every turn is exactly 15 seconds long</td><td>Room noise above the endpointer's threshold. Fixed in the current build; if it recurs, lower the mic gain.</td></tr>
+    <tr><td>"Invalid sample rate" or "no default output device"</td><td>Old builds. Devices now open at any supported rate and fall back to another output.</td></tr>
+    <tr><td>Voice "does not exist" on ElevenLabs</td><td>Add the community voice to My Voices, and give the key the voices permission.</td></tr>
+    <tr><td>Lips early or late</td><td><code>--sync-offset</code> in 0.02 s steps with the debug overlay on.</td></tr>
+    <tr><td>Face reads "sigh" out loud</td><td>Only ElevenLabs v3 performs tags; every other voice strips them. Check <code>--tts-model</code>.</td></tr>
+    <tr><td>PyAudio will not install</td><td>Needs the Python headers and PortAudio: <code>dnf install python3-devel portaudio-devel</code>, then <code>pip install pyaudio</code>.</td></tr>
+  </table></div>
+</section>
+</main>
+</div>
