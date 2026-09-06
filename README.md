@@ -32,6 +32,8 @@ talker/
   tests/                 <- pytest (no audio device or display needed)
   voice_loop.py          <- the round trip: mic -> STT -> Claude -> voice + face
   stt_backends.py        <- VoskSTT (streaming, local), WhisperSTT (faster-whisper)
+  bench_stt.py           <- speech-to-text accuracy + speed across backends (synth or your clips)
+  bench_llm.py           <- brains: first-token speed + adherence to the tag spec
   ROADMAP.md             <- agreed ideas not built yet (canned lines, fillers, Pi, ...)
   llm_integration/
     system_prompt.md     <- LLM prompt for generating text with emotion tags
@@ -218,36 +220,67 @@ Every turn prints one `[turn]` line: time from when you stopped talking to the
 transcript, to the first LLM token, and to the first audio. Use it to compare
 backends in the real loop rather than in isolation.
 
-### Benchmarks (desktop, 2026-09-06)
+### Choosing backends: measured results
 
-Speech-to-text on 12 synthesized clips (6 clean, 6 with noise at 10 dB SNR),
-word error rate and seconds per clip. Rerun on your own mic clips with
-`bench_stt.py recordings/` after `voice_loop.py --mic-test --record recordings/`.
+Measured 2026-09-06 on an AMD Ryzen AI MAX+ 395 (32 threads, 123 GB RAM,
+CPU only) on a home fibre connection. Rerun on your own hardware and voice
+with the two benchmark utilities:
 
-| backend | WER | clean | noisy | s/clip |
-|---------|----:|------:|------:|-------:|
-| whisper base.en (local) | 2.1% | 1.4% | 2.8% | 0.19 |
-| whisper small.en (local) | 2.7% | 1.4% | 4.2% | 0.48 |
-| vosk small (local) | 4.1% | 1.4% | 7.0% | 0.19 |
-| groq whisper-large-v3-turbo | 0.7% | 0.0% | 1.4% | 0.46 |
-| openai whisper-1 | 1.4% | 1.4% | 1.4% | 1.39 |
-| openai gpt-4o-mini-transcribe | 0.0% | 0.0% | 0.0% | 0.77 |
-| elevenlabs scribe_v1 (batch) | 1.4% | 1.4% | 1.4% | 0.51 |
+```bash
+python bench_stt.py --synth                       # recognizers on synthesized clean + noisy clips
+python voice_loop.py --mic-test --record recordings/ --mic-device gomic   # record your own clips
+python bench_stt.py recordings/                   # recognizers on your clips (correct transcripts.txt first)
+python bench_llm.py                               # brains: speed + how well they follow the tag spec
+```
 
-Brains, streaming, same cat persona and three questions (ms to first token /
-full reply):
+A Raspberry Pi will be far slower on anything marked *local*; cloud rows are
+unchanged there.
 
-| `--llm` / model | first token | full reply |
-|-----------------|------------:|-----------:|
-| groq qwen/qwen3.8-27b (Groq default) | 150–220 | 200–270 |
-| groq openai/gpt-oss-20b | 200–270 | 260–310 |
-| groq openai/gpt-oss-120b | 260–410 | 340–450 |
-| openai gpt-4o-mini | 430–1050 | 740–1270 |
-| claude haiku-4-5 | 600–820 | 1100–1330 |
-| claude opus-5, thinking off (default) | 1200–1700 | 2400–2800 |
+**Speech-to-text** — 12 clips (6 clean, 6 with noise at 10 dB SNR), word
+error rate and seconds per clip. Synthesized voices are cleaner than a real
+mic, so expect higher error rates in a room.
 
-All produced in-character replies with performance tags; judge the writing
-quality by ear with `--llm groq` versus the Claude default.
+| `--stt` | backend | WER | clean | noisy | s/clip | runs |
+|---------|---------|----:|------:|------:|-------:|------|
+| `whisper` (default) | faster-whisper base.en | 2.1% | 1.4% | 2.8% | 0.19 | local |
+| `whisper --whisper-model small.en` | faster-whisper small.en | 2.7% | 1.4% | 4.2% | 0.48 | local |
+| `vosk` | vosk small | 4.1% | 1.4% | 7.0% | 0.19 | local, live partials |
+| `groq` | whisper-large-v3-turbo | **0.7%** | 0.0% | 1.4% | 0.46 | cloud |
+| `openai` | whisper-1 | 1.4% | 1.4% | 1.4% | 1.39 | cloud |
+| `openai --model gpt-4o-mini-transcribe` | gpt-4o-mini-transcribe | **0.0%** | 0.0% | 0.0% | 0.77 | cloud |
+| `elevenlabs` | Scribe (batch v1 measured; the loop uses realtime) | 1.4% | 1.4% | 1.4% | 0.51 | cloud, live partials, server VAD |
+
+Recommendation: local Whisper on a desktop (free, ~0.7 s after you stop);
+Groq or ElevenLabs realtime on a Pi. Vosk only if you must stay offline on
+weak hardware.
+
+**Brains** — same cat persona, 8 prompts each. *known* = share of tags in the
+allowed vocabulary; *leading* = tags placed before words; *tags/sent* = tags
+per sentence (the prompt asks for most sentences to have none); *md* =
+replies with markdown or emoji.
+
+| `--llm` / `--model` | first token | known | leading | tags/sent | md | words | notes |
+|---------------------|------------:|------:|--------:|----------:|---:|------:|-------|
+| `claude` claude-opus-5, `--no-thinking` (default) | 940 ms | 100% | 100% | 0.69 | 0% | 25 | best writing: specific, witty, in character |
+| `claude --model claude-haiku-4-5` | 650 ms | 100% | 100% | 0.75 | 0% | 26 | good; longer, occasional *asterisk* emphasis |
+| `groq` qwen/qwen3.8-27b | **200 ms** | 81% | 96% | 0.71 | 0% | 19 | fast and decent; invents tags (`[sly grin]`) the face can't map |
+| `groq --model openai/gpt-oss-20b` | 290 ms | 83% | 83% | 1.08 | 12% | 22 | over-tags, some markdown |
+| `groq --model openai/gpt-oss-120b` | 375 ms | 100% | 88% | 1.00 | 12% | 10 | compliant but terse |
+| `openai` gpt-4o-mini | 500 ms | 100% | 100% | 0.54 | 12% | 22 | compliant; chirpy, many exclamation marks |
+
+Opus with thinking on adds ~1 s to first token. Every model tags more than the
+prompt asks; tighten rule 3 in `llm_integration/system_prompt.md` if it feels
+busy. Unknown tags are still performed by ElevenLabs v3 (it accepts free-form
+cues) but do not move the eyes.
+
+**Voices** — time to first audio through the whole pipeline, ElevenLabs on a
+warm connection.
+
+| `--tts` / `--tts-model` | first audio | performs `[tags]` | timing data |
+|-------------------------|------------:|-------------------|-------------|
+| `elevenlabs` eleven_v3 (default) | ~0.8–0.9 s | yes | per character |
+| `elevenlabs --tts-model eleven_flash_v2_5` | ~0.25 s | no (stripped) | per character |
+| `edge` (free) | ~0.2–0.5 s | no (stripped) | per word |
 
 ### Using it from Python
 
