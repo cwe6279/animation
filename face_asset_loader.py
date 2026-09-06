@@ -118,7 +118,7 @@ class FaceManifest:
     voices:     Dict[str, str] = field(default_factory=dict)
     tts_model:  Optional[str] = None
     voice_speed: Optional[float] = None # speaking rate multiplier (Flash / edge; v3 ignores)
-    character:  str = ""                # persona line for the LLM
+    character:  str = ""                # personality; loaded from character.md next to face.json
 
     _KNOWN_TOP = {
         "name", "description", "canvas_w", "canvas_h", "fps", "bg_color", "face_base",

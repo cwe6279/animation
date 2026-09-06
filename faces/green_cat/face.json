@@ -67,7 +67,6 @@
     "elevenlabs": "sssn4wp3AspuK2kvy3Ym",
     "edge": "en-US-AriaNeural"
   },
-  "character": "see character.md (green_cat)",
   "gaze": {
     "amount": 12,
     "interval": [
