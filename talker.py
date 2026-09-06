@@ -145,7 +145,8 @@ class TalkerApp:
             print(f"[warn] Unknown emotion '{default_emotion}', using neutral")
 
         m = assets.manifest
-        self._w, self._h, self._fps = m.canvas_w, m.canvas_h, max(1, m.fps)
+        self._w, self._h = m.canvas_w, m.canvas_h
+        self._fps = max(1, int(os.environ.get("TALKER_FPS", m.fps)))   # TALKER_FPS overrides face.json
         self.renderer = AssetFaceRenderer(assets)
 
         os.environ.setdefault("SDL_VIDEO_CENTERED", "1")

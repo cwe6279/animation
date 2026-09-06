@@ -149,6 +149,29 @@ class VoiceLoop:
 
 
 # ═══════════════════════════════════════════════════════
+# PROFILES
+# ═══════════════════════════════════════════════════════
+def apply_pi_profile(args) -> None:
+    """
+    Raspberry Pi: keep every heavy stage in the cloud. Local Whisper takes
+    seconds per turn there; Groq's Whisper is ~0.5 s and near-perfect, and
+    ElevenLabs Scribe realtime is the fallback. Only fills in what the user
+    did not set explicitly.
+    """
+    import os
+    if args.stt == "whisper":          # the parser default, i.e. not chosen by the user
+        args.stt = "groq" if os.environ.get("GROQ_API_KEY") else "elevenlabs"
+    if args.llm == "claude" and args.model is None and os.environ.get("GROQ_API_KEY"):
+        args.llm = "groq"              # ~200 ms to first token; use --llm claude to override
+    if args.silence_ms is None:
+        args.silence_ms = 500
+    args.fullscreen = True
+    args.no_thinking = True
+    os.environ.setdefault("TALKER_FPS", "30")
+    print(f"[profile] pi: stt={args.stt} llm={args.llm} fullscreen, 30 fps")
+
+
+# ═══════════════════════════════════════════════════════
 # MIC TOOLS  (--list-devices / --mic-test)
 # ═══════════════════════════════════════════════════════
 def stt_kwargs(args) -> dict:
@@ -236,6 +259,9 @@ def main(argv=None) -> int:
     from env_config import load_dotenv
     load_dotenv()
     p = argparse.ArgumentParser(description="Talk to an animated face: mic -> STT -> Claude -> voice")
+    p.add_argument("--profile", choices=["desktop", "pi"], default=None,
+                   help="pi: cloud speech-to-text (groq, or elevenlabs if no Groq key), Groq brain, "
+                        "fullscreen, 30 fps — nothing heavy runs locally. Explicit flags still win.")
     p.add_argument("--face", default="eve")
     p.add_argument("--face-dir", default=None)
     p.add_argument("--stt", default="whisper",
@@ -278,6 +304,8 @@ def main(argv=None) -> int:
     p.add_argument("--sync-offset", type=float, default=0.0)
     p.add_argument("--no-audio", action="store_true", help="No sound device (implies --text-only)")
     args = p.parse_args(argv)
+    if args.profile == "pi":
+        apply_pi_profile(args)
 
     import pygame
     from face_asset_loader import FaceAssetLoader, default_manifest

@@ -206,6 +206,22 @@ The pieces are independent: `VoiceLoop` (voice_loop.py) only needs an STT object
 a function that returns an iterator of reply text, and something with
 `speak_stream` / `interrupt` / `is_busy`. Swap any of them.
 
+### Raspberry Pi
+
+The face and audio plumbing are light; the recognizer is the only stage a Pi
+cannot run fast. One flag picks the right set:
+
+```bash
+python voice_loop.py --face green_cat --profile pi --mic-device gomic --output-device jabra
+```
+
+`--profile pi` = cloud speech-to-text (`groq` if you have a Groq key, else
+`elevenlabs`), Groq as the brain when a key is present (~200 ms to first
+token), fullscreen, 30 fps, Claude thinking off. Any flag you pass explicitly
+still wins, e.g. add `--llm claude` to keep Claude's writing. Tested on a
+Pi 5 with 4 GB or more; a Pi 4 works but everything local is about twice as
+slow. Cloud stages cost the same on a Pi as on a desktop.
+
 ### Speech-to-text options, measured on a desktop
 
 | `--stt` | Runs | Transcript ready after you stop | Accuracy | Raspberry Pi |
