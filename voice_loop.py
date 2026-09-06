@@ -23,6 +23,7 @@ or a mic that does not hear the speakers.
 from __future__ import annotations
 
 import argparse
+import queue
 import sys
 import threading
 import time
@@ -62,11 +63,31 @@ class VoiceLoop:
         self._last_busy = 0.0
         self._partial = ""
         self.turns = 0
+        # Recognition runs on its own thread: the mic callback must return in
+        # microseconds or PortAudio drops audio while Whisper is busy.
+        self._audio_q: "queue.Queue[bytes]" = queue.Queue(maxsize=200)
+        self._worker = threading.Thread(target=self._drain, name="stt-worker", daemon=True)
+        self._worker.start()
         self._last_audio_in = 0.0
         self._speech_end_at = 0.0     # when the STT said the utterance ended
 
     # ── mic path ────────────────────────────────────────
     def process(self, pcm: bytes) -> None:
+        """Called from the audio callback: hand off and return immediately."""
+        try:
+            self._audio_q.put_nowait(pcm)
+        except queue.Full:
+            pass                      # recognizer is far behind; drop rather than block the mic
+
+    def _drain(self) -> None:
+        while True:
+            pcm = self._audio_q.get()
+            try:
+                self._process(pcm)
+            except Exception as e:
+                self.on_event("error", f"STT failed: {e}")
+
+    def _process(self, pcm: bytes) -> None:
         self._last_audio_in = time.monotonic()
         busy = self.speaker.is_busy or self._thinking
         now = time.monotonic()

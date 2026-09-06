@@ -211,6 +211,14 @@ class VoskSTT(STTBackend):
 # ─────────────────────────────────────────────────────
 # FASTER-WHISPER
 # ─────────────────────────────────────────────────────
+_HALLUCINATIONS = {"you", "you.", "thank you.", "thank you", "thanks for watching.", "bye.", "the end.", "."}
+
+
+def _looks_hallucinated(text: str, seconds: float) -> bool:
+    """Short clip + one of Whisper's stock noise outputs = not real speech."""
+    t = text.strip().lower()
+    return (not t) or (seconds < 2.0 and t in _HALLUCINATIONS)
+
 class WhisperSTT(STTBackend):
     name = "whisper"
 
@@ -234,7 +242,15 @@ class WhisperSTT(STTBackend):
         samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
         segments, _ = self._model.transcribe(samples, language="en", beam_size=1, vad_filter=False,
                                              condition_on_previous_text=False)
-        text = " ".join(seg.text.strip() for seg in segments).strip()
+        kept = []
+        for seg in segments:
+            # Whisper invents "You", "Thank you." etc. on noise; drop low-confidence segments.
+            if seg.no_speech_prob > 0.6 or seg.avg_logprob < -1.2:
+                continue
+            kept.append(seg.text.strip())
+        text = " ".join(kept).strip()
+        if _looks_hallucinated(text, len(samples) / self.sample_rate):
+            text = ""
         self.last_transcribe_s = time.monotonic() - t0
         silence = self._ep.silence_samples / self.sample_rate
         print(f"[stt] whisper {len(samples)/self.sample_rate:.1f}s audio in {(time.monotonic()-t0)*1000:.0f} ms "

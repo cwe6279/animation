@@ -53,7 +53,7 @@ def test_vosk_transcribes_synth_speech():
         def interrupt(self): pass
     loop = VoiceLoop(stt, lambda t: iter(["ok"]), Spk(), on_event=lambda k, s: heard.append((k, s)))
     for i in range(0, len(pcm), 3200):        # 100 ms chunks, like a mic
-        loop.process(pcm[i:i + 3200])
+        loop._process(pcm[i:i + 3200])
     finals = [s for k, s in heard if k == "you"]
     assert finals, heard
     text = finals[0].lower()

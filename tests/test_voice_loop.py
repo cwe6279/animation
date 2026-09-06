@@ -58,7 +58,7 @@ def test_turn_runs_llm_and_speaks():
                      on_event=lambda k, s: events.append((k, s)))
     stt.queue = [Transcript("hel", False), Transcript("hello", False), Transcript("hello there", True)]
     for _ in range(3):
-        loop.process(b"\x00" * 320)
+        loop._process(b"\x00" * 320)
     assert wait(lambda: spk.spoken)
     assert spk.spoken == ["[happy]You said hello there."]
     kinds = [k for k, _ in events]
@@ -72,13 +72,13 @@ def test_mic_ignored_while_speaking_and_during_grace():
     loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, on_event=lambda k, s: None)
     spk.busy = True
     stt.queue = [Transcript("echo of the speaker", True)]
-    loop.process(b"\x00" * 320)
+    loop._process(b"\x00" * 320)
     assert stt.fed == 0 and stt.resets == 1 and spk.spoken == []
     spk.busy = False
-    loop.process(b"\x00" * 320)          # still inside the grace window
+    loop._process(b"\x00" * 320)          # still inside the grace window
     assert stt.fed == 0
     loop.GRACE_AFTER_SPEECH = 0.0
-    loop.process(b"\x00" * 320)
+    loop._process(b"\x00" * 320)
     assert stt.fed == 1
     assert wait(lambda: spk.spoken == ["x"])
 
@@ -90,10 +90,10 @@ def test_barge_in_interrupts_playback():
                      on_event=lambda k, s: events.append(k))
     spk.busy = True
     stt.queue = [None, Transcript("stop", False)]
-    loop.process(b"\x00" * 320)
+    loop._process(b"\x00" * 320)
     assert spk.interrupts == 0
     stt.speech_active = True
-    loop.process(b"\x00" * 320)
+    loop._process(b"\x00" * 320)
     assert spk.interrupts == 1 and "barge-in" in events
 
 
@@ -125,6 +125,14 @@ def test_second_utterance_while_thinking_is_dropped():
     gate.set()
     assert wait(lambda: spk.spoken)
     assert loop.turns == 1
+
+
+def test_process_hands_off_to_worker_thread():
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, on_event=lambda k, s: None)
+    stt.queue = [Transcript("hello there", True)]
+    loop.process(b"\x00" * 320)          # returns immediately; worker does the rest
+    assert wait(lambda: spk.spoken == ["x"])
 
 
 def test_energy_endpointer_detects_utterance():
