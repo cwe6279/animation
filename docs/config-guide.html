@@ -237,7 +237,7 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
       <div class="meta">Persona: EVE, terse, curious, impatient. <b>Voice id still needed.</b></div>
     </div>
   </div>
-  <div class="tweak"><strong>Most-tweaked fields:</strong> <code>character</code> (persona line), <code>voices.elevenlabs</code> (voice id), <code>glow_color</code>, <code>gaze.amount</code>, and the eye and mouth <code>cx</code>/<code>cy</code> positions.</div>
+  <div class="tweak"><strong>Most-tweaked fields:</strong> <code>character.md</code> (personality), <code>voices.elevenlabs</code> (voice id), <code>glow_color</code>, <code>gaze.amount</code>, and the eye and mouth <code>cx</code>/<code>cy</code> positions.</div>
 </section>
 
 <section id="new">
@@ -265,7 +265,7 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     <tr><td><code>nose</code>, <code>draw_nose</code></td><td>Nose PNG, or a procedural triangle.</td><td>off</td></tr>
     <tr><td><code>voices</code></td><td>Default voice per backend: <code>{"elevenlabs": "&lt;id&gt;", "edge": "en-US-AriaNeural"}</code>.</td><td></td></tr>
     <tr><td><code>tts_model</code></td><td>ElevenLabs model for this face; default v3.</td><td>"eleven_v3"</td></tr>
-    <tr><td><code>character</code></td><td>Persona line appended to the shared prompt.</td><td>one sentence</td></tr>
+    <tr><td><code>character.md</code> (file)</td><td>Personality, appended to the shared prompt. The <code>character</code> key in face.json is a one-line fallback.</td><td>a few short paragraphs</td></tr>
   </table></div>
   <p>Unknown keys print a warning at load, which catches typos.</p>
 </section>
@@ -273,7 +273,7 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
 <section id="prompt">
   <div class="eyebrow">Prompt and tags <span class="file">llm_integration/system_prompt.md</span></div>
   <h2>One shared prompt, one persona line per face</h2>
-  <p>Everything below the "System Prompt" heading in <code>system_prompt.md</code> is sent to the brain on every turn, with the face's <code>character</code> appended as "Character: …". The prompt teaches the performance-tag vocabulary and the rules: tags go before the words they colour, must fit the content, and most sentences should have none. A short voice rule keeps replies to one to three sentences with no markdown.</p>
+  <p>Two files are concatenated on every turn. The shared <code>llm_integration/system_prompt.md</code> (everything below its "System Prompt" heading) holds delivery rules: the performance-tag vocabulary, tags before the words they colour, most sentences untagged, one to three spoken sentences, no markdown. The face's <code>character.md</code> holds only personality: who they are, traits, tone, boundaries. It is appended as "Character: …", so editing a face never touches the shared rules and vice versa. A one-line <code>character</code> key in face.json is the fallback when the file is absent.</p>
   <h3>How tags reach the voice and the eyes</h3>
   <p>Tags are the ElevenLabs v3 vocabulary: emotional states, reactions, tone cues, character cues. The voice performs them only on ElevenLabs v3; Flash and edge get them stripped so nothing reads "sigh" aloud. Separately, tags with an emotional meaning move the eyes:</p>
   <div class="tablewrap"><table>

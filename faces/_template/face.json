@@ -2,6 +2,8 @@
   "_comment": "Copy this folder, rename it, and edit to create a new face.",
 
   "name": "my_face",
+  "_character_comment": "Personality goes in character.md next to this file (this key is only a fallback):",
+  "character": "",
   "description": "Describe your face here.",
   "canvas_w": 800,
   "canvas_h": 800,

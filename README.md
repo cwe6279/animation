@@ -524,7 +524,7 @@ Tweak `face.json` without re-exporting PNGs:
 - **`offset_x`, `offset_y`** — shift mouth art without changing the anchor
 - **`voices`** — default TTS voice per backend, e.g. `{"elevenlabs": "<voice id>", "edge": "en-US-AriaNeural"}`; `--voice` overrides
 - **`tts_model`** — default ElevenLabs model for this face (e.g. `"eleven_v3"`); `--tts-model` overrides
-- **`character`** — default persona line for the LLM in voice_loop.py; `--character` overrides
+- **`character.md`** (a file next to face.json) — the personality: who the character is, traits, tone, boundaries. Concatenated with the shared `llm_integration/system_prompt.md` at runtime, so the shared file holds delivery rules and the face folder holds only personality. The `character` key in face.json is a one-line fallback; `--character` overrides both
 - **`gaze`** / **`blink_interval`** / **`blink_speed`** / **`eye_speech_pulse`** — idle glances, blink timing, and eye pulse while speaking
 - **`glow_color`** — halo color around procedural shapes
 - **`blink`** — enable/disable eye blink animation

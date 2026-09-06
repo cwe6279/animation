@@ -351,6 +351,15 @@ class FaceAssetLoader:
             raise FileNotFoundError(f"No face.json found in {face_dir}")
         with open(manifest_path) as f:
             manifest = FaceManifest.from_dict(json.load(f))
+        # Personality lives in character.md next to the art when present; the
+        # shared system prompt is concatenated with it at runtime.
+        char_path = os.path.join(face_dir, "character.md")
+        if os.path.isfile(char_path):
+            with open(char_path, encoding="utf-8") as f:
+                text = f.read().strip()
+            if text:
+                manifest.character = text
+                print(f"[assets]   character.md: {len(text.split())} words")
         return self.build(manifest, face_dir)
 
     def build(self, manifest: FaceManifest, face_dir: Optional[str] = None) -> LoadedFaceAssets:

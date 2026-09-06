@@ -37,7 +37,6 @@ Ideas agreed on but not built yet, roughly in priority order.
 - Barge-in without headphones: echo cancellation (WebRTC AEC / PipeWire
   echo-cancel module) so the mic ignores the speaker.
 - Wake word or push-to-talk button for noisy rooms.
-- Per-face `character.md` for longer personas (backstory, catchphrases).
 - Memory across sessions (what it learned about the visitor).
 
 ## Beyond Halloween
