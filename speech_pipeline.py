@@ -68,6 +68,7 @@ class SpeechPipeline:
         self.speech_end_time = 0.0       # timeline time when queued speech ends
         self.last_error: Optional[str] = None
         self.stats: dict = {}
+        self.first_audio_at: float = 0.0   # time.monotonic() when the latest session's audio started
 
     # ── lifecycle ──────────────────────────────────────────────────
     def start(self) -> None:
@@ -232,6 +233,7 @@ class SpeechPipeline:
                     if session_start is None:
                         session_start = chunk_start
                         first_audio_at = time.monotonic()
+                        self.first_audio_at = first_audio_at
                         for wb in pending_words:
                             place_word(wb)
                         pending_words.clear()

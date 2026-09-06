@@ -58,3 +58,28 @@ def test_failed_turn_leaves_no_dangling_user_message():
     with pytest.raises(RuntimeError):
         list(chat.reply("hello"))
     assert chat.messages == []
+
+
+def test_openai_compat_chat_streams_and_keeps_history():
+    pytest.importorskip("openai")
+    from llm_integration.openai_compat_chat import OpenAICompatChat
+    from types import SimpleNamespace as NS
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+            outer = self
+            class Completions:
+                def create(self, **kw):
+                    outer.calls.append(kw)
+                    return iter([NS(choices=[NS(delta=NS(content="[happy]Hi "))]),
+                                 NS(choices=[]),
+                                 NS(choices=[NS(delta=NS(content="there!"))])])
+            self.chat = NS(completions=Completions())
+    client = FakeClient()
+    chat = OpenAICompatChat("llama-3.3-70b-versatile", api_key=None, client=client, character="a cat")
+    assert "".join(chat.reply("hello")) == "[happy]Hi there!"
+    kw = client.calls[0]
+    assert kw["stream"] is True and kw["messages"][0]["role"] == "system"
+    assert "Character: a cat" in kw["messages"][0]["content"]
+    assert chat.messages[-1] == {"role": "assistant", "content": "[happy]Hi there!"}

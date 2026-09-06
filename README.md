@@ -32,9 +32,11 @@ talker/
   tests/                 <- pytest (no audio device or display needed)
   voice_loop.py          <- the round trip: mic -> STT -> Claude -> voice + face
   stt_backends.py        <- VoskSTT (streaming, local), WhisperSTT (faster-whisper)
+  ROADMAP.md             <- agreed ideas not built yet (canned lines, fillers, Pi, ...)
   llm_integration/
     system_prompt.md     <- LLM prompt for generating text with emotion tags
     claude_chat.py       <- multi-turn streaming Claude conversation used by voice_loop.py
+    openai_compat_chat.py<- same over Groq / OpenAI (--llm groq|openai)
     claude_stream.py     <- one-shot: streams a Claude reply to stdout for `talker.py --stdin`
   faces/
     _template/           <- copy this to create a new face
@@ -195,6 +197,8 @@ first audio). Options:
   otherwise the speakers get transcribed). Default is half-duplex: mic ignored during playback.
 - `--text-only` — type in the window instead of using a mic; same Claude round trip
 - `--effort medium` — better answers, slower first token. `--model` to change the model.
+- `--llm groq` / `--llm openai` — a different brain (Llama on Groq, or OpenAI) for benchmarks; `--model` picks the model
+- `--stt groq` / `--stt openai` — cloud batch speech-to-text (Groq is fast and cheap; needs the key)
 
 The pieces are independent: `VoiceLoop` (voice_loop.py) only needs an STT object,
 a function that returns an iterator of reply text, and something with
@@ -207,6 +211,43 @@ a function that returns an iterator of reply text, and something with
 | `whisper` (default) | local CPU | ~0.7 s (0.4 s silence + 0.3 s transcribe) | high | 2–5 s per turn |
 | `vosk` | local CPU | ~0.5 s, live partials | fair (small) / good (large) | fine |
 | `elevenlabs` | cloud | ~0.5 s, live partials | high | fine (no CPU) |
+| `groq` | cloud batch | silence wait + ~0.3–0.6 s upload/transcribe | high (Whisper large) | fine (no CPU) |
+| `openai` | cloud batch | silence wait + ~0.5–1 s | high | fine (no CPU) |
+
+Every turn prints one `[turn]` line: time from when you stopped talking to the
+transcript, to the first LLM token, and to the first audio. Use it to compare
+backends in the real loop rather than in isolation.
+
+### Benchmarks (desktop, 2026-09-06)
+
+Speech-to-text on 12 synthesized clips (6 clean, 6 with noise at 10 dB SNR),
+word error rate and seconds per clip. Rerun on your own mic clips with
+`bench_stt.py recordings/` after `voice_loop.py --mic-test --record recordings/`.
+
+| backend | WER | clean | noisy | s/clip |
+|---------|----:|------:|------:|-------:|
+| whisper base.en (local) | 2.1% | 1.4% | 2.8% | 0.19 |
+| whisper small.en (local) | 2.7% | 1.4% | 4.2% | 0.48 |
+| vosk small (local) | 4.1% | 1.4% | 7.0% | 0.19 |
+| groq whisper-large-v3-turbo | 0.7% | 0.0% | 1.4% | 0.46 |
+| openai whisper-1 | 1.4% | 1.4% | 1.4% | 1.39 |
+| openai gpt-4o-mini-transcribe | 0.0% | 0.0% | 0.0% | 0.77 |
+| elevenlabs scribe_v1 (batch) | 1.4% | 1.4% | 1.4% | 0.51 |
+
+Brains, streaming, same cat persona and three questions (ms to first token /
+full reply):
+
+| `--llm` / model | first token | full reply |
+|-----------------|------------:|-----------:|
+| groq qwen/qwen3.8-27b (Groq default) | 150–220 | 200–270 |
+| groq openai/gpt-oss-20b | 200–270 | 260–310 |
+| groq openai/gpt-oss-120b | 260–410 | 340–450 |
+| openai gpt-4o-mini | 430–1050 | 740–1270 |
+| claude haiku-4-5 | 600–820 | 1100–1330 |
+| claude opus-5, thinking off (default) | 1200–1700 | 2400–2800 |
+
+All produced in-character replies with performance tags; judge the writing
+quality by ear with `--llm groq` versus the Claude default.
 
 ### Using it from Python
 

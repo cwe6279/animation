@@ -23,5 +23,8 @@ anthropic>=1.0
 vosk>=0.3.45            # local streaming speech-to-text (small model auto-downloads, ~40 MB)
 # faster-whisper>=1.0   # optional, more accurate STT (--stt whisper), slower per turn
 
+# Optional: Groq / OpenAI as the brain or as speech-to-text (--llm groq, --stt groq ...)
+openai>=1.0
+
 # Dev
 pytest>=8.0

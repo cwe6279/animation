@@ -45,6 +45,7 @@ class STTBackend:
     name = "base"
     sample_rate = 16000
     speech_active = False           # True while the user seems to be talking
+    endpoint_delay_s = 0.0          # how long after real end-of-speech a final is produced
 
     def feed(self, pcm: bytes) -> Optional[Transcript]:
         raise NotImplementedError
@@ -220,6 +221,7 @@ class WhisperSTT(STTBackend):
         self._model = WhisperModel(model_size, device=device, compute_type=compute_type,
                                    download_root=os.path.join(CACHE_DIR, "whisper"))
         self._ep = EnergyEndpointer(sample_rate, silence_ms=silence_ms)
+        self.endpoint_delay_s = silence_ms / 1000.0
         self.speech_active = False
 
     def feed(self, pcm: bytes) -> Optional[Transcript]:
@@ -262,6 +264,7 @@ class ElevenLabsSTT(STTBackend):
         import threading
         self.sample_rate = sample_rate
         self.silence_s = (silence_ms or 500) / 1000.0
+        self.endpoint_delay_s = self.silence_s
         self.language = language
         self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
         if not self.api_key:
@@ -353,7 +356,77 @@ class ElevenLabsSTT(STTBackend):
         self.speech_active = False
 
 
-STT_BACKENDS = {"vosk": VoskSTT, "whisper": WhisperSTT, "elevenlabs": ElevenLabsSTT}
+# ─────────────────────────────────────────────────────
+# OPENAI-COMPATIBLE BATCH (Groq whisper-large-v3-turbo, OpenAI whisper-1)
+# ─────────────────────────────────────────────────────
+class OpenAICompatSTT(STTBackend):
+    """
+    Batch cloud transcription: our energy endpointer decides when you stopped,
+    then the clip is uploaded as a WAV. No partials. Groq is fast and cheap
+    (Whisper large on their hardware); OpenAI is the reference.
+    """
+    name = "openai"
+
+    def __init__(self, model: str, api_key: Optional[str], base_url: Optional[str] = None,
+                 sample_rate: int = 16000, silence_ms: Optional[int] = None, name: str = "openai",
+                 client=None):
+        self.name = name
+        self.model = model
+        self.sample_rate = sample_rate
+        silence_ms = silence_ms or 600
+        self._ep = EnergyEndpointer(sample_rate, silence_ms=silence_ms)
+        self.endpoint_delay_s = silence_ms / 1000.0
+        self.speech_active = False
+        if client is None:
+            from openai import OpenAI
+            if not api_key:
+                raise RuntimeError(f"{name} STT needs an API key in the environment")
+            client = OpenAI(api_key=api_key, base_url=base_url)
+        self._client = client
+
+    @classmethod
+    def groq(cls, model: Optional[str] = None, **kw):
+        return cls(model or "whisper-large-v3-turbo", os.environ.get("GROQ_API_KEY"),
+                   "https://api.groq.com/openai/v1", name="groq", **kw)
+
+    @classmethod
+    def openai(cls, model: Optional[str] = None, **kw):
+        return cls(model or "whisper-1", os.environ.get("OPENAI_API_KEY"), None, name="openai", **kw)
+
+    def feed(self, pcm: bytes) -> Optional[Transcript]:
+        audio = self._ep.feed(pcm)
+        self.speech_active = self._ep.active
+        if audio is None:
+            return Transcript("", False) if self._ep.active else None
+        import io
+        import wave
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(self.sample_rate)
+            w.writeframes(audio)
+        buf.seek(0)
+        buf.name = "utterance.wav"
+        t0 = time.monotonic()
+        try:
+            result = self._client.audio.transcriptions.create(
+                model=self.model, file=buf, language="en", response_format="text")
+        except Exception as e:
+            print(f"[stt] {self.name} transcription failed: {e}")
+            return None
+        text = (result if isinstance(result, str) else getattr(result, "text", "")).strip()
+        print(f"[stt] {self.name} {len(audio)/2/self.sample_rate:.1f}s audio in "
+              f"{(time.monotonic()-t0)*1000:.0f} ms (+{self.endpoint_delay_s*1000:.0f} ms waiting for you to stop)")
+        return Transcript(text, True) if text else None
+
+    def reset(self) -> None:
+        self._ep.reset()
+        self.speech_active = False
+
+
+STT_BACKENDS = {"vosk": VoskSTT, "whisper": WhisperSTT, "elevenlabs": ElevenLabsSTT,
+                "groq": OpenAICompatSTT.groq, "openai": OpenAICompatSTT.openai}
 
 
 def make_stt(name: str = "vosk", **kwargs) -> STTBackend:

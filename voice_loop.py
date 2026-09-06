@@ -62,9 +62,12 @@ class VoiceLoop:
         self._last_busy = 0.0
         self._partial = ""
         self.turns = 0
+        self._last_audio_in = 0.0
+        self._speech_end_at = 0.0     # when the STT said the utterance ended
 
     # ── mic path ────────────────────────────────────────
     def process(self, pcm: bytes) -> None:
+        self._last_audio_in = time.monotonic()
         busy = self.speaker.is_busy or self._thinking
         now = time.monotonic()
         if busy:
@@ -92,6 +95,7 @@ class VoiceLoop:
             return
         self._partial = ""
         if t.text.strip():
+            self._speech_end_at = time.monotonic() - getattr(self.stt, "endpoint_delay_s", 0.0)
             self.on_user_text(t.text.strip())
 
     # ── one turn ────────────────────────────────────────
@@ -107,14 +111,29 @@ class VoiceLoop:
 
     def _answer(self, text: str) -> None:
         t_end = time.monotonic()
+        t_stop = self._speech_end_at or t_end       # typed text: no STT stage
         stats = {"first_token_ms": None}
+        first_audio_before = getattr(self.speaker, "first_audio_at", 0.0)
+
+        def report_when_audio_starts():
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                fa = getattr(self.speaker, "first_audio_at", 0.0)
+                if fa and fa != first_audio_before and fa >= t_end:
+                    tok = stats["first_token_ms"]
+                    self.on_event("turn", f"you stopped -> transcript {round((t_end - t_stop) * 1000)} ms"
+                                  f" -> first token {tok if tok is not None else '?'} ms"
+                                  f" -> first audio {round((fa - t_stop) * 1000)} ms")
+                    return
+                time.sleep(0.02)
+        threading.Thread(target=report_when_audio_starts, daemon=True).start()
 
         def timed_chunks():
             reply = []
             try:
                 for chunk in self.llm_reply(text):
                     if stats["first_token_ms"] is None:
-                        stats["first_token_ms"] = round((time.monotonic() - t_end) * 1000)
+                        stats["first_token_ms"] = round((time.monotonic() - t_stop) * 1000)
                         self._thinking = False        # speaker is now busy; mic stays gated
                     reply.append(chunk)
                     yield chunk
@@ -124,8 +143,7 @@ class VoiceLoop:
             finally:
                 self._thinking = False
                 self.on_event("bot", "".join(reply).strip())
-                if stats["first_token_ms"] is not None:
-                    self.on_event("latency", f"first LLM token {stats['first_token_ms']} ms after you stopped")
+
 
         self.speaker.speak_stream(timed_chunks())
 
@@ -138,7 +156,7 @@ def stt_kwargs(args) -> dict:
         return {"model_path": args.vosk_model, "silence_ms": args.silence_ms}
     if args.stt == "whisper":
         return {"model_size": args.whisper_model, "silence_ms": args.silence_ms}
-    if args.stt == "elevenlabs":
+    if args.stt in ("elevenlabs", "groq", "openai"):
         return {"silence_ms": args.silence_ms}
     return {}
 
@@ -156,18 +174,43 @@ def mic_tools(args) -> int:
         audio.close()
         return 0
 
-    from stt_backends import make_stt
+    from stt_backends import make_stt, EnergyEndpointer
     stt = make_stt(args.stt, **stt_kwargs(args))
-    state = {"peak": 0.0, "last": ""}
+    state = {"peak": 0.0, "last": "", "n": 0}
+    recorder = None
+    if args.record:
+        import os as _os
+        _os.makedirs(args.record, exist_ok=True)
+        recorder = EnergyEndpointer(stt.sample_rate, silence_ms=args.silence_ms or 600)
+        print(f"Recording utterances to {args.record}/ (WAV + transcripts.txt draft references)")
+
+    def save_clip(audio: bytes, text: str):
+        import wave
+        state["n"] += 1
+        name = f"utt_{state['n']:03d}.wav"
+        with wave.open(_os.path.join(args.record, name), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(stt.sample_rate); w.writeframes(audio)
+        with open(_os.path.join(args.record, "transcripts.txt"), "a", encoding="utf-8") as f:
+            f.write(f"{name}\t{text}\n")
+        print(f"[saved]   {name} ({len(audio)/2/stt.sample_rate:.1f}s)")
+
+    pending_clip = {"audio": None}
 
     def on_frames(pcm):
         import numpy as np
         s = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
         rms = float(np.sqrt(np.mean(s * s))) if s.size else 0.0
         state["peak"] = max(state["peak"], rms)
+        if recorder is not None:
+            clip = recorder.feed(pcm)
+            if clip is not None:
+                pending_clip["audio"] = clip
         t = stt.feed(pcm)
         if t and t.final:
             print(f"\n[final]   {t.text}")
+            if recorder is not None and pending_clip["audio"] is not None:
+                save_clip(pending_clip["audio"], t.text)
+                pending_clip["audio"] = None
         elif t and t.text != state["last"]:
             state["last"] = t.text
             print(f"\r[hearing] {t.text[-70:]:<70}", end="", flush=True)
@@ -197,7 +240,7 @@ def main(argv=None) -> int:
     p.add_argument("--face-dir", default=None)
     p.add_argument("--stt", default="whisper",
                    help="whisper (default, local, accurate) | vosk (local, light) | "
-                        "elevenlabs (cloud Scribe: no local CPU, ~0.5 s after you stop; best for a Pi)")
+                        "elevenlabs (cloud Scribe realtime, best for a Pi) | groq | openai (cloud batch)")
     p.add_argument("--vosk-model", default=None,
                    help="small (default) | lgraph | large | path. Larger = more accurate")
     p.add_argument("--whisper-model", default=None, help="faster-whisper size, e.g. base.en, small.en")
@@ -209,13 +252,19 @@ def main(argv=None) -> int:
     p.add_argument("--list-devices", action="store_true", help="List input and output devices and exit")
     p.add_argument("--mic-test", action="store_true",
                    help="Only print what the mic hears (levels + transcripts); no Claude, no voice")
+    p.add_argument("--record", default=None, metavar="DIR",
+                   help="With --mic-test: save each utterance as WAV in DIR plus transcripts.txt "
+                        "(draft references to correct, then run bench_stt.py DIR)")
     p.add_argument("--tts", default=None,
                    help="elevenlabs (default when ELEVENLABS_API_KEY is set) or edge (free)")
     p.add_argument("--voice", default=None, help="TTS voice name/id")
     p.add_argument("--tts-model", default=None,
                    help="ElevenLabs model: eleven_v3 (default; performs [sigh]/[excited]-style tags) "
                         "or eleven_flash_v2_5 (~0.5 s faster, tags stripped)")
-    p.add_argument("--model", default="claude-opus-5")
+    p.add_argument("--llm", default="claude", choices=["claude", "groq", "openai"],
+                   help="Which brain answers: claude (default), groq (Llama on Groq), openai")
+    p.add_argument("--model", default=None,
+                   help="Model id for the chosen --llm (defaults: claude-opus-5, qwen/qwen3.8-27b on Groq, gpt-4o-mini)")
     p.add_argument("--effort", default="low", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--no-thinking", action="store_true",
                    help="Skip Claude's reasoning pass: faster first token, slightly less considered replies")
@@ -260,8 +309,14 @@ def main(argv=None) -> int:
     audio = build_audio(args.no_audio, args.sync_offset, args.output_device)
     text_only = args.text_only or args.no_audio
 
-    chat = ClaudeChat(model=args.model, effort=args.effort, character=character,
-                      thinking=not args.no_thinking)
+    if args.llm == "claude":
+        chat = ClaudeChat(model=args.model or "claude-opus-5", effort=args.effort, character=character,
+                          thinking=not args.no_thinking)
+    else:
+        from llm_integration.openai_compat_chat import OpenAICompatChat
+        chat = (OpenAICompatChat.groq if args.llm == "groq" else OpenAICompatChat.openai)(
+            model=args.model, character=character)
+    print(f"[voice] brain: {args.llm} {chat.model}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen)
 

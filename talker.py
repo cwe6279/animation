@@ -215,6 +215,11 @@ class TalkerApp:
         """True while speech is being synthesized or its audio is still playing."""
         return self.pipeline is not None and self.pipeline.is_busy
 
+    @property
+    def first_audio_at(self) -> float:
+        """time.monotonic() when the most recent utterance started playing (0 if none)."""
+        return self.pipeline.first_audio_at if self.pipeline is not None else 0.0
+
     def play_file(self, path: str) -> None:
         """Play a WAV with amplitude-driven mouth (no phoneme schedule)."""
         self._amplitude_mode = True
