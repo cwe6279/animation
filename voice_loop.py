@@ -309,8 +309,8 @@ def main(argv=None) -> int:
     p.add_argument("--voice-speed", type=float, default=None,
                    help="Speaking rate multiplier, e.g. 1.15 (ElevenLabs Flash and edge honour it; v3 ignores it)")
     p.add_argument("--tts-model", default=None,
-                   help="ElevenLabs model: eleven_v3 (default; performs [sigh]/[excited]-style tags) "
-                        "or eleven_flash_v2_5 (~0.5 s faster, tags stripped)")
+                   help="ElevenLabs model: v3 (default; performs [sigh]/[excited]-style tags, ~1 s to first audio) "
+                        "or flash (~0.25 s, tags stripped). Full model ids also accepted.")
     p.add_argument("--llm", default="claude", choices=["claude", "openai"],
                    help="Which brain answers: claude (default) or openai (for comparison)")
     p.add_argument("--model", default=None,

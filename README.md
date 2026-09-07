@@ -195,7 +195,7 @@ first audio). Options:
   `--list-devices` shows them. Numbers work too but shift when devices are plugged in.
 - `--mic-test` — print levels and transcripts only, to check a mic before going live
 - `--tts elevenlabs --voice <id>` — ElevenLabs voice (needs `ELEVENLABS_API_KEY`)
-- `--tts-model eleven_flash_v2_5` — faster ElevenLabs model (~0.5 s quicker than the default v3; tags stripped)
+- `--tts-model flash` — the fast ElevenLabs model (~0.25 s to first audio versus ~1 s for the default v3; tags stripped)
 - `--fixed-fps` — pin the frame rate. By default a frame governor steps the face down to 45/30/20/15 fps
   when frames run over budget (a busy Pi) and back up once there is headroom; lip sync is unaffected
   because timing comes from the audio clock. The debug overlay shows the current target.
@@ -524,7 +524,7 @@ Tweak `face.json` without re-exporting PNGs:
 - **`anchor_cx`, `anchor_cy`** — mouth position (also affects procedural fallback)
 - **`offset_x`, `offset_y`** — shift mouth art without changing the anchor
 - **`voices`** — default TTS voice per backend, e.g. `{"elevenlabs": "<voice id>", "edge": "en-US-AriaNeural"}`; `--voice` overrides
-- **`tts_model`** — default ElevenLabs model for this face (e.g. `"eleven_v3"`); `--tts-model` overrides
+- **`tts_model`** — ElevenLabs model for this face: `"v3"` (performs tags, ~1 s to first audio) or `"flash"` (~0.25 s, tags stripped); `--tts-model` overrides
 - **`character.md`** (a file next to face.json) — the personality: who the character is, traits, tone, boundaries. Concatenated with the shared `llm_integration/system_prompt.md` at runtime, so the shared file holds delivery rules and the face folder holds only personality. `--character` on the command line overrides it for one run
 - **`gaze`** / **`blink_interval`** / **`blink_speed`** / **`eye_speech_pulse`** — idle glances, blink timing, and eye pulse while speaking (image and procedural eyes)
 - **`textured_eye`** — live eyes composed from parts in a folder (`{"dir": "eye", "size": 224, "gaze_radius": 0.35, "pupil": [min, base, max], "lid_tracking": 0.35}`): the pupil and iris move inside a fixed outline on saccades, the pupil dilates with emotion, the upper lid follows the gaze, blinks close fast and open slow. Parts: `iris.png` (polar strip), `pupilMap.png`, `lid-upper.png`, `lid-lower.png`, optional `sclera.png` and `highlight.png`. Any Adafruit Uncanny Eyes design folder works as-is

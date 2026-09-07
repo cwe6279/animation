@@ -297,6 +297,14 @@ class _AlignmentWordizer:
         return [wb]
 
 
+MODEL_ALIASES = {
+    "flash": "eleven_flash_v2_5",     # ~0.25 s to first audio; tags stripped
+    "turbo": "eleven_turbo_v2_5",
+    "v3": "eleven_v3",                # performs [tags]; ~1 s to first audio
+    "multilingual": "eleven_multilingual_v2",
+}
+
+
 class ElevenLabsBackend(TTSBackend):
     """
     Uses the multi-context-free "stream-input" websocket:
@@ -319,7 +327,7 @@ class ElevenLabsBackend(TTSBackend):
                  api_key: Optional[str] = None, stability: float = 0.5,
                  similarity: float = 0.75, speed: Optional[float] = None):
         self.voice_id = voice
-        self.model = model
+        self.model = MODEL_ALIASES.get(model.lower(), model)
         self.speed = speed          # 0.7-1.2; honoured by Flash/Turbo, ignored by v3
         self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
         if not self.api_key:
@@ -330,7 +338,7 @@ class ElevenLabsBackend(TTSBackend):
         # (403), so it goes through the HTTP streaming endpoint with timestamps,
         # one request per sentence. Flash/Turbo use the websocket and get tags
         # stripped (they would read them aloud).
-        self.supports_audio_tags = model.startswith("eleven_v3")
+        self.supports_audio_tags = self.model.startswith("eleven_v3")
         self.transport = "http" if self.supports_audio_tags else "ws"
 
     def _voice_settings(self) -> dict:

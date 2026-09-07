@@ -395,7 +395,7 @@ def main(argv=None) -> int:
     parser.add_argument("--voice", type=str, default=None,
                         help="Voice name/id for the backend (edge: en-US-GuyNeural, elevenlabs: voice id)")
     parser.add_argument("--tts-model", type=str, default=None,
-                        help="ElevenLabs model: eleven_flash_v2_5 (default) or eleven_v3 (performs audio tags)")
+                        help="ElevenLabs model: v3 (performs audio tags) or flash (fastest); full ids accepted")
     parser.add_argument("--sync-offset", type=float, default=0.0,
                         help="Seconds to shift the face relative to audio (+ later, - earlier)")
     parser.add_argument("--lead", type=float, default=0.04,
