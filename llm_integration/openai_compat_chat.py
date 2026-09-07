@@ -17,9 +17,9 @@ from typing import Iterator, List, Optional
 from openai import OpenAI
 
 try:
-    from .claude_chat import VISION_RULES, VOICE_RULES, load_system_prompt
+    from .claude_chat import VISION_RULES, VOICE_RULES, WAKE_RULES, load_system_prompt
 except ImportError:
-    from claude_chat import VISION_RULES, VOICE_RULES, load_system_prompt
+    from claude_chat import VISION_RULES, VOICE_RULES, WAKE_RULES, load_system_prompt
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 
@@ -27,12 +27,14 @@ OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 class OpenAICompatChat:
     def __init__(self, model: str, api_key: Optional[str], base_url: Optional[str] = None,
                  character: Optional[str] = None, max_history: int = 20, client=None,
-                 temperature: float = 0.8, name: str = "openai", can_see: bool = False):
+                 temperature: float = 0.8, name: str = "openai", can_see: bool = False,
+                 wake_mode: bool = False):
         self.name = name
         self.model = model
         self.max_history = max_history
         self.temperature = temperature
-        self.system = load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
+        self.system = (load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
+                       + (WAKE_RULES if wake_mode else ""))
         if character:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []

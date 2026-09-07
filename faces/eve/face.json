@@ -71,5 +71,9 @@
     "style": "rounded",
     "n_teeth": 0
   },
-  "eye_lids": true
+  "eye_lids": true,
+  "wake_words": [
+    "eve",
+    "hey eve"
+  ]
 }

@@ -75,5 +75,10 @@
     ],
     "speed": 2.5,
     "while_speaking": 0.3
-  }
+  },
+  "wake_words": [
+    "cat",
+    "kitty",
+    "hey cat"
+  ]
 }

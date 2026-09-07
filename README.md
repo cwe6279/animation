@@ -233,6 +233,22 @@ e.g. `--model claude-haiku-4-5` for a faster brain. Tested on a Pi 5 with
 4 GB or more; a Pi 4 works but everything local is about twice as slow.
 Cloud stages cost the same on a Pi as on a desktop.
 
+### Wake mode (kiosks: wait to be called by name)
+
+```bash
+python voice_loop.py --face eve --wake                    # wake words from face.json, else the face name
+python voice_loop.py --face eve --wake-word "eve, hey eve, hello eve"
+```
+
+With `--wake` the character stays dormant: it listens and, if vision is on,
+keeps watching, but answers nothing until a wake word is heard (tolerant of
+mis-hearings like "eave"). Whatever follows the name in the same sentence is
+answered at once; the name alone gets a reply to being called. It goes
+dormant again after `--idle-timeout` seconds of silence (45) or when the brain
+ends the conversation: the prompt asks it to finish a farewell with the marker
+`[end]`, which the loop strips before the voice. `wake_words` in face.json
+sets the defaults per character; `--profile pi` turns wake mode on.
+
 ### Vision (optional, off unless `--camera` is given)
 
 ```bash

@@ -28,7 +28,7 @@ import re
 import sys
 import threading
 import time
-from typing import Callable, Iterable, Iterator, Optional
+from typing import Callable, Iterable, Iterator, List, Optional, Tuple
 
 from stt_backends import STTBackend, Transcript
 
@@ -50,15 +50,27 @@ class VoiceLoop:
     """
 
     GRACE_AFTER_SPEECH = 0.35      # seconds to keep ignoring the mic after playback ends
+    END_MARKER = "[end]"           # the brain appends this when the conversation is over
 
     def __init__(self, stt: STTBackend, llm_reply: Callable[[str], Iterator[str]],
                  speaker: Speaker, barge_in: bool = False,
-                 on_event: Optional[Callable[[str, str], None]] = None):
+                 on_event: Optional[Callable[[str, str], None]] = None,
+                 wake_words: Optional[List[str]] = None, idle_timeout: float = 45.0,
+                 clock=time.monotonic):
         self.stt = stt
         self.llm_reply = llm_reply
         self.speaker = speaker
         self.barge_in = barge_in
         self.on_event = on_event or (lambda kind, text: print(f"[{kind}] {text}"))
+        self.clock = clock
+        # Wake mode: with wake words set, nothing is answered until one is heard;
+        # after `idle_timeout` s of silence, or when the brain ends the chat, go dormant again.
+        # longest phrases first so "hey eve" wins over "eve"
+        self.wake_words = sorted({w.strip().lower() for w in (wake_words or []) if w.strip()},
+                                 key=lambda w: (-len(w.split()), -len(w)))
+        self.idle_timeout = idle_timeout
+        self.engaged = not self.wake_words
+        self._last_activity = self.clock()
         self._lock = threading.Lock()
         self._thinking = False
         self._last_busy = 0.0
@@ -95,6 +107,7 @@ class VoiceLoop:
 
     def _process(self, pcm: bytes) -> None:
         self._last_audio_in = time.monotonic()
+        self.tick()
         busy = self.speaker.is_busy or self._thinking
         now = time.monotonic()
         if busy:
@@ -120,6 +133,8 @@ class VoiceLoop:
         self._was_speaking = speaking
         if t is None:
             return
+        if speaking and self.engaged:
+            self._last_activity = self.clock()
         if not t.final:
             if t.text != self._partial:
                 self._partial = t.text
@@ -131,9 +146,62 @@ class VoiceLoop:
                                    - getattr(self.stt, "last_transcribe_s", 0.0))
             self.on_user_text(t.text.strip())
 
+    # ── wake mode ───────────────────────────────────────
+    @staticmethod
+    def _norm(text: str) -> List[str]:
+        return re.sub(r"[^a-z0-9' ]+", " ", text.lower()).split()
+
+    def find_wake_word(self, text: str) -> Optional[Tuple[int, int]]:
+        """(start, end) token span of a wake word in text, tolerant of small mis-hearings."""
+        import difflib
+        words = self._norm(text)
+        for wake in self.wake_words:
+            wtoks = wake.split()
+            n = len(wtoks)
+            for i in range(len(words) - n + 1):
+                window = words[i:i + n]
+                if window == wtoks:
+                    return (i, i + n)
+                # short names get mangled by STT ("eve" -> "eave"/"if"); allow near matches
+                if n == 1 and len(wtoks[0]) >= 3 and difflib.SequenceMatcher(None, window[0], wtoks[0]).ratio() >= 0.75:
+                    return (i, i + 1)
+                if n > 1 and difflib.SequenceMatcher(None, " ".join(window), wake).ratio() >= 0.85:
+                    return (i, i + n)
+        return None
+
+    def engage(self, reason: str = "") -> None:
+        if not self.engaged:
+            self.engaged = True
+            self.on_event("mode", f"engaged{(' (' + reason + ')') if reason else ''}")
+        self._last_activity = self.clock()
+
+    def disengage(self, reason: str = "") -> None:
+        if self.engaged and self.wake_words:
+            self.engaged = False
+            self.on_event("mode", f"dormant, listening for {', '.join(repr(w) for w in self.wake_words)}"
+                                  f"{(' (' + reason + ')') if reason else ''}")
+
+    def tick(self) -> None:
+        """Idle timeout check; called per audio chunk."""
+        if self.engaged and self.wake_words and not self.speaker.is_busy and not self._thinking:
+            if self.clock() - self._last_activity > self.idle_timeout:
+                self.disengage(f"quiet for {self.idle_timeout:.0f}s")
+
     # ── one turn ────────────────────────────────────────
     def on_user_text(self, text: str) -> None:
         """Handle a finished user utterance (also used by --text-only)."""
+        if self.wake_words:
+            span = self.find_wake_word(text)
+            if not self.engaged:
+                if span is None:
+                    self.on_event("ignored", text)          # dormant: not for us
+                    return
+                words = self._norm(text)
+                rest = " ".join(words[:span[0]] + words[span[1]:]).strip()
+                self.engage("heard the wake word")
+                text = rest if rest else f"{self.wake_words[-1].title()}?"     # shortest = the name
+            else:
+                self._last_activity = self.clock()
         with self._lock:
             if self._thinking:
                 return
@@ -142,10 +210,30 @@ class VoiceLoop:
         self.on_event("you", text)
         threading.Thread(target=self._answer, args=(text,), daemon=True, name="llm-turn").start()
 
+    def _strip_end_marker(self, chunks: Iterator[str]) -> Iterator[str]:
+        """Remove [end] from the stream (it may straddle chunks) and disengage if seen."""
+        buf = ""
+        keep = len(self.END_MARKER) - 1
+        for chunk in chunks:
+            buf += chunk
+            if self.END_MARKER in buf.lower():
+                idx = buf.lower().index(self.END_MARKER)
+                out, buf = buf[:idx], buf[idx + len(self.END_MARKER):]
+                self._ended = True
+                if out:
+                    yield out
+                continue
+            if len(buf) > keep:
+                yield buf[:-keep]
+                buf = buf[-keep:]
+        if buf:
+            yield buf
+
     VISUAL_RE = re.compile(r"\b(see|look|watch|holding|hold|wearing|wear|this|that|these|expression|"
                            r"face|colou?r|what am i|who am i|how many|show|showing|picture|drawing)\b", re.I)
 
     def _answer(self, text: str) -> None:
+        self._ended = False
         # A visual question: give the in-flight burst time to land first (capture ~0.5 s
         # + vision model ~2.3 s, minus what already elapsed while the visitor spoke).
         if self.vision is not None and self._vision_ticket is not None and self.VISUAL_RE.search(text):
@@ -174,7 +262,7 @@ class VoiceLoop:
         def timed_chunks():
             reply = []
             try:
-                for chunk in self.llm_reply(text):
+                for chunk in self._strip_end_marker(self.llm_reply(text)):
                     if stats["first_token_ms"] is None:
                         stats["first_token_ms"] = round((time.monotonic() - t_stop) * 1000)
                         self._thinking = False        # speaker is now busy; mic stays gated
@@ -185,7 +273,10 @@ class VoiceLoop:
                 yield "[sad]Sorry, I could not think of an answer just now."
             finally:
                 self._thinking = False
+                self._last_activity = self.clock()
                 self.on_event("bot", "".join(reply).strip())
+                if self._ended:
+                    self.disengage("the conversation ended")
 
 
         self.speaker.speak_stream(timed_chunks())
@@ -208,6 +299,7 @@ def apply_pi_profile(args) -> None:
         args.silence_ms = 500
     args.fullscreen = True
     args.thinking = False
+    args.wake = True                       # a kiosk waits to be called by name
     os.environ.setdefault("TALKER_FPS", "30")
     print(f"[profile] pi: stt={args.stt} llm={args.llm} fullscreen, 30 fps")
 
@@ -347,6 +439,14 @@ def main(argv=None) -> int:
                    help="Projection mode: fullscreen, face scaled to the display, no overlay or cursor (F toggles)")
     p.add_argument("--sync-offset", type=float, default=0.0)
     p.add_argument("--no-audio", action="store_true", help="No sound device (implies --text-only)")
+    p.add_argument("--wake", action="store_true",
+                   help="Wake mode: stay dormant until the character's name (or --wake-word) is heard; "
+                        "go dormant again after --idle-timeout seconds of silence or when the chat ends")
+    p.add_argument("--wake-word", default=None,
+                   help='Comma-separated wake words (implies --wake), e.g. "eve, hey eve". '
+                        "Default: the face's wake_words, else its name")
+    p.add_argument("--idle-timeout", type=float, default=45.0,
+                   help="Seconds of silence before returning to dormant in wake mode (default 45)")
     p.add_argument("--camera", default=None,
                    help='Turn on vision: camera name fragment ("c920") or index. Off unless given.')
     p.add_argument("--no-vision", action="store_true", help="Force vision off even if a profile or face enables it")
@@ -403,12 +503,17 @@ def main(argv=None) -> int:
     text_only = args.text_only or args.no_audio
 
     can_see = args.camera is not None and not args.no_vision
+    wake_words = None
+    if args.wake or args.wake_word:
+        wake_words = ([w for w in args.wake_word.split(",")] if args.wake_word
+                      else (m.wake_words or [m.name.replace("_", " ")]))
     if args.llm == "claude":
         chat = ClaudeChat(model=args.model or "claude-opus-5", effort=args.effort, character=character,
-                          thinking=bool(args.thinking), can_see=can_see)
+                          thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words))
     else:
         from llm_integration.openai_compat_chat import OpenAICompatChat
-        chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see)
+        chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see,
+                                       wake_mode=bool(wake_words))
     print(f"[voice] brain: {args.llm} {chat.model}{' (told it can see)' if can_see else ''}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps)
@@ -447,8 +552,11 @@ def main(argv=None) -> int:
             print(f"[error] vision unavailable: {e}")
             return 1
 
-    loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in)
+    loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in, wake_words=wake_words,
+                     idle_timeout=args.idle_timeout)
     loop.vision = watcher
+    if wake_words:
+        print(f"[mode] dormant, listening for {', '.join(repr(w) for w in loop.wake_words)}")
     app.on_submit = loop.on_user_text        # typed text goes through Claude too
 
     if stt is not None:

@@ -36,6 +36,12 @@ VOICE_RULES = (
     "one to three sentences, and answer first. No lists, no markdown."
 )
 
+WAKE_RULES = (
+    "\n\nVisitors start a conversation by saying your name. When a visitor says goodbye, thanks you "
+    "and leaves, or the conversation is clearly finished, say a short farewell and end your reply "
+    "with the exact marker [end] (it is not spoken). Otherwise never use that marker."
+)
+
 VISION_RULES = (
     "\n\nYou can see. Now and then an entry beginning 'You notice:' appears in the conversation. "
     "That is your own eyesight, an inner observation, not something anyone said and not text to "
@@ -63,12 +69,13 @@ class ClaudeChat:
     def __init__(self, model: str = "claude-opus-5", effort: str = "low",
                  character: Optional[str] = None, max_history: int = 20,
                  client: Optional[anthropic.Anthropic] = None, thinking: bool = True,
-                 can_see: bool = False):
+                 can_see: bool = False, wake_mode: bool = False):
         self.model = model
         self.effort = effort
         self.thinking = thinking     # False = no reasoning pass before answering (faster first token)
         self.max_history = max_history
-        self.system = load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
+        self.system = (load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
+                       + (WAKE_RULES if wake_mode else ""))
         if character:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []

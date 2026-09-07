@@ -82,5 +82,9 @@
     ],
     "lid_tracking": 0.35
   },
-  "tts_model": "v3"
+  "tts_model": "v3",
+  "wake_words": [
+    "dragon",
+    "hey dragon"
+  ]
 }
