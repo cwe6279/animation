@@ -228,6 +228,9 @@ class TalkerApp:
     def first_sentence_at(self) -> float:
         return self.pipeline.first_sentence_at if self.pipeline is not None else 0.0
 
+    def output_envelope(self) -> list:
+        return self.audio.output_envelope()
+
     def play_file(self, path: str) -> None:
         """Play a WAV with amplitude-driven mouth (no phoneme schedule)."""
         self._amplitude_mode = True

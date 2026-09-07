@@ -102,7 +102,11 @@ Rearrange until the speaker number is well below your own speaking level, then s
 
 **Barge-in checklist.** Run with `--barge-in --debug`. A barge-in needs half a second of
 continuous speech (`--barge-in-ms`) that is louder than the onset threshold times
-`--barge-in-boost` (2.5) while the character talks. If `[barge-in]` lines still appear while
+`--barge-in-boost` (2.5) while the character talks, and that does not follow the rhythm of
+what the speaker is playing: an echo guard compares the mic's loudness pattern with the
+outgoing audio and rejects matches (`[echo]` lines in the log). A USB speakerphone's own mic
+(the Jabra's, `--mic-device "jabra speak 510 mono"`) cancels its speaker in hardware and is
+worth trying when the mic and speaker cannot be separated. If `[barge-in]` lines still appear while
 it speaks and nobody is talking, raise the boost to 4, move or angle the mic, lower the
 volume, or drop back to half-duplex.
 

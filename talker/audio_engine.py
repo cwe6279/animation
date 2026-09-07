@@ -86,6 +86,9 @@ class BaseAudioEngine:
         """(rms, timeline_time) for the render loop."""
         return 0.0, self.timeline_time()
 
+    def output_envelope(self) -> list:
+        return []
+
     # -- lifecycle -----------------------------------------------------
     def open(self, sample_rate: Optional[int] = None) -> None: ...
     def close(self) -> None: ...
@@ -178,6 +181,8 @@ class AudioEngine(BaseAudioEngine):
         self._stream = None
         self._mic_stream = None
         self._mic_rms = 0.0
+        # (monotonic time, output RMS) per callback, last ~2 s: the playback envelope
+        self._out_env: "collections.deque[tuple]" = collections.deque(maxlen=150)
 
     # -- output stream -------------------------------------------------
     def open(self, sample_rate: Optional[int] = None) -> None:
@@ -260,6 +265,7 @@ class AudioEngine(BaseAudioEngine):
                 self._queue_end = self._frames_out
             self._last_cb = time.monotonic()
             self._rms = _rms_int16(bytes(out)) if len(out) > need else 0.0
+            self._out_env.append((self._last_cb, self._rms))
         return (bytes(out), pyaudio.paContinue)
 
     def enqueue_pcm(self, pcm: bytes, input_rate: Optional[int] = None) -> float:
@@ -294,6 +300,11 @@ class AudioEngine(BaseAudioEngine):
         with self._lock:
             rms = max(self._rms, self._mic_rms)
         return rms, self.timeline_time()
+
+    def output_envelope(self) -> list:
+        """[(time, rms), ...] of what the speaker played recently (for echo detection)."""
+        with self._lock:
+            return list(self._out_env)
 
     # -- mic input (amplitude mode) -----------------------------------
     def resolve_device(self, spec, kind: str) -> Optional[int]:
@@ -415,6 +426,59 @@ class AudioEngine(BaseAudioEngine):
             self._pa.terminate()
         except Exception:
             pass
+
+
+
+# ─────────────────────────────────────────────────────
+# ECHO GUARD  (is the mic just hearing the speaker?)
+# ─────────────────────────────────────────────────────
+class EchoGuard:
+    """
+    Compares the mic loudness envelope with the speaker's output envelope over
+    the last second or so. Echo rises and falls with the playback (after a
+    small delay); a person talking over the character does not. Returns the
+    best normalised correlation over lags 0-300 ms; above ~0.5 treat the mic
+    as echo.
+    """
+
+    def __init__(self, window_s: float = 1.2, max_lag_s: float = 0.3, step_s: float = 0.02):
+        self.window_s = window_s
+        self.max_lag_s = max_lag_s
+        self.step_s = step_s
+        self._mic: "collections.deque[tuple]" = collections.deque(maxlen=int(window_s / 0.01) + 50)
+
+    def add_mic(self, t: float, rms: float) -> None:
+        self._mic.append((t, rms))
+
+    @staticmethod
+    def _resample(points, t0, t1, step):
+        if not points:
+            return None
+        ts = np.array([p[0] for p in points]); vs = np.array([p[1] for p in points], dtype=np.float32)
+        grid = np.arange(t0, t1, step)
+        if grid.size < 8:
+            return None
+        return np.interp(grid, ts, vs, left=0.0, right=0.0)
+
+    def correlation(self, out_env, now: float) -> float:
+        if len(self._mic) < 8 or len(out_env) < 8:
+            return 0.0
+        t0, t1 = now - self.window_s, now
+        mic = self._resample(list(self._mic), t0, t1, self.step_s)
+        if mic is None or mic.std() < 1e-3:
+            return 0.0
+        best = 0.0
+        lags = int(self.max_lag_s / self.step_s)
+        for lag in range(0, lags + 1):
+            out = self._resample(out_env, t0 - lag * self.step_s, t1 - lag * self.step_s, self.step_s)
+            if out is None or out.std() < 1e-3:
+                continue
+            n = min(len(mic), len(out))
+            a = mic[:n] - mic[:n].mean(); b = out[:n] - out[:n].mean()
+            denom = float(np.sqrt((a * a).sum() * (b * b).sum()))
+            if denom > 0:
+                best = max(best, float((a * b).sum() / denom))
+        return best
 
 
 # ─────────────────────────────────────────────────────

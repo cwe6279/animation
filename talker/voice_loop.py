@@ -73,6 +73,9 @@ class VoiceLoop:
         self.barge_in_boost = barge_in_boost
         self._barge_since: Optional[float] = None
         self._gated = False
+        from .audio_engine import EchoGuard
+        self._echo = EchoGuard()
+        self.echo_threshold = 0.5      # mic/speaker envelope correlation above this = the character's own voice
         self.on_event = on_event or (lambda kind, text: print(f"[{kind}] {text}"))
         self.clock = clock
         # Wake mode: with wake words set, nothing is answered until one is heard;
@@ -137,12 +140,21 @@ class VoiceLoop:
                 self.stt.set_playback_gate(self.barge_in_boost)
                 self._gated = True
             t = self.stt.feed(pcm)
+            import numpy as _np
+            frame = _np.frombuffer(pcm, dtype=_np.int16).astype(_np.float32)
+            self._echo.add_mic(now, float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0)
             talking = bool(getattr(self.stt, "speech_active", False)) or bool(t and t.text)
             if talking:
                 if self._barge_since is None:
                     self._barge_since = now
                 elif (now - self._barge_since) * 1000 >= self.barge_in_ms:
-                    self.on_event("barge-in", t.text if t and t.text else f"speech for {self.barge_in_ms} ms")
+                    env = getattr(self.speaker, "output_envelope", None)
+                    corr = self._echo.correlation(env(), now) if env else 0.0
+                    if corr >= self.echo_threshold:
+                        self.on_event("echo", f"mic follows the speaker (corr {corr:.2f}); not a barge-in")
+                        self._barge_since = None          # start over; a person will break the pattern
+                        return
+                    self.on_event("barge-in", t.text if t and t.text else f"speech for {self.barge_in_ms} ms (corr {corr:.2f})")
                     self.speaker.interrupt()
                     self._last_busy = 0.0
                     self._barge_since = None

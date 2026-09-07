@@ -189,3 +189,18 @@ def test_energy_endpointer_handles_noisy_room():
         out = out or ep.feed(noise())
     assert out is not None and not ep.active
     assert len(out) // 2 >= 20 * frame        # the speech is in there
+
+
+def test_echo_guard_tells_echo_from_a_person():
+    import math
+    from talker.audio_engine import EchoGuard
+    # speaker envelope: a 3 Hz syllable rhythm
+    out = [(t / 100.0, 1000 + 800 * math.sin(2 * math.pi * 3 * t / 100.0)) for t in range(0, 150)]
+    echo = EchoGuard()
+    for t, v in out:
+        echo.add_mic(t + 0.06, v * 0.3 + 50)                 # same rhythm, 60 ms late, quieter
+    assert echo.correlation(out, 1.5) > 0.8
+    person = EchoGuard()
+    for t in range(0, 150):
+        person.add_mic(t / 100.0, 1500 + 700 * math.sin(2 * math.pi * 1.3 * t / 100.0 + 1.0))   # a different rhythm
+    assert person.correlation(out, 1.5) < 0.5
