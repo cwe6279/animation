@@ -22,15 +22,15 @@
   ],
   "eye_left": {
     "image": "eye_left.png",
-    "cx": 285,
+    "cx": 235,
     "cy": 350,
-    "scale": 0.68
+    "scale": 0.62
   },
   "eye_right": {
     "image": "eye_right.png",
-    "cx": 515,
+    "cx": 565,
     "cy": 350,
-    "scale": 0.68
+    "scale": 0.62
   },
   "blink": true,
   "blink_interval": [

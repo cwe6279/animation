@@ -103,9 +103,12 @@ def main() -> int:
     p.add_argument("--size", type=int, default=400)
     p.add_argument("--pupil", type=float, default=0.22, help="pupil size as a fraction of the distance field")
     p.add_argument("--lid-open", type=float, default=0.55, help="lid mask threshold; higher = more almond-shaped")
+    p.add_argument("--aspect", type=float, default=1.0, help="width multiplier, e.g. 0.8 makes a narrower eye")
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
     right = render_eye(args.src, args.size, args.pupil, args.lid_open)
+    if args.aspect != 1.0:
+        right = right.resize((max(1, int(args.size * args.aspect)), args.size), Image.LANCZOS)
     right.save(os.path.join(args.out, "eye_right.png"))
     right.transpose(Image.FLIP_LEFT_RIGHT).save(os.path.join(args.out, "eye_left.png"))
     print(f"wrote {args.out}/eye_left.png and eye_right.png ({args.size}x{args.size})")
