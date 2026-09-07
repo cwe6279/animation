@@ -60,6 +60,31 @@ speak.py                 <- launcher: python speak.py --text "..." (was talker.p
 ROADMAP.md  requirements.txt  .env.example
 ```
 
+## Hardware
+
+Tested with: a Logitech C920 webcam, a Samson Go Mic (USB condenser), a Jabra Speak 510
+(USB speakerphone) on a Fedora desktop; a Raspberry Pi 5 is the intended kiosk box.
+
+| Setup | Needs | Notes |
+|-------|-------|-------|
+| **Desktop, developing** | any USB mic and speaker, optional webcam | Local Whisper is fine here. A speakerphone like the Jabra is handy but it hears itself, so keep half-duplex (the default). |
+| **Doorstep or room prop** | projector (or any display), a **separate** directional mic and speaker, optional webcam, internet | Separate mic and speaker are what make `--barge-in` possible: point the mic at the visitors and put the speaker behind or beside it, facing away. Aim for a mic level of 500-5,000 on `--mic-test` when someone talks at visitor distance. |
+| **Raspberry Pi 5 kiosk** | Pi 5 with 4 GB or more, USB mic and speaker (or a USB audio interface), HDMI projector, camera (USB or Pi camera), internet | Use `--profile pi`: recognition and everything heavy run in the cloud. Local Whisper takes seconds per turn on a Pi; Vosk is the only workable local option. Pi 4 works at about half the speed. Wi-Fi setup without a keyboard is on the roadmap. |
+
+**Placement.** Camera at the visitors' eye level, wide enough to see a small group and what
+they hold up; it only needs to see people, not the projection. Keep the projected face out
+of the camera's view or it may describe itself. Mic within about a metre of where people
+stand; a USB condenser or a small shotgun mic beats a laptop mic. Speaker volume moderate:
+loud speakers make the mic hear the character, which defeats barge-in and can trigger
+false wake-ups.
+
+**Projection.** Black background, `--fullscreen`, face scaled to the display; any projector
+works, brighter helps outdoors. Set `fps` to 30 in the face for a Pi.
+
+**Barge-in checklist.** Run with `--barge-in --debug`; if `[barge-in]` lines appear while the
+character speaks and nobody is talking, the mic still hears the speaker: move or angle it,
+lower the volume, or drop back to half-duplex.
+
 ## Configuration at a glance
 
 Four areas, each with a default that works out of the box and options you switch with a flag

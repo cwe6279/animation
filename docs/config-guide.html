@@ -145,6 +145,7 @@
   <div class="brand"><span></span>Talker</div>
   <ol>
     <li><a href="#pipeline">What runs where</a></li>
+    <li><a href="#hardware">Hardware</a></li>
     <li><a href="#start">Starting it</a></li>
     <li><a href="#areas">Listening, vision, brain, speech</a></li>
     <li><a href="#faces">Character library</a></li>
@@ -182,6 +183,20 @@
     <div class="step cloud"><span class="where">optional, cloud</span>Scene notes from the camera <br><code>--camera</code></div>
   </div>
   <p>The face starts speaking the first sentence while the brain is still writing the rest. Every turn prints one <code>[turn]</code> line in the terminal: time from when you stopped talking to the transcript, to the first token, to the first audio. That line is the number to tune against.</p>
+</section>
+
+<section id="hardware">
+  <div class="eyebrow">Hardware</div>
+  <h2>What to plug in</h2>
+  <p>Tested with a Logitech C920 webcam, a Samson Go Mic USB condenser and a Jabra Speak 510 speakerphone on a Fedora desktop; a Raspberry Pi 5 is the intended kiosk box.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Setup</th><th>Needs</th><th>Notes</th></tr>
+    <tr><td>Desktop, developing</td><td>Any USB mic and speaker, optional webcam</td><td>Local Whisper is fine. A speakerphone hears itself, so keep half-duplex, the default.</td></tr>
+    <tr><td>Doorstep or room prop</td><td>Projector or display, a <strong>separate</strong> directional mic and speaker, optional webcam, internet</td><td>Separate mic and speaker are what make <code>--barge-in</code> possible: mic pointed at the visitors, speaker behind or beside it facing away. Aim for a level of 500 to 5,000 on <code>--mic-test</code> at visitor distance.</td></tr>
+    <tr><td>Raspberry Pi 5 kiosk</td><td>Pi 5 with 4 GB or more, USB mic and speaker or a USB audio interface, HDMI projector, camera, internet</td><td><code>--profile pi</code>: recognition and everything heavy run in the cloud. Local Whisper takes seconds per turn on a Pi. Pi 4 runs at about half speed. Keyboard-free Wi-Fi setup is on the roadmap.</td></tr>
+  </table></div>
+  <p><strong>Placement.</strong> Camera at the visitors' eye level, wide enough for a small group and whatever they hold up; keep the projected face out of its view or it may describe itself. Mic within about a metre of where people stand. Speaker volume moderate: a loud speaker makes the mic hear the character, which defeats barge-in and can cause false wake-ups.</p>
+  <p><strong>Barge-in check.</strong> Run with <code>--barge-in --debug</code>. If <code>[barge-in]</code> lines appear while the character speaks and nobody is talking, the mic still hears the speaker: move or angle it, lower the volume, or go back to half-duplex.</p>
 </section>
 
 <section id="start">
