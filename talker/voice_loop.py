@@ -430,6 +430,21 @@ def mic_tools(args) -> int:
 
     audio.start_mic(on_frames=on_frames, rate=stt.sample_rate, device=args.mic_device, open_rate=args.mic_rate)
     pipeline = None
+    if args.calibrate:
+        import os as _os
+        from .calibrate import run_calibration
+        from .phoneme_scheduler import ScheduleReader
+        from .speech_pipeline import SpeechPipeline
+        from .tts_backends import make_backend
+        tts = (args.tts or ("elevenlabs" if _os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
+        pipeline = SpeechPipeline(audio, ScheduleReader(), make_backend(tts, voice=args.voice, model=args.tts_model))
+        pipeline.start()
+        try:
+            run_calibration(audio, pipeline.speak, lambda: pipeline.is_busy, args.mic_device, args.output_device)
+        finally:
+            pipeline.stop()
+            audio.close()
+        return 0
     if args.play:
         import os as _os
         from .phoneme_scheduler import ScheduleReader
@@ -483,6 +498,9 @@ def main(argv=None) -> int:
     p.add_argument("--mic-rate", type=int, default=None, help="Force the device to open at this rate")
     p.add_argument("--output-device", default=None, help="Output device: name fragment (\"jabra\") or index")
     p.add_argument("--list-devices", action="store_true", help="List input and output devices and exit")
+    p.add_argument("--calibrate", action="store_true",
+                   help="Guided check of a mic/speaker setup: room, speaker bleed, a person; writes calibration.json "
+                        "whose values become the defaults for --mic-device/--output-device/--barge-in-boost")
     p.add_argument("--mic-test", action="store_true",
                    help="Only print what the mic hears (levels + transcripts); no Claude, no voice")
     p.add_argument("--play", default=None, metavar="TEXT",
@@ -511,7 +529,7 @@ def main(argv=None) -> int:
     p.add_argument("--barge-in", action="store_true", help="Interrupt playback when you start talking")
     p.add_argument("--barge-in-ms", type=int, default=500,
                    help="Continuous speech needed before a barge-in interrupts (default 500 ms)")
-    p.add_argument("--barge-in-boost", type=float, default=2.5,
+    p.add_argument("--barge-in-boost", type=float, default=None,
                    help="How much louder than usual speech must be, while the character talks, to count "
                         "(multiplier on the onset threshold; default 2.5; raise if it still cuts itself off)")
     p.add_argument("--text-only", action="store_true", help="Type in the window instead of using the mic")
@@ -550,6 +568,21 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     if args.profile == "pi":
         apply_pi_profile(args)
+    # calibration.json (from --calibrate) supplies defaults for what was not given explicitly
+    from .calibrate import load_calibration
+    cal = load_calibration()
+    if cal:
+        used = []
+        if args.mic_device is None and cal.get("mic_device"):
+            args.mic_device = cal["mic_device"]; used.append(f"mic {cal['mic_device']}")
+        if args.output_device is None and cal.get("output_device"):
+            args.output_device = cal["output_device"]; used.append(f"output {cal['output_device']}")
+        if args.barge_in_boost is None and cal.get("barge_in_boost"):
+            args.barge_in_boost = float(cal["barge_in_boost"]); used.append(f"barge-in boost {cal['barge_in_boost']}")
+        if used:
+            print(f"[calibration] using {', '.join(used)} from calibration.json ({cal.get('time', '')})")
+    if args.barge_in_boost is None:
+        args.barge_in_boost = 2.5
 
     import pygame
     from .face_asset_loader import FaceAssetLoader, default_manifest
@@ -564,7 +597,7 @@ def main(argv=None) -> int:
         for c in cams:
             print(f"  [{c['index']}] {c['name']}  ({c['path']})")
         return 0
-    if args.list_devices or args.mic_test:
+    if args.list_devices or args.mic_test or args.calibrate:
         return mic_tools(args)
 
     pygame.display.init()

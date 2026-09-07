@@ -86,7 +86,15 @@ false wake-ups.
 **Projection.** Black background, `--fullscreen`, face scaled to the display; any projector
 works, brighter helps outdoors. Set `fps` to 30 in the face for a Pi.
 
-**Measuring speaker bleed.** `python voice_loop.py --mic-test --mic-device gomic --output-device jabra --play "Testing one two three, can you hear me?"`
+**Calibrating a new setup (recommended first step).**
+`python voice_loop.py --calibrate --mic-device gomic --output-device jabra` measures the room,
+plays the character through the speaker and measures the bleed into the mic, then asks you to
+talk from the visitor spot. It tells you whether barge-in is viable, recommends
+`--barge-in-boost`, flags mic gain that is too low or too hot, and saves everything to
+`calibration.json` (per machine, gitignored). From then on `voice_loop.py` uses those devices
+and that boost as defaults whenever the flags are not given.
+
+**Measuring speaker bleed by hand.** `python voice_loop.py --mic-test --mic-device gomic --output-device jabra --play "Testing one two three, can you hear me?"`
 plays the character's voice three times through the speaker while printing the mic level; lines
 tagged `speaker` are what the mic hears from the speaker, lines tagged `mic` are the room and you.
 Rearrange until the speaker number is well below your own speaking level, then set

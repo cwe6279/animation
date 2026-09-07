@@ -46,3 +46,6 @@ recordings/
 
 # Session logs (contain transcripts of conversations)
 logs/
+
+# Per-machine mic/speaker calibration (voice_loop.py --calibrate)
+calibration.json
