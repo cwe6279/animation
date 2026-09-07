@@ -238,16 +238,16 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     </div>
     <div class="face">
       <div class="name" style="color: #B4C0D2"><span class="dot"></span><span style="color: var(--ink)">goat</span></div>
-      <div class="meta">Bar-pupil eyes rendered from an Adafruit Uncanny Eyes design; procedural mouth.</div>
+      <div class="meta">Live textured eyes from an Adafruit Uncanny Eyes design: bar pupils that move, dilate and track the lids. Procedural mouth.</div>
       <div class="meta">Persona: friendly old farm goat, snack-obsessed. Voice id still needed.</div>
     </div>
     <div class="face">
       <div class="name" style="color: #FF7814"><span class="dot"></span><span style="color: var(--ink)">dragon</span></div>
-      <div class="meta">Slit-pupil molten eyes from Uncanny Eyes; six-tooth procedural jaw.</div>
+      <div class="meta">Live textured slit-pupil eyes from Uncanny Eyes; six-tooth procedural jaw.</div>
       <div class="meta">Persona: ancient gentle dragon who guards a library. Voice id still needed.</div>
     </div>
   </div>
-  <p>Any design from the Uncanny Eyes project converts the same way: <code>python faces/tools/uncanny_eye.py &lt;its convert/&lt;eye&gt; folder&gt; faces/&lt;name&gt;</code>. Emotion squish, tilt, blinks and glances apply to these eyes like any other art eye.</p>
+  <p>Any design from the Uncanny Eyes project works as-is: copy its <code>convert/&lt;eye&gt;</code> parts into <code>faces/&lt;name&gt;/eye/</code> and add a <code>textured_eye</code> block to face.json. The pupil and iris then move on saccades, dilate with emotion (surprise wide, anger a hairline), and the upper lid follows a downward gaze; our squish and tilt still apply on top.</p>
   <div class="tweak"><strong>Most-tweaked fields:</strong> <code>character.md</code> (personality), <code>voices.elevenlabs</code> (voice id), <code>glow_color</code>, <code>gaze.amount</code>, and the eye and mouth <code>cx</code>/<code>cy</code> positions.</div>
 </section>
 
@@ -271,6 +271,7 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     <tr><td><code>blink</code>, <code>blink_interval</code>, <code>blink_speed</code></td><td>Blink on/off, random gap in seconds, snappiness. Emotions scale the gap: surprise blinks rarely, sad often.</td><td>true, [2.5, 5.5], 9</td></tr>
     <tr><td><code>gaze</code></td><td>Idle glances: <code>amount</code> px, <code>interval</code> s, <code>speed</code>, and <code>while_speaking</code> 0 to 1 to damp movement while talking. Omit for none.</td><td>amount 12 to 22</td></tr>
     <tr><td><code>eye_speech_pulse</code></td><td>Eyes grow by this fraction when the mouth is fully open. For faces without a mouth.</td><td>0 to 0.15</td></tr>
+    <tr><td><code>textured_eye</code></td><td>Live eyes from parts in <code>dir</code>: <code>size</code> render pixels, <code>gaze_radius</code> how far the pupil wanders, <code>pupil</code> [min, base, max] size, <code>lid_tracking</code> how much the upper lid follows a downward gaze. Replaces <code>gaze</code>/blink settings for that face.</td><td>size 224, radius 0.35</td></tr>
     <tr><td><code>mouth</code></td><td><code>anchor_cx</code>/<code>anchor_cy</code>, <code>min_w</code>/<code>max_w</code>, <code>style</code> toothed or rounded, <code>n_teeth</code>, <code>color</code>, <code>scale</code>/<code>offset_x</code>/<code>offset_y</code> for PNG mouths, <code>opacity</code>. Opacity 0 removes the mouth entirely.</td><td>style rounded</td></tr>
     <tr><td><code>mouth_images</code></td><td>Map of viseme key to PNG. Six images cover all twelve mouth shapes.</td><td>sil, pp, aa, oo, ee, ah</td></tr>
     <tr><td><code>nose</code>, <code>draw_nose</code></td><td>Nose PNG, or a procedural triangle.</td><td>off</td></tr>

@@ -24,13 +24,13 @@
     "image": "eye_left.png",
     "cx": 235,
     "cy": 350,
-    "scale": 0.62
+    "scale": 1.1071428571428572
   },
   "eye_right": {
     "image": "eye_right.png",
     "cx": 565,
     "cy": 350,
-    "scale": 0.62
+    "scale": 1.1071428571428572
   },
   "blink": true,
   "blink_interval": [
@@ -69,5 +69,17 @@
   },
   "voices": {
     "edge": "en-GB-ThomasNeural"
+  },
+  "textured_eye": {
+    "dir": "eye",
+    "size": 224,
+    "lid_open": 0.55,
+    "gaze_radius": 0.3,
+    "pupil": [
+      0.12,
+      0.2,
+      0.36
+    ],
+    "lid_tracking": 0.35
   }
 }

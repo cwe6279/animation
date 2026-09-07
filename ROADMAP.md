@@ -59,16 +59,16 @@ Ideas agreed on but not built yet, roughly in priority order.
 - Art from image models via `faces/ART_SPEC.md` (the locked spec).
 
 ## Eyes (studied Adafruit Uncanny Eyes, Sept 2026)
-- **Motion model for every face**: saccade-and-hold (hold 0-3 s, jump in
-  72-144 ms with smoothstep), asymmetric blinks (close 36-72 ms, open at half
-  speed, next blink 3x duration + 0-4 s), upper eyelid tracking the pupil,
-  pupil dilation that never sits still (recursive split noise). Timing rules
-  on the offsets we already have; no new art needed.
-- **Textured eye type**: sclera + polar iris textures and eyelid masks, all
-  numpy lookups (~50k pixels per eye, real time on a Pi 5). Generated default
-  textures; faces can supply their own iris/sclera/lid PNGs.
-- **Look-at API**: point the eyes at a target (a camera-detected visitor, the
-  direction a voice came from); pupil size from a light sensor.
+- DONE: `textured_eye.py` — saccade-and-hold motion, asymmetric blinks, lid
+  tracking, emotion-driven pupil dilation, numpy compositor from iris strip +
+  pupil map + lid masks (~1.7 ms/frame for two eyes). Goat and dragon use it
+  (`"textured_eye"` in face.json). `EyeMotion.look_at(x, y)` exists for a
+  camera or voice direction to drive.
+- Apply the motion model to image eyes too (EVE, cat) as whole-eye saccades.
+- **Unwrap tool** for flat eye art (the cat): find the pupil, sample the iris
+  into a polar strip, cut a pupil map and lid masks, keep reflections as a
+  fixed highlight layer. Then the cat's pupils move and dilate as well.
+- Pupil size from a light sensor; look-at from a camera.
 - **Physical eyes on small round displays** (GC9A01 / OLED modules over SPI
   on the Pi, as in the Uncanny Eyes hardware): the same eye model drives a
   pair of screens in a mask or animatronic head while the face stays

@@ -112,6 +112,13 @@ class FaceManifest:
     draw_stem:  bool = False            # pumpkin-type faces
     stem_color: Tuple = (60, 120, 20)
 
+    # Live textured eyes (see textured_eye.py). When set, both eyes are composed
+    # per frame from the parts in `dir` (relative to the face folder) instead of
+    # eye_left/eye_right images; the left eye is the mirror of the right.
+    #   {"dir": "eye", "size": 224, "lid_open": 0.55, "gaze_radius": 0.35,
+    #    "pupil": [0.12, 0.22, 0.40], "lid_tracking": 0.35}
+    textured_eye: Dict = field(default_factory=dict)
+
     # Defaults for the voice loop (CLI flags override). voices is keyed by TTS
     # backend name: {"elevenlabs": "<voice id>", "edge": "en-US-AriaNeural"};
     # tts_model picks the ElevenLabs model (e.g. "eleven_v3").
@@ -125,7 +132,7 @@ class FaceManifest:
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
         "eye_left", "eye_right", "eye_color", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "gaze", "draw_nose", "nose_color", "nose",
-        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character",
+        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye",
     }
     _KNOWN_EYE = {"image", "cx", "cy", "scale", "opacity"}
     _KNOWN_MOUTH = {"anchor_cx", "anchor_cy", "max_w", "min_w", "scale", "offset_x", "offset_y",
@@ -173,6 +180,7 @@ class FaceManifest:
         m.voices      = {str(k).lower(): str(v) for k, v in d.get("voices", {}).items()}
         m.tts_model   = d.get("tts_model") or None
         m.voice_speed = float(d["voice_speed"]) if d.get("voice_speed") else None
+        m.textured_eye = dict(d.get("textured_eye") or {})
         m.character   = str(d.get("character", ""))
 
         for side in ("eye_left", "eye_right"):
@@ -274,6 +282,8 @@ class LoadedFaceAssets:
     # Mouth surfaces are already scaled + alpha'd + cropped; mouth_pos[key] is the blit origin.
     mouth_surfs: Dict[str, pygame.Surface] = field(default_factory=dict)
     mouth_pos:   Dict[str, Tuple[int, int]] = field(default_factory=dict)
+    # Live textured eyes (textured_eye.TexturedEye), right and left, or None
+    textured: Optional[Tuple[object, object]] = None
     # Resolved once: viseme -> (surface, blit_pos) or None
     mouth_for_viseme: Dict[Viseme, Optional[Tuple[pygame.Surface, Tuple[int, int]]]] = field(default_factory=dict)
 
@@ -397,6 +407,20 @@ class FaceAssetLoader:
                 assets.nose = _with_opacity(surf, nc.opacity)
                 print(f"[assets]   nose: {nc.image} OK")
 
+        te = manifest.textured_eye
+        if te.get("dir"):
+            from textured_eye import TexturedEyeAssets, TexturedEye
+            folder = path_of(te["dir"])
+            size = int(te.get("size", 224))
+            lid_open = float(te.get("lid_open", 0.55))
+            try:
+                right = TexturedEye(TexturedEyeAssets(folder, size, mirror=False), lid_open=lid_open)
+                left = TexturedEye(TexturedEyeAssets(folder, size, mirror=True), lid_open=lid_open)
+                assets.textured = (right, left)
+                print(f"[assets]   textured eyes from {te['dir']}/ at {size}px")
+            except Exception as e:
+                print(f"[assets]   textured eyes failed ({e}); falling back to image/procedural eyes")
+
         mc = manifest.mouth
         base_pos = self._mouth_blit_pos(mc)
         for key, filename in manifest.mouth_images.items():
@@ -415,7 +439,7 @@ class FaceAssetLoader:
 
         print(f"[assets] Loaded {manifest.name} — "
               f"base={'art' if assets.face_base else 'none'}, "
-              f"eyes={'art' if assets.eye_left else 'procedural'}, "
+              f"eyes={'textured' if assets.textured else ('art' if assets.eye_left else 'procedural')}, "
               f"nose={'art' if assets.nose else 'none'}, "
               f"mouth={'art' if assets.has_mouth_art() else 'procedural'}")
         return assets
@@ -506,6 +530,21 @@ class AssetFaceRenderer:
         self._blink_mult = 1.0
         self.current_emotion_label = "neutral"
 
+        # Live textured eyes: shared motion model (both eyes move together)
+        self._eye_motion = None
+        if assets.textured is not None:
+            from textured_eye import EyeMotion, EyeMotionConfig
+            te = m.textured_eye
+            cfg = EyeMotionConfig()
+            if "gaze_radius" in te:
+                cfg.gaze_radius = float(te["gaze_radius"])
+            if "lid_tracking" in te:
+                cfg.lid_tracking = float(te["lid_tracking"])
+            if "pupil" in te:
+                pmin, pbase, pmax = te["pupil"]
+                cfg.pupil_min, cfg.pupil_base, cfg.pupil_max = float(pmin), float(pbase), float(pmax)
+            self._eye_motion = EyeMotion(cfg)
+
         # Caches
         self._eye_cache: "collections.OrderedDict[tuple, pygame.Surface]" = collections.OrderedDict()
         self._shadow = _shadow_sprite(m.glow_color)
@@ -539,6 +578,13 @@ class AssetFaceRenderer:
         self._eye_squish += (ep["eye_squish"] - self._eye_squish) * k
         self._eye_tilt += (ep["eye_tilt"] - self._eye_tilt) * k
         self._blink_mult += (ep["blink_mult"] - self._blink_mult) * k
+
+        if self._eye_motion is not None:
+            # textured eyes own their blink and glances
+            self._eye_motion.update(dt, self._emotion, blink_scale=max(0.1, self._blink_mult))
+            if viseme is not Viseme.SIL:
+                self._last_speech = time.monotonic()
+            return
 
         now = time.monotonic()
         m = self.manifest
@@ -574,8 +620,12 @@ class AssetFaceRenderer:
             surf.blit(self.assets.face_base, (0, 0))
             if m.draw_stem:
                 self._draw_stem(surf)
-        self._draw_eye_side(surf, m.eye_left, self.assets.eye_left, self.assets.eye_left_offset, True)
-        self._draw_eye_side(surf, m.eye_right, self.assets.eye_right, self.assets.eye_right_offset, False)
+        if self.assets.textured is not None:
+            self._draw_textured_eye(surf, m.eye_left, self.assets.textured[1], is_left=True)
+            self._draw_textured_eye(surf, m.eye_right, self.assets.textured[0], is_left=False)
+        else:
+            self._draw_eye_side(surf, m.eye_left, self.assets.eye_left, self.assets.eye_left_offset, True)
+            self._draw_eye_side(surf, m.eye_right, self.assets.eye_right, self.assets.eye_right_offset, False)
         self._draw_nose(surf)
         if self.assets.has_mouth_art():
             if self._mouth is not None:
@@ -659,6 +709,24 @@ class AssetFaceRenderer:
         cx = ec.cx + offset[0] + int(round(self._gaze[0]))
         cy = ec.cy + offset[1] + int(round(self._gaze[1]))
         surf.blit(img, (cx - img.get_width() // 2, cy - img.get_height() // 2))
+
+    def _draw_textured_eye(self, surf, ec: EyeConfig, eye, is_left: bool) -> None:
+        """Compose the eye from its parts, then apply our emotion squish/tilt and scale."""
+        em = self._eye_motion
+        gaze = (float(em.gaze[0]), float(em.gaze[1]))
+        img = eye.surface(gaze, em.pupil, em.blink, em.upper_lid_extra)
+        pulse = 1.0 + self.manifest.eye_speech_pulse * self._open
+        scale = ec.scale * pulse
+        w = max(2, int(img.get_width() * scale))
+        h = max(2, int(img.get_height() * scale * self._eye_squish))
+        if (w, h) != img.get_size():
+            img = pygame.transform.smoothscale(img, (w, h)) if scale < 1.0 else pygame.transform.scale(img, (w, h))
+        tilt = -self._eye_tilt if is_left else self._eye_tilt
+        if abs(tilt) > 0.5:
+            img = pygame.transform.rotate(img, tilt)
+        if ec.opacity < 1.0:
+            img.set_alpha(int(ec.opacity * 255))
+        surf.blit(img, (ec.cx - img.get_width() // 2, ec.cy - img.get_height() // 2))
 
     def _draw_procedural_eye(self, surf, cx, cy, is_left: bool) -> None:
         m = self.manifest
