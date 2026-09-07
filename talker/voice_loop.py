@@ -421,7 +421,7 @@ def main(argv=None) -> int:
                    help="With --mic-test: save each utterance as WAV in DIR plus transcripts.txt "
                         "(draft references to correct, then run tools/bench_stt.py DIR)")
     p.add_argument("--tts", default=None,
-                   help="elevenlabs (default when ELEVENLABS_API_KEY is set) or edge (free)")
+                   help="elevenlabs (default when ELEVENLABS_API_KEY is set), fish (Fish Audio) or edge (free)")
     p.add_argument("--voice", default=None, help="TTS voice name/id")
     p.add_argument("--voice-speed", type=float, default=None,
                    help="Speaking rate multiplier, e.g. 1.15 (ElevenLabs Flash and edge honour it; v3 ignores it)")

@@ -482,11 +482,84 @@ class ElevenLabsBackend(TTSBackend):
 
 
 # ─────────────────────────────────────────────────────
+# FISH AUDIO  (HTTP streaming, PCM; no timestamps -> fitted estimates)
+# ─────────────────────────────────────────────────────
+class FishAudioBackend(TTSBackend):
+    """
+    Fish Audio text-to-speech: POST https://api.fish.audio/v1/tts streams
+    audio for a sentence. Voices are `reference_id`s from fish.audio's
+    library. The API returns no word timestamps, so each sentence's audio is
+    collected, its real length measured, and the words spread across it by
+    estimated phoneme length (phoneme_scheduler.fit_word_times). That costs
+    a sentence of latency but keeps lip sync within a syllable.
+
+    Needs FISH_AUDIO_API_KEY (API credit is separate from fish.audio site credit).
+    """
+    name = "fish"
+    sample_rate = 24000
+    supports_audio_tags = False
+    URL = "https://api.fish.audio/v1/tts"
+
+    def __init__(self, voice: Optional[str] = None, model: str = "speech-1.6",
+                 api_key: Optional[str] = None, latency: str = "balanced", speed: Optional[float] = None):
+        self.voice_id = voice
+        self.model = model or "speech-1.6"
+        self.latency = latency
+        self.speed = speed
+        self.api_key = api_key or os.environ.get("FISH_AUDIO_API_KEY")
+        if not self.api_key:
+            raise RuntimeError("FishAudioBackend needs FISH_AUDIO_API_KEY in the environment.")
+        self._http = None
+
+    async def _session(self):
+        import aiohttp
+        if self._http is None or self._http.closed:
+            self._http = aiohttp.ClientSession(headers={"Authorization": f"Bearer {self.api_key}",
+                                                        "model": self.model})
+        return self._http
+
+    async def close(self) -> None:
+        if self._http is not None and not self._http.closed:
+            await self._http.close()
+
+    async def synthesize(self, sentences):
+        from .phoneme_scheduler import fit_word_times
+        http = await self._session()
+        session_frames = 0
+        while True:
+            sentence = await sentences.get()
+            if sentence is END_OF_TEXT:
+                return
+            if not sentence.strip():
+                continue
+            body = {"text": sentence, "format": "pcm", "sample_rate": self.sample_rate,
+                    "latency": self.latency, "normalize": True}
+            if self.voice_id:
+                body["reference_id"] = self.voice_id
+            if self.speed:
+                body["prosody"] = {"speed": float(self.speed)}
+            async with http.post(self.URL, json=body) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"Fish Audio HTTP {resp.status}: {(await resp.text())[:300]}")
+                pcm = b"".join([chunk async for chunk in resp.content.iter_chunked(8192)])
+            if len(pcm) < 4:
+                raise RuntimeError(f"Fish Audio returned no audio for {sentence!r}")
+            base_t = session_frames / self.sample_rate
+            duration = len(pcm) / 2 / self.sample_rate
+            for word, t0, t1 in fit_word_times(sentence, duration):
+                yield WordBoundary(word, base_t + t0, base_t + t1)
+            session_frames += len(pcm) // 2
+            yield AudioChunk(pcm)
+            yield SentenceDone(sentence)
+
+
+# ─────────────────────────────────────────────────────
 # FACTORY
 # ─────────────────────────────────────────────────────
 BACKENDS = {
     "edge": EdgeTTSBackend,
     "elevenlabs": ElevenLabsBackend,
+    "fish": FishAudioBackend,
 }
 
 

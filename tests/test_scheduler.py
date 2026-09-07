@@ -119,3 +119,13 @@ def test_schedule_reader_trim_keeps_active_emotion():
     assert len(r.visemes) == 1
     assert r.current_emotion(6.0) is Emotion.HAPPY
     assert r.current_viseme(5.5) is Viseme.EE
+
+
+def test_fit_word_times_spreads_words_across_a_known_duration():
+    from talker.phoneme_scheduler import fit_word_times
+    wt = fit_word_times("Hello there my friend", 2.0)
+    assert [w for w, _, _ in wt] == ["Hello", "there", "my", "friend"]
+    assert wt[0][1] >= 0.0 and wt[-1][2] <= 2.0
+    assert all(wt[i][2] <= wt[i + 1][1] + 1e-6 for i in range(len(wt) - 1))
+    assert wt[-1][2] > 1.5                                   # fills most of the clip
+    assert fit_word_times("", 2.0) == [] and fit_word_times("hi", 0) == []

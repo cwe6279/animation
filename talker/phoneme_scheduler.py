@@ -497,6 +497,22 @@ def estimate_word_times(text: str, phoneme_seconds: float = 0.08,
     return out
 
 
+def fit_word_times(text: str, duration_s: float, lead_pad: float = 0.04,
+                   trail_pad: float = 0.08) -> List[Tuple[str, float, float]]:
+    """
+    For voices that give no timestamps: spread the words across a known audio
+    duration in proportion to their estimated phoneme lengths. Good enough for
+    lip sync on a sentence; the error is at most a syllable or two.
+    """
+    est = estimate_word_times(text)
+    if not est or duration_s <= 0:
+        return []
+    usable = max(0.05, duration_s - lead_pad - trail_pad)
+    total = est[-1][2]
+    k = usable / total if total > 0 else 1.0
+    return [(w, lead_pad + a * k, lead_pad + b * k) for w, a, b in est]
+
+
 # ─────────────────────────────────────────────────────
 # SCHEDULE READER  (queried each frame by the renderer)
 # ─────────────────────────────────────────────────────

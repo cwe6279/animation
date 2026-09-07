@@ -201,6 +201,9 @@ first audio). Options:
   `--list-devices` shows them. Numbers work too but shift when devices are plugged in.
 - `--mic-test` — print levels and transcripts only, to check a mic before going live
 - `--tts elevenlabs --voice <id>` — ElevenLabs voice (needs `ELEVENLABS_API_KEY`)
+- `--tts fish --voice <reference id>` — Fish Audio voices (`FISH_AUDIO_API_KEY`; API credit is separate from
+  site credit). No word timestamps from the service, so words are fitted to each sentence's measured length;
+  a sentence of latency, lip sync within a syllable. Set a face default with `"voices": {"fish": "<id>"}`.
 - `--tts-model flash` — the fast ElevenLabs model (~0.25 s to first audio versus ~1 s for the default v3; tags stripped)
 - `--fixed-fps` — pin the frame rate. By default a frame governor steps the face down to 45/30/20/15 fps
   when frames run over budget (a busy Pi) and back up once there is headroom; lip sync is unaffected
