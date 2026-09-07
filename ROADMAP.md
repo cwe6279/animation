@@ -45,6 +45,22 @@ Ideas agreed on but not built yet, roughly in priority order.
   about an exhibit and declines off-topic ones gracefully.
 - Art from image models via `faces/ART_SPEC.md` (the locked spec).
 
+## Eyes (studied Adafruit Uncanny Eyes, Sept 2026)
+- **Motion model for every face**: saccade-and-hold (hold 0-3 s, jump in
+  72-144 ms with smoothstep), asymmetric blinks (close 36-72 ms, open at half
+  speed, next blink 3x duration + 0-4 s), upper eyelid tracking the pupil,
+  pupil dilation that never sits still (recursive split noise). Timing rules
+  on the offsets we already have; no new art needed.
+- **Textured eye type**: sclera + polar iris textures and eyelid masks, all
+  numpy lookups (~50k pixels per eye, real time on a Pi 5). Generated default
+  textures; faces can supply their own iris/sclera/lid PNGs.
+- **Look-at API**: point the eyes at a target (a camera-detected visitor, the
+  direction a voice came from); pupil size from a light sensor.
+- **Physical eyes on small round displays** (GC9A01 / OLED modules over SPI
+  on the Pi, as in the Uncanny Eyes hardware): the same eye model drives a
+  pair of screens in a mask or animatronic head while the face stays
+  projected. Roadmap, not current scope; projection is the deployment today.
+
 ## Faces
 - More faces: EVE ElevenLabs voice id; a second set of mouth art for the cat
   at a finer viseme granularity; minimum hold time for art mouths so fast
