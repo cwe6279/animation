@@ -36,6 +36,14 @@ VOICE_RULES = (
     "one to three sentences, and answer first. No lists, no markdown."
 )
 
+VISION_RULES = (
+    "\n\nYou can see. A camera is your eyes: short notes about what is in front of you arrive as "
+    "context entries marked as not spoken by anyone, describing only what changed. Treat them as "
+    "your own sight, in character: greet people who arrive, notice what they hold up or wear, "
+    "count them when asked. If a note is missing or stale, say you cannot make it out rather than "
+    "inventing details."
+)
+
 
 def make_client() -> anthropic.Anthropic:
     """
@@ -53,12 +61,13 @@ def make_client() -> anthropic.Anthropic:
 class ClaudeChat:
     def __init__(self, model: str = "claude-opus-5", effort: str = "low",
                  character: Optional[str] = None, max_history: int = 20,
-                 client: Optional[anthropic.Anthropic] = None, thinking: bool = True):
+                 client: Optional[anthropic.Anthropic] = None, thinking: bool = True,
+                 can_see: bool = False):
         self.model = model
         self.effort = effort
         self.thinking = thinking     # False = no reasoning pass before answering (faster first token)
         self.max_history = max_history
-        self.system = load_system_prompt() + VOICE_RULES
+        self.system = load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
         if character:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []

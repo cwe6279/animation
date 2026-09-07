@@ -90,3 +90,10 @@ def test_system_prompt_starts_at_the_heading_not_the_notes():
     text = load_system_prompt()
     assert text.startswith("You are a character speaking out loud")
     assert "heading automatically" not in text
+
+
+def test_vision_rule_only_when_the_brain_can_see():
+    blind = ClaudeChat(client=FakeClient(["x"]))
+    seeing = ClaudeChat(client=FakeClient(["x"]), can_see=True)
+    assert "You can see" not in blind.system
+    assert "You can see" in seeing.system and "context entries" in seeing.system

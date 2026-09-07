@@ -402,13 +402,14 @@ def main(argv=None) -> int:
     audio = build_audio(args.no_audio, args.sync_offset, args.output_device)
     text_only = args.text_only or args.no_audio
 
+    can_see = args.camera is not None and not args.no_vision
     if args.llm == "claude":
         chat = ClaudeChat(model=args.model or "claude-opus-5", effort=args.effort, character=character,
-                          thinking=bool(args.thinking))
+                          thinking=bool(args.thinking), can_see=can_see)
     else:
         from llm_integration.openai_compat_chat import OpenAICompatChat
-        chat = OpenAICompatChat.openai(model=args.model, character=character)
-    print(f"[voice] brain: {args.llm} {chat.model}")
+        chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see)
+    print(f"[voice] brain: {args.llm} {chat.model}{' (told it can see)' if can_see else ''}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps)
 
