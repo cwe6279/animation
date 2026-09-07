@@ -74,7 +74,7 @@ def run_calibration(audio, speak: Callable[[str], None], is_speaking: Callable[[
                     ask: Callable[[str], None] = None) -> Dict:
     ask = ask or (lambda msg: input(msg))
     print("\n== Calibration ==")
-    print("1/3  Room level. Keep quiet for 4 seconds...")
+    print("1/3  Room level. Stay quiet for 4 seconds...", flush=True)
     ambient = _measure(audio, 4.0, "ambient")
     print(f"     ambient {ambient:.0f}")
 
@@ -91,8 +91,14 @@ def run_calibration(audio, speak: Callable[[str], None], is_speaking: Callable[[
     speaker = float(np.mean(vals[len(vals) // 2:])) if vals else 0.0      # the louder half of the reply
     print(f"     speaker bleed {speaker:.0f}")
 
-    ask("3/3  Stand where visitors will stand and press Enter, then talk normally for 5 seconds... ")
-    person = _measure(audio, 5.0, "person")
+    ask("3/3  Go to where a visitor would stand, then press Enter. ")
+    print("     TALK NOW in a normal voice, anything at all, for 5 seconds:")
+    vals = []
+    for remaining in (5, 4, 3, 2, 1):
+        print(f"     ... {remaining}", flush=True)
+        vals.append(_measure(audio, 1.0, "person"))
+    vals.sort()
+    person = float(np.mean(vals[1:])) if len(vals) > 1 else vals[0]   # drop the quietest second
     print(f"     person {person:.0f}")
 
     rec = recommend(ambient, speaker, person)

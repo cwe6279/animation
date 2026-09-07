@@ -414,6 +414,8 @@ def mic_tools(args) -> int:
         s = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
         rms = float(np.sqrt(np.mean(s * s))) if s.size else 0.0
         state["peak"] = max(state["peak"], rms)
+        if args.calibrate:
+            return                                  # levels only; no transcripts during calibration
         if recorder is not None:
             clip = recorder.feed(pcm)
             if clip is not None:
