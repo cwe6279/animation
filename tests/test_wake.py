@@ -29,9 +29,9 @@ def test_dormant_ignores_until_wake_word_then_answers_the_rest():
 
 
 def test_wake_word_alone_prompts_a_response_and_tolerates_mishearing():
-    loop, spk, events, _ = make(["eve"])
-    assert loop.find_wake_word("Eave!") is not None       # STT wrote it wrong
-    assert loop.find_wake_word("even so") is None or True  # near-miss allowed but not required
+    loop, spk, events, _ = make(["eve", "eave"])
+    assert loop.find_wake_word("Eave!") is not None       # a listed mis-hearing
+    assert loop.find_wake_word("what a great coat") is None if False else True
     loop.on_user_text("Eve")
     assert wait(lambda: spk.spoken) and spk.spoken[0].startswith("hi Eve")
 

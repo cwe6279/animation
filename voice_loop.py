@@ -162,8 +162,9 @@ class VoiceLoop:
                 window = words[i:i + n]
                 if window == wtoks:
                     return (i, i + n)
-                # short names get mangled by STT ("eve" -> "eave"/"if"); allow near matches
-                if n == 1 and len(wtoks[0]) >= 3 and difflib.SequenceMatcher(None, window[0], wtoks[0]).ratio() >= 0.75:
+                # Names get mangled by STT; allow near matches for longer names only
+                # (short ones like "goat"/"coat" collide too easily: list variants instead).
+                if n == 1 and len(wtoks[0]) >= 5 and difflib.SequenceMatcher(None, window[0], wtoks[0]).ratio() >= 0.8:
                     return (i, i + 1)
                 if n > 1 and difflib.SequenceMatcher(None, " ".join(window), wake).ratio() >= 0.85:
                     return (i, i + n)

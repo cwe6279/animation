@@ -74,6 +74,8 @@
   "eye_lids": true,
   "wake_words": [
     "eve",
+    "eva",
+    "eave",
     "hey eve"
   ]
 }
