@@ -25,9 +25,11 @@ driver with the same shape as the audio and vision pieces:
 - **Intentional**: a tag in the reply (`[bleat]`, `[rumble]`) plays the clip
   through the same audio stream at that point, with the mouth held on its
   shape; the tag is stripped from the voice text.
-- **Idle**: when nobody has spoken for a while, play one at random now and
-  then (configurable interval and probability), with a matching glance or
-  blink, so the character feels alive between visitors.
+- **Idle**: while dormant in wake mode (or after a long quiet spell), play
+  one at random now and then (configurable interval and probability), with a
+  matching glance or blink, so the character feels alive between visitors.
+  Optional per face: a `sounds/` folder with `idle.json` listing clips and
+  weights; no folder, no sounds.
 - **Filler**: on transcript arrival, optionally play a short "thinking" clip
   to cover the first-token wait.
 
