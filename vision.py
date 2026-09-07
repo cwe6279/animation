@@ -37,7 +37,7 @@ VISION_PROMPT = """You are the eyes of an animated character that talks with vis
 Previous state of the scene, from your last look: {previous}
 
 Reply with JSON only:
-{{"changes": "<what is DIFFERENT from the previous state, in one or two short plain sentences: people arriving or leaving, an object now held up or shown (name it, colour, any text on it), a costume or hat change, a wave or clear gesture. Nothing that was already true. If nothing meaningful changed, exactly: no change>",
+{{"changes": "<what is DIFFERENT from the previous state, in one or two short plain sentences: people arriving or leaving, an object now held up or shown (name it, colour, any text on it), a costume or hat change, a clear wave. Nothing that was already true. Small movements, hand or head position, posture or expression shifts are NOT changes. If nothing meaningful changed, exactly: no change>",
  "state": "<one line, at most 25 words: current scene summary to compare against next time>",
  "people": <integer>,
  "emergency": <true|false>,
@@ -205,6 +205,19 @@ def describe_with_claude(frames: List[bytes], previous: str = "", model: str = "
     return data
 
 
+_TRIVIAL_RE = re.compile(r"\b(no change|nothing changed|no significant|no new|no meaningful|slightly|"
+                         r"minor|subtle|same as before|unchanged|still the same)\b", re.I)
+
+
+def _trivial_change(text: str) -> bool:
+    """A delta that is empty, or only describes small shifts, is no change."""
+    t = text.strip().rstrip(".").lower()
+    if t in ("", "no change", "none", "nothing", "nothing changed"):
+        return True
+    return bool(_TRIVIAL_RE.search(t)) and not re.search(r"\b(arriv|enter|came|left|new person|holding|holds|"
+                                                         r"shows|showing|wearing|hat|cap|costume|child|kids?)\b", t)
+
+
 # ─────────────────────────────────────────────────────
 # WATCHER
 # ─────────────────────────────────────────────────────
@@ -331,7 +344,7 @@ class SceneWatcher:
         self._last_sig = sig
         self._last_described_at = now
         changes = str(data.get("changes") or "").strip()
-        if changes.lower().rstrip(".") in ("no change", "none", "nothing changed", ""):
+        if _trivial_change(changes):
             changes = ""
         state = str(data.get("state") or data.get("notes") or "").strip() or previous
         note = SceneNote(time=self.clock(), notes=state, changes=changes,

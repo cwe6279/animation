@@ -162,3 +162,11 @@ def test_loop_requests_burst_when_visitor_starts_talking():
     stt.speech_active = True
     loop._process(b"\x00" * 320)                    # a new utterance -> a new request
     assert vis.requests == 2
+
+
+def test_trivial_deltas_are_dropped():
+    from vision import _trivial_change
+    assert _trivial_change("Person's hand position changed slightly; no significant new objects or arrivals.")
+    assert _trivial_change("no change") and _trivial_change("No change.") and _trivial_change("")
+    assert not _trivial_change("A child came in holding a red balloon.")
+    assert not _trivial_change("The visitor is now wearing a maroon cap.")
