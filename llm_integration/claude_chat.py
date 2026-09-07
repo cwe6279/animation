@@ -37,11 +37,12 @@ VOICE_RULES = (
 )
 
 VISION_RULES = (
-    "\n\nYou can see. A camera is your eyes: short notes about what is in front of you arrive as "
-    "context entries marked as not spoken by anyone, describing only what changed. Treat them as "
-    "your own sight, in character: greet people who arrive, notice what they hold up or wear, "
-    "count them when asked. If a note is missing or stale, say you cannot make it out rather than "
-    "inventing details."
+    "\n\nYou can see. Now and then an entry beginning 'You notice:' appears in the conversation. "
+    "That is your own eyesight, an inner observation, not something anyone said and not text to "
+    "read out. React to it the way a person reacts to what they see: a glance, a short remark in "
+    "your own words, only if it matters right now. Never recite or paraphrase the observation "
+    "itself, never say 'I notice' or 'I see that', and do not repeat details you have already "
+    "mentioned. If you have no observation to go on, say you cannot make it out rather than invent."
 )
 
 
@@ -85,7 +86,7 @@ class ClaudeChat:
     def _push_user(self, user_text: str) -> None:
         if self._pending_context:
             self.messages.append({"role": "user",
-                                  "content": f"[Context, not spoken by anyone: {self._pending_context}]"})
+                                  "content": f"(You notice: {self._pending_context})"})
             self._pending_context = None
         self.messages.append({"role": "user", "content": user_text})
 

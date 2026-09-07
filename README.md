@@ -247,10 +247,11 @@ burst) for a few lines of notes: how many people, rough ages, what they are
 doing or holding, mood. A burst is also taken the moment a visitor starts
 talking, so the note is fresh by the time the transcript lands; a visual
 question ("what's this", "can you see", "how many") waits up to 2.5 s for it.
-When a burst changes the scene, the note is inserted into the conversation as
-a separate context entry (marked as not spoken by anyone) ahead of the next
-thing the visitor says; quiet turns add nothing, and the visitor's words are
-never altered. A burst is only sent to the model when
+When a burst changes the scene, the delta enters the conversation as an inner
+observation, "(You notice: ...)", ahead of the next thing the visitor says, and
+the prompt tells the character it is its own eyesight, not text to recite:
+react in your own words only if it matters, never repeat the observation.
+Quiet turns add nothing, and the visitor's words are never altered. A burst is only sent to the model when
 the scene has changed (a tiny thumbnail is compared with the last described
 one; `--vision-change`, default 0.06, a still room scores ~0.01), with a
 forced refresh every 90 s, so an empty room costs nothing. Frames are

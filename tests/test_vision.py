@@ -30,7 +30,7 @@ def test_watcher_keeps_only_latest_notes_and_builds_context(tmp_path):
     assert seen_previous[1] == "two kids in costumes"           # the model gets the last state to diff against
     assert [n.notes for n in w._notes] == ["an adult waving", "an adult and a dog"]
     ctx = w.context(max_age_s=40)
-    assert ctx == "Camera: a dog appeared"                        # only the delta reaches the brain
+    assert ctx == "a dog appeared"                                # only the delta reaches the brain
     clk.t += 100                       # stale notes are not offered
     assert w.context(max_age_s=40) == ""
 
@@ -59,7 +59,7 @@ def test_no_change_gives_brain_nothing_but_first_look_gives_state(tmp_path):
     w = SceneWatcher(FakeSource(), lambda f, prev: {"state": "one adult at a desk", "changes": "no change", "people": 1},
                      emergency_dir=str(tmp_path), on_note=notes.append, signature=None)
     w.observe_once()
-    assert w.context() == "Camera: one adult at a desk" and len(notes) == 1   # first look: state
+    assert w.context() == "one adult at a desk" and len(notes) == 1   # first look: state
     w.observe_once()
     assert w.context() == "" and len(notes) == 1                             # nothing new: silence
 
@@ -85,11 +85,11 @@ def test_chat_inserts_scene_context_only_when_pushed():
     chat.add_context("What you can see right now: two kids in costumes")
     list(chat.reply("hello"))
     msgs = client.calls[0]["messages"]
-    assert msgs[0]["role"] == "user" and msgs[0]["content"].startswith("[Context, not spoken by anyone: What you can see")
+    assert msgs[0]["role"] == "user" and msgs[0]["content"].startswith("(You notice: What you can see")
     assert msgs[1] == {"role": "user", "content": "hello"}       # visitor's words untouched
     list(chat.reply("and again"))
     msgs = client.calls[1]["messages"]
-    assert sum("[Context" in m["content"] for m in msgs if m["role"] == "user") == 1   # no repeat on a quiet turn
+    assert sum("(You notice" in m["content"] for m in msgs if m["role"] == "user") == 1   # no repeat on a quiet turn
 
 
 def test_unchanged_scene_skips_the_model_but_keeps_note_fresh(tmp_path):

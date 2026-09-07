@@ -96,4 +96,4 @@ def test_vision_rule_only_when_the_brain_can_see():
     blind = ClaudeChat(client=FakeClient(["x"]))
     seeing = ClaudeChat(client=FakeClient(["x"]), can_see=True)
     assert "You can see" not in blind.system
-    assert "You can see" in seeing.system and "context entries" in seeing.system
+    assert "You can see" in seeing.system and "You notice" in seeing.system

@@ -59,7 +59,7 @@ class OpenAICompatChat:
     def _push_user(self, user_text: str) -> None:
         if self._pending_context:
             self.messages.append({"role": "user",
-                                  "content": f"[Context, not spoken by anyone: {self._pending_context}]"})
+                                  "content": f"(You notice: {self._pending_context})"})
             self._pending_context = None
         self.messages.append({"role": "user", "content": user_text})
 

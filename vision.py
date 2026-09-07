@@ -403,7 +403,8 @@ class SceneWatcher:
         body = note.changes or (note.notes if first_look else "")
         if not body and not note.emergency:
             return ""
-        s = f"Camera: {body}" if body else "Camera:"
+        s = body
         if note.emergency:
-            s += f" EMERGENCY in view: {note.emergency_reason}. Stay calm, tell an adult to help, keep it short."
+            s = (s + " " if s else "") + (f"EMERGENCY: {note.emergency_reason}. Stay calm, ask an adult "
+                                          "to help, keep it short.")
         return s
