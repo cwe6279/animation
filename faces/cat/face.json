@@ -24,13 +24,13 @@
     "image": "eye_left.png",
     "cx": 240,
     "cy": 300,
-    "scale": 0.2
+    "scale": 0.62
   },
   "eye_right": {
     "image": "eye_right.png",
     "cx": 560,
     "cy": 300,
-    "scale": 0.2
+    "scale": 0.62
   },
   "blink": true,
   "draw_nose": false,
@@ -79,6 +79,20 @@
   "wake_words": [
     "cat",
     "kitty",
-    "hey cat"
-  ]
+    "hey cat",
+    "Meoww"
+  ],
+  "textured_eye": {
+    "dir": "eye",
+    "size": 256,
+    "lid_open": 0.55,
+    "rim": 0.0,
+    "gaze_radius": 0.25,
+    "pupil": [
+      0.12,
+      0.22,
+      0.42
+    ],
+    "lid_tracking": 0.3
+  }
 }

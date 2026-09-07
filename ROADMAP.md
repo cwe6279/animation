@@ -96,9 +96,8 @@ driver with the same shape as the audio and vision pieces:
   (`"textured_eye"` in face.json). `EyeMotion.look_at(x, y)` exists for a
   camera or voice direction to drive.
 - Apply the motion model to image eyes too (EVE, cat) as whole-eye saccades.
-- **Unwrap tool** for flat eye art (the cat): find the pupil, sample the iris
-  into a polar strip, cut a pupil map and lid masks, keep reflections as a
-  fixed highlight layer. Then the cat's pupils move and dilate as well.
+- DONE: `faces/tools/unwrap_eye.py` turns flat eye art into live parts; the
+  cat's pupils now move and dilate.
 - Pupil size from a light sensor; look-at from a camera.
 - **Physical eyes on small round displays** (GC9A01 / OLED modules over SPI
   on the Pi, as in the Uncanny Eyes hardware): the same eye model drives a

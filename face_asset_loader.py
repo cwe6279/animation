@@ -432,9 +432,10 @@ class FaceAssetLoader:
             folder = path_of(te["dir"])
             size = int(te.get("size", 224))
             lid_open = float(te.get("lid_open", 0.55))
+            rim = float(te.get("rim", 1.0))
             try:
-                right = TexturedEye(TexturedEyeAssets(folder, size, mirror=False), lid_open=lid_open)
-                left = TexturedEye(TexturedEyeAssets(folder, size, mirror=True), lid_open=lid_open)
+                right = TexturedEye(TexturedEyeAssets(folder, size, mirror=False), lid_open=lid_open, rim=rim)
+                left = TexturedEye(TexturedEyeAssets(folder, size, mirror=True), lid_open=lid_open, rim=rim)
                 assets.textured = (right, left)
                 print(f"[assets]   textured eyes from {te['dir']}/ at {size}px")
             except Exception as e:

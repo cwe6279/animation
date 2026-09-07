@@ -222,12 +222,14 @@ class TexturedEye:
     a window per frame instead of recomputing atan2.
     """
 
-    def __init__(self, assets: TexturedEyeAssets, lid_open: float = 0.55, iris_radius: float = 0.62):
+    def __init__(self, assets: TexturedEyeAssets, lid_open: float = 0.55, iris_radius: float = 0.62,
+                 rim: float = 1.0):
         self.a = assets
         n = assets.size
         self.n = n
         self.lid_open = lid_open
         self.iris_radius = iris_radius
+        self.rim_strength = rim          # 0 for art that already has its own edge shading
         self.max_shift = int(n * 0.45)
         big = n + 2 * self.max_shift
         yy, xx = np.mgrid[0:big, 0:big].astype(np.float32)
@@ -248,7 +250,8 @@ class TexturedEye:
         cc = (n - 1) / 2
         self._r = np.sqrt((xx - cc) ** 2 + (yy - cc) ** 2) / (n / 2)
         self._disc = (self._r <= 1.0).astype(np.float32)
-        self._rim = (0.35 + 0.65 * np.clip((1.0 - self._r) / 0.12, 0, 1)).astype(np.float32)
+        rim_dark = (0.35 + 0.65 * np.clip((1.0 - self._r) / 0.12, 0, 1)).astype(np.float32)
+        self._rim = (1.0 - self.rim_strength) + self.rim_strength * rim_dark
         self._last_key = None
         self._last_frame: Optional[np.ndarray] = None
 
