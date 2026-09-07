@@ -335,7 +335,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
 <section id="vision">
   <div class="eyebrow">Vision <span class="file">voice_loop.py --camera · vision.py</span></div>
   <h2>Eyes for the character, off unless you switch them on</h2>
-  <p>Pass <code>--camera c920</code> (a name fragment or an index; <code>--list-cameras</code> shows them) and a watcher takes three frames about 0.3 s apart every 9 seconds, shrinks them, and asks a fast vision model for a few lines of notes: how many people, rough ages, what they are doing or holding, mood. The latest note goes to the brain with the next thing a visitor says, as "what you can see right now", so the character can greet, count, and refer to costumes or objects.</p>
+  <p>Pass <code>--camera c920</code> (a name fragment or an index; <code>--list-cameras</code> shows them) and a watcher takes three frames about 0.3 s apart every 9 seconds, shrinks them, and asks a fast vision model for a few lines of notes: how many people, rough ages, what they are doing or holding, mood. When a burst changes the scene, the note enters the conversation as its own context entry, marked as not spoken by anyone, ahead of the next thing a visitor says. Quiet turns add nothing and the visitor's words are never altered. The character can then greet, count, and refer to costumes or objects.</p>
   <div class="tablewrap"><table>
     <tr><th>Setting</th><th>Effect</th></tr>
     <tr><td><code>--camera</code></td><td>Turns vision on. Without it nothing runs and no camera opens. <code>--no-vision</code> forces it off.</td></tr>

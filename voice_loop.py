@@ -407,13 +407,15 @@ def main(argv=None) -> int:
             from vision import CameraSource, SceneWatcher, describe_with_claude, resolve_camera
             cam_index = resolve_camera(args.camera)
             source = CameraSource(cam_index)
+            def on_note(n):
+                if args.debug:
+                    print(f"[scene] {'EMERGENCY ' if n.emergency else ''}people={n.people}: {n.notes}")
+                chat.add_context(watcher.context())          # only fires when the scene changed
+
             watcher = SceneWatcher(source, lambda frames: describe_with_claude(frames, model=args.vision_model),
                                    interval=args.vision_interval, burst=args.vision_frames,
-                                   change_threshold=args.vision_change,
-                                   on_note=lambda n: print(f"[scene] {'EMERGENCY ' if n.emergency else ''}"
-                                                           f"people={n.people}: {n.notes}") if args.debug else None)
+                                   change_threshold=args.vision_change, on_note=on_note)
             watcher.start()
-            chat.context_provider = watcher.context
             print(f"[vision] on: camera {cam_index}, {args.vision_frames} frames every {args.vision_interval:.0f}s, "
                   f"{args.vision_model}, described only when the scene changes; frames are not stored "
                   f"(emergencies go to emergencies/)")

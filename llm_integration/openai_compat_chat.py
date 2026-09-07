@@ -37,9 +37,10 @@ class OpenAICompatChat:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []
         self.last_usage = None
-        # Optional: returns text describing what the character can see right now
-        # (vision.SceneWatcher.context); prepended to the visitor's words.
-        self.context_provider = None
+        # Scene context: pushed by the vision watcher only when the scene changed.
+        # It is inserted into the conversation as its own context entry ahead of
+        # the next thing the visitor says; quiet turns add nothing.
+        self._pending_context: Optional[str] = None
         if client is None:
             if not api_key:
                 raise RuntimeError(f"{name} needs an API key in the environment")
@@ -51,12 +52,19 @@ class OpenAICompatChat:
         return cls(model or OPENAI_DEFAULT_MODEL, os.environ.get("OPENAI_API_KEY"), None,
                    character=character, name="openai", **kw)
 
-    def _with_context(self, user_text: str) -> str:
-        ctx = self.context_provider() if self.context_provider else ""
-        return f"[{ctx}]\nVisitor says: {user_text}" if ctx else user_text
+    def add_context(self, text: str) -> None:
+        """Queue a context note (e.g. a scene change). Only the latest one is kept."""
+        self._pending_context = text.strip() or None
+
+    def _push_user(self, user_text: str) -> None:
+        if self._pending_context:
+            self.messages.append({"role": "user",
+                                  "content": f"[Context, not spoken by anyone: {self._pending_context}]"})
+            self._pending_context = None
+        self.messages.append({"role": "user", "content": user_text})
 
     def reply(self, user_text: str) -> Iterator[str]:
-        self.messages.append({"role": "user", "content": self._with_context(user_text)})
+        self._push_user(user_text)
         self.messages = self.messages[-self.max_history:]
         parts: List[str] = []
         try:

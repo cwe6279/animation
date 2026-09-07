@@ -60,16 +60,20 @@ def test_resolve_camera_accepts_index():
     assert resolve_camera(0) == 0 and resolve_camera("2") == 2
 
 
-def test_chat_prepends_scene_context():
+def test_chat_inserts_scene_context_only_when_pushed():
     pytest.importorskip("anthropic")
     from llm_integration.claude_chat import ClaudeChat
     from tests.test_claude_chat import FakeClient
     client = FakeClient(["ok"])
     chat = ClaudeChat(client=client)
-    chat.context_provider = lambda: "What you can see right now: two kids in costumes"
+    chat.add_context("What you can see right now: two kids in costumes")
     list(chat.reply("hello"))
-    sent = client.calls[0]["messages"][0]["content"]
-    assert sent.startswith("[What you can see") and sent.endswith("Visitor says: hello")
+    msgs = client.calls[0]["messages"]
+    assert msgs[0]["role"] == "user" and msgs[0]["content"].startswith("[Context, not spoken by anyone: What you can see")
+    assert msgs[1] == {"role": "user", "content": "hello"}       # visitor's words untouched
+    list(chat.reply("and again"))
+    msgs = client.calls[1]["messages"]
+    assert sum("[Context" in m["content"] for m in msgs if m["role"] == "user") == 1   # no repeat on a quiet turn
 
 
 def test_unchanged_scene_skips_the_model_but_keeps_note_fresh(tmp_path):
