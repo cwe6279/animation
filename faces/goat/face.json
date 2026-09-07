@@ -24,13 +24,13 @@
     "image": "eye_left.png",
     "cx": 215,
     "cy": 350,
-    "scale": 1.1071428571428572
+    "scale": 0.75
   },
   "eye_right": {
     "image": "eye_right.png",
     "cx": 585,
     "cy": 350,
-    "scale": 1.1071428571428572
+    "scale": 0.75
   },
   "blink": true,
   "blink_interval": [
@@ -68,6 +68,7 @@
     "n_teeth": 0
   },
   "voices": {
+    "elevenlabs": "qXpMhyvQqiRxWQs4qSSB",
     "edge": "en-GB-ThomasNeural"
   },
   "textured_eye": {
@@ -76,15 +77,21 @@
     "lid_open": 0.45,
     "gaze_radius": 0.3,
     "pupil": [
-      0.12,
-      0.2,
-      0.36
+      0.05,
+      0.1,
+      0.2
     ],
     "lid_tracking": 0.35
   },
   "tts_model": "v3",
   "wake_words": [
-    "Marsha",
-    "hey Marsha"
+    "marsha",
+    "martha",
+    "hey marsha",
+    "goat",
+    "hey goat",
+    "mister goat",
+    "mr goat",
+    "miss goat"
   ]
 }
