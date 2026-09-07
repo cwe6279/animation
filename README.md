@@ -42,7 +42,7 @@ talker/
   llm_integration/
     system_prompt.md     <- LLM prompt for generating text with emotion tags
     claude_chat.py       <- multi-turn streaming Claude conversation used by voice_loop.py
-    openai_compat_chat.py<- same over Groq / OpenAI (--llm groq|openai)
+    openai_compat_chat.py<- same over OpenAI, for comparison (--llm openai)
     claude_stream.py     <- one-shot: streams a Claude reply to stdout for `talker.py --stdin`
   faces/
     _template/           <- copy this to create a new face
