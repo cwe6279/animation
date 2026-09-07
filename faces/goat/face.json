@@ -22,13 +22,13 @@
   ],
   "eye_left": {
     "image": "eye_left.png",
-    "cx": 235,
+    "cx": 215,
     "cy": 350,
     "scale": 1.1071428571428572
   },
   "eye_right": {
     "image": "eye_right.png",
-    "cx": 565,
+    "cx": 585,
     "cy": 350,
     "scale": 1.1071428571428572
   },
@@ -84,7 +84,7 @@
   },
   "tts_model": "v3",
   "wake_words": [
-    "goat",
-    "hey goat"
+    "Marsha",
+    "hey Marsha"
   ]
 }
