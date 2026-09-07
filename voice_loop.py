@@ -328,6 +328,13 @@ def main(argv=None) -> int:
                    help="Projection mode: fullscreen, face scaled to the display, no overlay or cursor (F toggles)")
     p.add_argument("--sync-offset", type=float, default=0.0)
     p.add_argument("--no-audio", action="store_true", help="No sound device (implies --text-only)")
+    p.add_argument("--camera", default=None,
+                   help='Turn on vision: camera name fragment ("c920") or index. Off unless given.')
+    p.add_argument("--no-vision", action="store_true", help="Force vision off even if a profile or face enables it")
+    p.add_argument("--list-cameras", action="store_true", help="List cameras and exit")
+    p.add_argument("--vision-interval", type=float, default=9.0, help="Seconds between camera bursts (default 9)")
+    p.add_argument("--vision-frames", type=int, default=3, help="Frames per burst (default 3)")
+    p.add_argument("--vision-model", default="claude-haiku-4-5", help="Vision model for scene notes")
     p.add_argument("--fixed-fps", action="store_true",
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     args = p.parse_args(argv)
@@ -340,6 +347,13 @@ def main(argv=None) -> int:
     from tts_backends import make_backend
     from llm_integration.claude_chat import ClaudeChat
 
+    if args.list_cameras:
+        from vision import list_cameras
+        cams = list_cameras()
+        print("Cameras:" if cams else "No cameras found")
+        for c in cams:
+            print(f"  [{c['index']}] {c['name']}  ({c['path']})")
+        return 0
     if args.list_devices or args.mic_test:
         return mic_tools(args)
 
@@ -384,6 +398,24 @@ def main(argv=None) -> int:
             print(f"[error] STT backend '{args.stt}' unavailable: {e}")
             return 1
 
+    watcher = None
+    if args.camera is not None and not args.no_vision:
+        try:
+            from vision import CameraSource, SceneWatcher, describe_with_claude, resolve_camera
+            cam_index = resolve_camera(args.camera)
+            source = CameraSource(cam_index)
+            watcher = SceneWatcher(source, lambda frames: describe_with_claude(frames, model=args.vision_model),
+                                   interval=args.vision_interval, burst=args.vision_frames,
+                                   on_note=lambda n: print(f"[scene] {'EMERGENCY ' if n.emergency else ''}"
+                                                           f"people={n.people}: {n.notes}") if args.debug else None)
+            watcher.start()
+            chat.context_provider = watcher.context
+            print(f"[vision] on: camera {cam_index}, {args.vision_frames} frames every {args.vision_interval:.0f}s, "
+                  f"{args.vision_model}; frames are not stored (emergencies go to emergencies/)")
+        except Exception as e:
+            print(f"[error] vision unavailable: {e}")
+            return 1
+
     loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in)
     app.on_submit = loop.on_user_text        # typed text goes through Claude too
 
@@ -399,7 +431,11 @@ def main(argv=None) -> int:
     else:
         print("[voice] text-only: press Enter in the window, type, Enter to send to Claude.")
 
-    app.run()
+    try:
+        app.run()
+    finally:
+        if watcher is not None:
+            watcher.stop()
     return 0
 
 

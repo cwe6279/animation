@@ -60,10 +60,17 @@ class ClaudeChat:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []
         self.last_usage = None
+        # Optional: returns text describing what the character can see right now
+        # (vision.SceneWatcher.context); prepended to the visitor's words.
+        self.context_provider = None
         self.client = client or make_client()
 
+    def _with_context(self, user_text: str) -> str:
+        ctx = self.context_provider() if self.context_provider else ""
+        return f"[{ctx}]\nVisitor says: {user_text}" if ctx else user_text
+
     def reply(self, user_text: str) -> Iterator[str]:
-        self.messages.append({"role": "user", "content": user_text})
+        self.messages.append({"role": "user", "content": self._with_context(user_text)})
         self.messages = self.messages[-self.max_history:]
         parts: List[str] = []
         try:

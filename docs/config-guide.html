@@ -151,6 +151,7 @@
     <li><a href="#prompt">Prompt and tags</a></li>
     <li><a href="#keys">API keys</a></li>
     <li><a href="#audio">Audio devices</a></li>
+    <li><a href="#vision">Vision</a></li>
     <li><a href="#display">Display and output</a></li>
     <li><a href="#backends">Backends, measured</a></li>
     <li><a href="#tools">Test tools</a></li>
@@ -176,6 +177,7 @@
     <div class="step cloud"><span class="where">cloud</span>Voice, sentence by sentence <br><code>--tts</code></div>
     <div class="step"><span class="where">local</span>Lip sync from word timings</div>
     <div class="step"><span class="where">local</span>Face render, 30 or 60 fps</div>
+    <div class="step cloud"><span class="where">optional, cloud</span>Scene notes from the camera <br><code>--camera</code></div>
   </div>
   <p>The face starts speaking the first sentence while the brain is still writing the rest. Every turn prints one <code>[turn]</code> line in the terminal: time from when you stopped talking to the transcript, to the first token, to the first audio. That line is the number to tune against.</p>
 </section>
@@ -328,6 +330,19 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
     <li><strong>Silence.</strong> <code>--silence-ms</code> sets how long a pause ends your turn. Default 600 for local recognizers, 500 for cloud. Lower feels snappier and cuts more sentences.</li>
     <li><strong>Echo.</strong> The mic is ignored while the face speaks. <code>--barge-in</code> keeps listening and interrupts when you talk, which needs headphones or a mic that cannot hear the speaker.</li>
   </ul>
+</section>
+
+<section id="vision">
+  <div class="eyebrow">Vision <span class="file">voice_loop.py --camera · vision.py</span></div>
+  <h2>Eyes for the character, off unless you switch them on</h2>
+  <p>Pass <code>--camera c920</code> (a name fragment or an index; <code>--list-cameras</code> shows them) and a watcher takes three frames about 0.3 s apart every 9 seconds, shrinks them, and asks a fast vision model for a few lines of notes: how many people, rough ages, what they are doing or holding, mood. The latest note goes to the brain with the next thing a visitor says, as "what you can see right now", so the character can greet, count, and refer to costumes or objects.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Setting</th><th>Effect</th></tr>
+    <tr><td><code>--camera</code></td><td>Turns vision on. Without it nothing runs and no camera opens. <code>--no-vision</code> forces it off.</td></tr>
+    <tr><td><code>--vision-interval</code>, <code>--vision-frames</code></td><td>Seconds between bursts (9) and frames per burst (3).</td></tr>
+    <tr><td><code>--vision-model</code></td><td>Claude Haiku 4.5 by default: about a sixth of a cent per burst, roughly 65 cents an hour at the default cadence.</td></tr>
+  </table></div>
+  <p><strong>Privacy.</strong> Frames are discarded the moment they are described; only text notes are kept, and only the most recent few. If the model flags an emergency, someone hurt or in distress, fire or a clear hazard, that one burst and its note are saved under <code>emergencies/&lt;timestamp&gt;/</code>, which is gitignored, and the brain is told to stay calm, keep it short, and ask for an adult.</p>
 </section>
 
 <section id="display">

@@ -33,6 +33,7 @@ talker/
   test_emotions.py       <- demo script cycling through all emotion tags
   tests/                 <- pytest (no audio device or display needed)
   voice_loop.py          <- the round trip: mic -> STT -> Claude -> voice + face
+  vision.py              <- optional camera watcher: 3 frames every 9 s -> scene notes for the brain
   stt_backends.py        <- VoskSTT (streaming, local), WhisperSTT (faster-whisper)
   docs/config-guide.html <- the tuning guide: every setting, where it lives, measured choices (open in a browser)
   faces/ART_SPEC.md      <- locked spec to hand an image model or artist for new face art
@@ -231,6 +232,25 @@ python voice_loop.py --face green_cat --profile pi --mic-device gomic --output-d
 e.g. `--model claude-haiku-4-5` for a faster brain. Tested on a Pi 5 with
 4 GB or more; a Pi 4 works but everything local is about twice as slow.
 Cloud stages cost the same on a Pi as on a desktop.
+
+### Vision (optional, off unless `--camera` is given)
+
+```bash
+python voice_loop.py --list-cameras
+python voice_loop.py --face eve --camera c920 --debug
+```
+
+Every 9 s (`--vision-interval`) the watcher takes 3 frames (`--vision-frames`)
+about 0.3 s apart, downsizes them, and asks a fast vision model
+(`--vision-model`, default Claude Haiku 4.5, roughly a sixth of a cent per
+burst) for a few lines of notes: how many people, rough ages, what they are
+doing or holding, mood. The latest note is handed to the brain on the next
+turn as "what you can see right now", so the character can greet and count
+visitors and refer to what they hold. Frames are discarded as soon as they
+are described; only if the model flags an emergency (someone hurt or in
+distress, fire, a clear hazard) are that burst and its note saved under
+`emergencies/<timestamp>/` (gitignored) and the brain told to stay calm and
+call an adult. `--no-vision` forces it off. Needs `opencv-python-headless`.
 
 ### Speech-to-text options, measured on a desktop
 

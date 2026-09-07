@@ -26,5 +26,8 @@ vosk>=0.3.45            # local streaming speech-to-text (small model auto-downl
 # Optional: OpenAI as the brain or as speech-to-text, for comparison (--llm openai, --stt openai)
 openai>=1.0
 
+# Optional: vision (voice_loop.py --camera ...): camera capture for scene notes
+opencv-python-headless>=4.9
+
 # Dev
 pytest>=8.0
