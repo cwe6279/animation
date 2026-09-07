@@ -376,6 +376,8 @@ def build_audio(no_audio: bool, sync_offset: float, output_device: Optional[int]
 def main(argv=None) -> int:
     from env_config import load_dotenv
     load_dotenv()
+    from session_log import start_session_log
+    log_path = start_session_log("talker")
     parser = argparse.ArgumentParser(description="Talker — phoneme-synced animated face")
     parser.add_argument("--text", "-t", type=str, help="Speak this text (supports [emotion] tags)")
     parser.add_argument("--file", "-f", type=str, help="Play a WAV file (amplitude-driven mouth)")

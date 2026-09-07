@@ -395,6 +395,8 @@ def mic_tools(args) -> int:
 def main(argv=None) -> int:
     from env_config import load_dotenv
     load_dotenv()
+    from session_log import start_session_log
+    log_path = start_session_log("voice")
     p = argparse.ArgumentParser(description="Talk to an animated face: mic -> STT -> Claude -> voice")
     p.add_argument("--profile", choices=["desktop", "pi"], default=None,
                    help="pi: cloud speech-to-text (elevenlabs), fullscreen, 30 fps — nothing heavy "
@@ -561,6 +563,7 @@ def main(argv=None) -> int:
     loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant)
     loop.vision = watcher
+    print(f"[log] this session is being written to {log_path}")
     if wake_words:
         names = ", ".join(repr(w) for w in loop.wake_words)
         print(f"[mode] {'dormant, listening for ' + names if not loop.engaged else 'engaged; after ' + str(int(args.idle_timeout)) + 's of quiet, wakes on ' + names}")

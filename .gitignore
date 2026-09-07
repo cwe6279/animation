@@ -43,3 +43,6 @@ emergencies/
 *.jpeg
 snapshots/
 recordings/
+
+# Session logs (contain transcripts of conversations)
+logs/
