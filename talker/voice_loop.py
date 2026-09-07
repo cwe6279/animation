@@ -376,7 +376,7 @@ def stt_kwargs(args) -> dict:
 
 def mic_tools(args) -> int:
     from .audio_engine import AudioEngine
-    audio = AudioEngine()
+    audio = AudioEngine(output_device=args.output_device)
     print("Input devices:")
     for idx, name, rate, is_default in audio.list_input_devices():
         print(f"  [{idx}] {name}  ({rate} Hz){'  <- default' if is_default else ''}")
@@ -429,15 +429,30 @@ def mic_tools(args) -> int:
             print(f"\r[hearing] {t.text[-70:]:<70}", end="", flush=True)
 
     audio.start_mic(on_frames=on_frames, rate=stt.sample_rate, device=args.mic_device, open_rate=args.mic_rate)
+    pipeline = None
+    if args.play:
+        import os as _os
+        from .phoneme_scheduler import ScheduleReader
+        from .speech_pipeline import SpeechPipeline
+        from .tts_backends import make_backend
+        tts = (args.tts or ("elevenlabs" if _os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
+        pipeline = SpeechPipeline(audio, ScheduleReader(), make_backend(tts, voice=args.voice, model=args.tts_model))
+        pipeline.start()
+        pipeline.speak(" ".join([args.play] * 3))
+        print("Playing the character's voice through the speaker: the level you see now is what the mic "
+              "hears FROM THE SPEAKER. Then talk from the visitor spot and compare.")
     print("Speak. Level is printed every 2 s (aim for 500-5000; below ~200 is too quiet). Ctrl+C to stop.")
     try:
         while True:
             time.sleep(2)
             rms, _ = audio.get_state()
-            print(f"\r[level]   now {rms:5.0f}  peak {state['peak']:5.0f}{' ':50}")
+            tag = "speaker" if pipeline is not None and pipeline.is_busy else "mic    "
+            print(f"\r[level {tag}] now {rms:5.0f}  peak {state['peak']:5.0f}{' ':46}")
     except KeyboardInterrupt:
         pass
     finally:
+        if pipeline is not None:
+            pipeline.stop()
         audio.close()
     return 0
 
@@ -470,6 +485,9 @@ def main(argv=None) -> int:
     p.add_argument("--list-devices", action="store_true", help="List input and output devices and exit")
     p.add_argument("--mic-test", action="store_true",
                    help="Only print what the mic hears (levels + transcripts); no Claude, no voice")
+    p.add_argument("--play", default=None, metavar="TEXT",
+                   help="With --mic-test: also speak TEXT through the output device (repeats 3 times) so you "
+                        "can read the mic level from the speaker versus from a person; set --tts/--voice as usual")
     p.add_argument("--record", default=None, metavar="DIR",
                    help="With --mic-test: save each utterance as WAV in DIR plus transcripts.txt "
                         "(draft references to correct, then run tools/bench_stt.py DIR)")

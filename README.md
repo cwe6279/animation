@@ -86,6 +86,12 @@ false wake-ups.
 **Projection.** Black background, `--fullscreen`, face scaled to the display; any projector
 works, brighter helps outdoors. Set `fps` to 30 in the face for a Pi.
 
+**Measuring speaker bleed.** `python voice_loop.py --mic-test --mic-device gomic --output-device jabra --play "Testing one two three, can you hear me?"`
+plays the character's voice three times through the speaker while printing the mic level; lines
+tagged `speaker` are what the mic hears from the speaker, lines tagged `mic` are the room and you.
+Rearrange until the speaker number is well below your own speaking level, then set
+`--barge-in-boost` so the threshold sits between them.
+
 **Barge-in checklist.** Run with `--barge-in --debug`. A barge-in needs half a second of
 continuous speech (`--barge-in-ms`) that is louder than the onset threshold times
 `--barge-in-boost` (2.5) while the character talks. If `[barge-in]` lines still appear while
