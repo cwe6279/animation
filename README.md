@@ -527,6 +527,7 @@ Tweak `face.json` without re-exporting PNGs:
 - **`tts_model`** — ElevenLabs model for this face: `"v3"` (performs tags, ~1 s to first audio) or `"flash"` (~0.25 s, tags stripped); `--tts-model` overrides
 - **`character.md`** (a file next to face.json) — the personality: who the character is, traits, tone, boundaries. Concatenated with the shared `llm_integration/system_prompt.md` at runtime, so the shared file holds delivery rules and the face folder holds only personality. `--character` on the command line overrides it for one run
 - **`gaze`** / **`blink_interval`** / **`blink_speed`** / **`eye_speech_pulse`** — idle glances, blink timing, and eye pulse while speaking (image and procedural eyes)
+- **`eye_lids`** — for image eyes without pupils (EVE): emotions become lid cuts, a happy crescent, an angry slant, a sad droop, and blinks close the lids instead of squashing the eye
 - **`textured_eye`** — live eyes composed from parts in a folder (`{"dir": "eye", "size": 224, "gaze_radius": 0.35, "pupil": [min, base, max], "lid_tracking": 0.35}`): the pupil and iris move inside a fixed outline on saccades, the pupil dilates with emotion, the upper lid follows the gaze, blinks close fast and open slow. Parts: `iris.png` (polar strip), `pupilMap.png`, `lid-upper.png`, `lid-lower.png`, optional `sclera.png` and `highlight.png`. Any Adafruit Uncanny Eyes design folder works as-is
 - **`glow_color`** — halo color around procedural shapes
 - **`blink`** — enable/disable eye blink animation

@@ -92,6 +92,7 @@ class FaceManifest:
     eye_color: Tuple = (255, 200, 0)    # procedural eyes
     blink:     bool = True
     eye_speech_pulse: float = 0.0       # eyes grow by this fraction when the mouth is fully open
+    eye_lids: bool = False              # image/procedural eyes: emotion as lid cuts (crescents, slants) and lid blinks
     blink_interval: Tuple = (2.5, 5.5)  # seconds between blinks (random in range; emotion scales it)
     blink_speed: float = 9.0            # how fast a blink closes/opens (higher = snappier)
     # Idle glances: eyes drift to a random point within `amount` px every `interval`
@@ -131,7 +132,7 @@ class FaceManifest:
         "name", "description", "canvas_w", "canvas_h", "fps", "bg_color", "face_base",
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
         "eye_left", "eye_right", "eye_color", "blink", "blink_interval", "blink_speed",
-        "eye_speech_pulse", "gaze", "draw_nose", "nose_color", "nose",
+        "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
         "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye",
     }
     _KNOWN_EYE = {"image", "cx", "cy", "scale", "opacity"}
@@ -164,6 +165,7 @@ class FaceManifest:
         m.eye_color   = tuple(d.get("eye_color", m.eye_color))
         m.blink       = bool(d.get("blink", m.blink))
         m.eye_speech_pulse = float(d.get("eye_speech_pulse", m.eye_speech_pulse))
+        m.eye_lids = bool(d.get("eye_lids", m.eye_lids))
         m.blink_interval = tuple(float(x) for x in d.get("blink_interval", m.blink_interval))
         m.blink_speed = float(d.get("blink_speed", m.blink_speed))
         gz = d.get("gaze", {})
@@ -246,6 +248,21 @@ EMOTION_PARAMS = {
     Emotion.ANNOYED:  {"eye_squish": 0.7,  "eye_tilt": 5.0,  "blink_mult": 0.8, "speed": 5.0},
     Emotion.SAD:      {"eye_squish": 0.85, "eye_tilt": -8.0, "blink_mult": 1.5, "speed": 3.0},
     Emotion.SURPRISE: {"eye_squish": 1.3,  "eye_tilt": 0.0,  "blink_mult": 0.3, "speed": 10.0},
+}
+
+
+# Lid cuts per emotion for eye_lids faces, as fractions of the eye's solid core:
+#   upper cover, lower cover, tilt, lower-lid arch, upper-lid corner drop.
+# tilt > 0 covers the inner corner more (angry V); tilt < 0 droops the outer corner (sad).
+# arch > 0 bows the lower lid upward in the middle; corner drop lowers the upper lid at
+# both corners. Together they make an even, upward-bowed crescent (happy).
+EMOTION_LIDS = {
+    Emotion.NEUTRAL:  (0.00, 0.00,  0.00, 0.00, 0.00),
+    Emotion.HAPPY:    (0.00, 0.18,  0.00, 0.30, 0.30),
+    Emotion.ANGRY:    (0.40, 0.05,  0.30, 0.00, 0.00),
+    Emotion.ANNOYED:  (0.30, 0.05,  0.10, 0.00, 0.00),
+    Emotion.SAD:      (0.28, 0.05, -0.30, 0.00, 0.00),
+    Emotion.SURPRISE: (0.00, 0.00,  0.00, 0.00, 0.00),
 }
 
 
@@ -530,6 +547,11 @@ class AssetFaceRenderer:
         self._blink_mult = 1.0
         self.current_emotion_label = "neutral"
 
+        # Lid state for eye_lids faces (smoothed toward EMOTION_LIDS targets)
+        self._lids = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self._lid_mask_cache: "collections.OrderedDict[tuple, pygame.Surface]" = collections.OrderedDict()
+        self._core_span_cache: dict = {}
+
         # Live textured eyes: shared motion model (both eyes move together)
         self._eye_motion = None
         if assets.textured is not None:
@@ -575,8 +597,16 @@ class AssetFaceRenderer:
             self.current_emotion_label = emotion.value
         ep = EMOTION_PARAMS.get(self._emotion, EMOTION_PARAMS[Emotion.NEUTRAL])
         k = ep["speed"] * dt
-        self._eye_squish += (ep["eye_squish"] - self._eye_squish) * k
-        self._eye_tilt += (ep["eye_tilt"] - self._eye_tilt) * k
+        if self.manifest.eye_lids:
+            # lids carry the expression; keep only a mild squish/tilt underneath
+            squish_t = 1.0 + (ep["eye_squish"] - 1.0) * 0.4
+            tilt_t = ep["eye_tilt"] * 0.3
+            for i, target in enumerate(EMOTION_LIDS.get(self._emotion, EMOTION_LIDS[Emotion.NEUTRAL])):
+                self._lids[i] += (target - self._lids[i]) * k
+        else:
+            squish_t, tilt_t = ep["eye_squish"], ep["eye_tilt"]
+        self._eye_squish += (squish_t - self._eye_squish) * k
+        self._eye_tilt += (tilt_t - self._eye_tilt) * k
         self._blink_mult += (ep["blink_mult"] - self._blink_mult) * k
 
         if self._eye_motion is not None:
@@ -699,13 +729,87 @@ class AssetFaceRenderer:
             self._eye_cache.popitem(last=False)
         return out
 
+    def _core_span(self, surf: pygame.Surface) -> Tuple[float, float]:
+        """
+        Vertical extent (as fractions of image height) of the eye's solid core,
+        i.e. rows with strongly opaque pixels, ignoring soft glow. Lids are cut
+        relative to this span so a halo around the eye doesn't skew them.
+        """
+        key = id(surf)
+        cached = self._core_span_cache.get(key)
+        if cached is not None:
+            return cached
+        alpha = pygame.surfarray.pixels_alpha(surf)
+        rows = np.where((alpha >= 200).any(axis=0))[0]
+        del alpha
+        h = surf.get_height()
+        span = (rows[0] / h, (rows[-1] + 1) / h) if rows.size else (0.0, 1.0)
+        self._core_span_cache[key] = span
+        return span
+
+    def _lid_mask(self, w: int, h: int, upper: float, lower: float, tilt: float, arch: float,
+                  is_left: bool, span: Tuple[float, float] = (0.0, 1.0),
+                  corner_drop: float = 0.0) -> Optional[pygame.Surface]:
+        """
+        Multiply-mask that hides the parts of an eye image covered by the lids.
+        The upper lid is a straight cut whose inner end sits lower by `tilt`;
+        the lower lid rises by `lower` and bows upward by `arch` in the middle.
+        Cached by quantized parameters.
+        """
+        q = (w, h, round(upper, 2), round(lower, 2), round(tilt, 2), round(arch, 2), is_left,
+             round(span[0], 3), round(span[1], 3), round(corner_drop, 2))
+        m = self._lid_mask_cache.get(q)
+        if m is not None:
+            self._lid_mask_cache.move_to_end(q)
+            return m
+        if upper < 0.01 and lower < 0.01 and corner_drop < 0.01:
+            return None
+        m = pygame.Surface((w, h), pygame.SRCALPHA)
+        m.fill((255, 255, 255, 255))
+        top, bottom = span[0] * h, span[1] * h
+        core = max(1.0, bottom - top)
+        # x runs from the outer corner (0) to the inner corner (1) for the right eye;
+        # mirror for the left so "inner" always means toward the nose.
+        n = 24
+        xs = [i / n for i in range(n + 1)]
+        if upper > 0.01 or corner_drop > 0.01:
+            pts = [(0, 0), (w, 0)]
+            for x in reversed(xs):
+                inner = x if not is_left else 1.0 - x
+                edge = (2 * x - 1) ** 2                          # 0 in the middle, 1 at the corners
+                cover = upper + tilt * (inner - 0.5) + corner_drop * edge
+                pts.append((int(x * w), int(top + max(0.0, cover) * core)))
+            pygame.draw.polygon(m, (0, 0, 0, 0), pts)
+        if lower > 0.01:
+            pts = [(0, h), (w, h)]
+            for x in reversed(xs):
+                bow = arch * (1.0 - (2 * x - 1) ** 2)          # 0 at corners, arch in the middle
+                cover = lower + bow
+                pts.append((int(x * w), int(bottom - max(0.0, cover) * core)))
+            pygame.draw.polygon(m, (0, 0, 0, 0), pts)
+        self._lid_mask_cache[q] = m
+        if len(self._lid_mask_cache) > 64:
+            self._lid_mask_cache.popitem(last=False)
+        return m
+
     def _draw_art_eye(self, surf, ec: EyeConfig, eye_surf: pygame.Surface,
                       offset: Tuple[int, int], is_left: bool) -> None:
-        blink_squish = max(0.03, 1.0 - self._blink_t * 0.97)
+        lids = self.manifest.eye_lids
+        blink_squish = 1.0 if lids else max(0.03, 1.0 - self._blink_t * 0.97)
         pulse = 1.0 + self.manifest.eye_speech_pulse * self._open
         new_h = max(2, int(eye_surf.get_height() * blink_squish * self._eye_squish * pulse))
         tilt = -self._eye_tilt if is_left else self._eye_tilt   # + = inner corners down
         img = self._eye_variant(eye_surf, new_h, tilt, ec.opacity)
+        if lids:
+            u, lo, tl, arch, drop = self._lids
+            # blink: both lids meet in the middle
+            u = u + (1.0 - u) * self._blink_t * 0.62
+            lo = lo + (1.0 - lo) * self._blink_t * 0.45
+            mask = self._lid_mask(img.get_width(), img.get_height(), u, lo, tl, arch, is_left,
+                                  self._core_span(img), corner_drop=drop * (1.0 - self._blink_t))
+            if mask is not None:
+                img = img.copy()
+                img.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         cx = ec.cx + offset[0] + int(round(self._gaze[0]))
         cy = ec.cy + offset[1] + int(round(self._gaze[1]))
         surf.blit(img, (cx - img.get_width() // 2, cy - img.get_height() // 2))

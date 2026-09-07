@@ -2,6 +2,20 @@
 
 Ideas agreed on but not built yet, roughly in priority order.
 
+## Character sounds (agreed 2026-09-07)
+- Each face folder gets a `sounds/` directory of short clips (a bleat, a
+  purr, a dragon rumble, a chuckle), generated once (ElevenLabs sound
+  effects or v3) or recorded, stored as 24 kHz mono WAV with a matching
+  mouth shape / duration in a small `sounds.json`.
+- **Intentional**: a tag in the reply (`[bleat]`, `[rumble]`) plays the clip
+  through the same audio stream at that point, with the mouth held on its
+  shape; the tag is stripped from the voice text.
+- **Idle**: when nobody has spoken for a while, play one at random now and
+  then (configurable interval and probability), with a matching glance or
+  blink, so the character feels alive between visitors.
+- **Filler**: on transcript arrival, optionally play a short "thinking" clip
+  to cover the first-token wait.
+
 ## Canned lines, conversation starters, and filler
 - **Pre-rendered phrases.** Synthesize a repertoire once (greetings, "Who goes
   there?", taunts, goodbyes) and cache the PCM *with its word timings* so lip

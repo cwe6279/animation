@@ -70,5 +70,6 @@
     ],
     "style": "rounded",
     "n_teeth": 0
-  }
+  },
+  "eye_lids": true
 }

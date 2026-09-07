@@ -85,3 +85,19 @@ def test_blink_rate_is_sane_under_emotion_multiplier(scale):
             was_open = True
     # 30 s at a 0-2 s gap: roughly 10-30 blinks scaled; never hundreds, never zero
     assert 5 <= blinks <= 60, blinks
+
+
+def test_eye_lids_mask_hides_more_as_lids_close():
+    """The lid mask for image eyes (EVE) must hide progressively more of the eye."""
+    import os as _os
+    _os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    pygame.display.init(); pygame.display.set_mode((1, 1), pygame.HIDDEN)
+    from face_asset_loader import AssetFaceRenderer, FaceAssetLoader, default_manifest
+    m = default_manifest("lids"); m.eye_lids = True
+    r = AssetFaceRenderer(FaceAssetLoader().build(m))
+    visible = []
+    for upper, lower in ((0.0, 0.0), (0.3, 0.0), (0.3, 0.3), (0.6, 0.4)):
+        mask = r._lid_mask(120, 60, upper, lower, 0.0, 0.0, False, (0.1, 0.9))
+        visible.append(120 * 60 if mask is None else int(pygame.surfarray.pixels_alpha(mask).astype(int).sum() / 255))
+    assert visible[0] > visible[1] > visible[2] > visible[3]
