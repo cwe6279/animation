@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import queue
+import re
 import sys
 import threading
 import time
@@ -70,6 +71,11 @@ class VoiceLoop:
         self._worker.start()
         self._last_audio_in = 0.0
         self._speech_end_at = 0.0     # when the STT said the utterance ended
+        # Optional vision.SceneWatcher: a burst is requested the moment the visitor
+        # starts talking so the note is fresh when the transcript lands.
+        self.vision = None
+        self._was_speaking = False
+        self._vision_ticket: Optional[int] = None
 
     # ── mic path ────────────────────────────────────────
     def process(self, pcm: bytes) -> None:
@@ -107,6 +113,10 @@ class VoiceLoop:
             return
 
         t = self.stt.feed(pcm)
+        speaking = bool(getattr(self.stt, "speech_active", False))
+        if speaking and not self._was_speaking and self.vision is not None:
+            self._vision_ticket = self.vision.request(force=True)
+        self._was_speaking = speaking
         if t is None:
             return
         if not t.final:
@@ -131,7 +141,14 @@ class VoiceLoop:
         self.on_event("you", text)
         threading.Thread(target=self._answer, args=(text,), daemon=True, name="llm-turn").start()
 
+    VISUAL_RE = re.compile(r"\b(see|look|watch|holding|hold|wearing|wear|this|that|these|expression|"
+                           r"face|colou?r|what am i|who am i|how many|show|showing|picture|drawing)\b", re.I)
+
     def _answer(self, text: str) -> None:
+        # A visual question: give the in-flight burst a moment to land first.
+        if self.vision is not None and self._vision_ticket is not None and self.VISUAL_RE.search(text):
+            self.vision.wait_for(self._vision_ticket, timeout=1.5)
+        self._vision_ticket = None
         t_end = time.monotonic()
         t_stop = self._speech_end_at or t_end       # typed text: no STT stage
         stats = {"first_token_ms": None}
@@ -335,9 +352,9 @@ def main(argv=None) -> int:
     p.add_argument("--vision-interval", type=float, default=9.0, help="Seconds between camera bursts (default 9)")
     p.add_argument("--vision-frames", type=int, default=3, help="Frames per burst (default 3)")
     p.add_argument("--vision-model", default="claude-haiku-4-5", help="Vision model for scene notes")
-    p.add_argument("--vision-change", type=float, default=0.06,
-                   help="Only describe a burst if the scene changed by more than this (0-1, default 0.06); "
-                        "a description is forced every 90 s regardless")
+    p.add_argument("--vision-change", type=float, default=0.035,
+                   help="Only describe a burst if the scene changed by more than this (0-1, default 0.035; "
+                        "a still room is ~0.01); a description is forced every 90 s regardless")
     p.add_argument("--fixed-fps", action="store_true",
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     args = p.parse_args(argv)
@@ -424,6 +441,7 @@ def main(argv=None) -> int:
             return 1
 
     loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in)
+    loop.vision = watcher
     app.on_submit = loop.on_user_text        # typed text goes through Claude too
 
     if stt is not None:

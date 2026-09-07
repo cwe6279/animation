@@ -244,10 +244,13 @@ Every 9 s (`--vision-interval`) the watcher takes 3 frames (`--vision-frames`)
 about 0.3 s apart, downsizes them, and asks a fast vision model
 (`--vision-model`, default Claude Haiku 4.5, roughly a sixth of a cent per
 burst) for a few lines of notes: how many people, rough ages, what they are
-doing or holding, mood. When a burst changes the scene, the note is inserted
-into the conversation as a separate context entry (marked as not spoken by
-anyone) ahead of the next thing the visitor says; quiet turns add nothing, and
-the visitor's words are never altered. A burst is only sent to the model when
+doing or holding, mood. A burst is also taken the moment a visitor starts
+talking, so the note is fresh by the time the transcript lands; a visual
+question ("what's this", "can you see", "how many") waits up to 1.5 s for it.
+When a burst changes the scene, the note is inserted into the conversation as
+a separate context entry (marked as not spoken by anyone) ahead of the next
+thing the visitor says; quiet turns add nothing, and the visitor's words are
+never altered. A burst is only sent to the model when
 the scene has changed (a tiny thumbnail is compared with the last described
 one; `--vision-change`, default 0.06, a still room scores ~0.01), with a
 forced refresh every 90 s, so an empty room costs nothing. Frames are

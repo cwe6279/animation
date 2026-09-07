@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 VISION_PROMPT = """You are the eyes of an animated character that talks with visitors (it may be a kids' event, a museum, a library). You get {n} frames taken about 0.3 s apart from its camera. Write short notes the character can use in conversation.
 
 Reply with JSON only:
-{{"notes": "<2-4 short sentences: how many people, rough ages (child/teen/adult), what they are doing or holding, costumes, mood, anything they might want the character to notice; say 'nobody in view' if empty>",
+{{"notes": "<2-4 short sentences: how many people, rough ages (child/teen/adult), what they are doing, ANY object held up or shown to the camera (name it, its colour, any text on it), costumes or headwear, mood; say 'nobody in view' if empty>",
  "people": <integer>,
  "emergency": <true|false>,
  "emergency_reason": "<only if emergency: what you see>"}}
@@ -114,7 +114,7 @@ def resolve_camera(spec) -> int:
 class CameraSource:
     """Keeps the camera open and returns JPEG-encoded, downsized bursts."""
 
-    def __init__(self, index: int, width: int = 640, height: int = 360, jpeg_quality: int = 80):
+    def __init__(self, index: int, width: int = 896, height: int = 504, jpeg_quality: int = 80):
         import cv2
         self.cv2 = cv2
         self.cap = cv2.VideoCapture(index)
@@ -213,7 +213,7 @@ class SceneWatcher:
                  burst: int = 3, keep: int = 3, emergency_dir: Optional[str] = None,
                  on_note: Optional[Callable[[SceneNote], None]] = None,
                  on_error: Optional[Callable[[str], None]] = None, clock=time.monotonic,
-                 change_threshold: float = 0.06, max_quiet_s: float = 90.0,
+                 change_threshold: float = 0.035, max_quiet_s: float = 90.0,
                  signature: Callable = frame_signature):
         self.source = source
         self.describe = describe
@@ -235,6 +235,10 @@ class SceneWatcher:
         self._notes: List[SceneNote] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._wake = threading.Event()          # set by request() to observe now
+        self._force = False
+        self._done = threading.Condition()
+        self._observations = 0                  # completed observe_once() calls
         self._thread: Optional[threading.Thread] = None
         self.stats = {"bursts": 0, "described": 0, "skipped_unchanged": 0, "errors": 0,
                       "emergencies": 0, "last_ms": 0, "last_change": 0.0}
@@ -257,16 +261,44 @@ class SceneWatcher:
     def _run(self) -> None:
         while not self._stop.is_set():
             t0 = time.monotonic()
+            force, self._force = self._force, False
+            self._wake.clear()
             try:
-                self.observe_once()
+                self.observe_once(force=force)
             except Exception as e:
                 self.stats["errors"] += 1
                 self.on_error(f"observation failed: {e}")
+            with self._done:
+                self._observations += 1
+                self._done.notify_all()
             elapsed = time.monotonic() - t0
-            self._stop.wait(max(0.5, self.interval - elapsed))
+            self._wake.wait(max(0.5, self.interval - elapsed)) if not self._stop.is_set() else None
+
+    # ── on-demand ──
+    def request(self, force: bool = True) -> int:
+        """
+        Ask for an observation now (e.g. the visitor just started talking).
+        Returns a ticket for wait_for(); force=True bypasses change detection.
+        """
+        with self._done:
+            ticket = self._observations + 1
+        self._force = self._force or force
+        self._wake.set()
+        return ticket
+
+    def wait_for(self, ticket: int, timeout: float) -> bool:
+        """Block until the observation `ticket` (from request) has completed."""
+        deadline = time.monotonic() + timeout
+        with self._done:
+            while self._observations < ticket:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._done.wait(remaining)
+        return True
 
     # ── one observation ──
-    def observe_once(self) -> Optional[SceneNote]:
+    def observe_once(self, force: bool = False) -> Optional[SceneNote]:
         frames = self.source.burst(self.burst)
         if not frames:
             return None
@@ -276,7 +308,7 @@ class SceneWatcher:
         score = change_score(sig, self._last_sig) if self._last_sig is not None else 1.0
         self.stats["last_change"] = round(score, 3)
         quiet_for = (now - self._last_described_at) if self._last_described_at is not None else None
-        unchanged = (score < self.change_threshold and quiet_for is not None
+        unchanged = (not force and score < self.change_threshold and quiet_for is not None
                      and quiet_for < self.max_quiet_s and self.latest() is not None)
         if unchanged:
             # Same scene: keep the existing note current instead of paying for a new one.

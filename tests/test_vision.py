@@ -102,3 +102,47 @@ def test_heartbeat_describes_after_max_quiet(tmp_path):
     for _ in range(5):
         clk.t += 9; w.observe_once()
     assert len(calls) == 2                       # one at start, one heartbeat after 30 s of no change
+
+
+def test_request_wakes_watcher_and_wait_for_returns(tmp_path):
+    import threading
+    calls = []
+    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"notes": "x", "people": 0},
+                     interval=60, emergency_dir=str(tmp_path))
+    w.start()
+    assert w.wait_for(1, timeout=2)                  # first tick
+    ticket = w.request(force=True)
+    assert w.wait_for(ticket, timeout=2) and len(calls) == 2
+    w.stop()
+
+
+def test_loop_requests_burst_when_visitor_starts_talking():
+    from voice_loop import VoiceLoop
+    from stt_backends import STTBackend, Transcript
+
+    class STT(STTBackend):
+        speech_active = False
+        def feed(self, pcm): return None
+        def reset(self): pass
+
+    class FakeVision:
+        def __init__(self): self.requests = 0
+        def request(self, force=True): self.requests += 1; return self.requests
+        def wait_for(self, ticket, timeout): return True
+
+    class Spk:
+        is_busy = False
+        def speak_stream(self, c): list(c)
+        def interrupt(self): pass
+    stt, vis = STT(), FakeVision()
+    loop = VoiceLoop(stt, lambda t: iter(["ok"]), Spk(), on_event=lambda k, s: None)
+    loop.vision = vis
+    loop._process(b"\x00" * 320)                    # silence
+    stt.speech_active = True
+    loop._process(b"\x00" * 320); loop._process(b"\x00" * 320)   # talking (two chunks, one request)
+    assert vis.requests == 1
+    stt.speech_active = False
+    loop._process(b"\x00" * 320)
+    stt.speech_active = True
+    loop._process(b"\x00" * 320)                    # a new utterance -> a new request
+    assert vis.requests == 2
