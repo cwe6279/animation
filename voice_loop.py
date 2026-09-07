@@ -335,6 +335,9 @@ def main(argv=None) -> int:
     p.add_argument("--vision-interval", type=float, default=9.0, help="Seconds between camera bursts (default 9)")
     p.add_argument("--vision-frames", type=int, default=3, help="Frames per burst (default 3)")
     p.add_argument("--vision-model", default="claude-haiku-4-5", help="Vision model for scene notes")
+    p.add_argument("--vision-change", type=float, default=0.06,
+                   help="Only describe a burst if the scene changed by more than this (0-1, default 0.06); "
+                        "a description is forced every 90 s regardless")
     p.add_argument("--fixed-fps", action="store_true",
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     args = p.parse_args(argv)
@@ -406,12 +409,14 @@ def main(argv=None) -> int:
             source = CameraSource(cam_index)
             watcher = SceneWatcher(source, lambda frames: describe_with_claude(frames, model=args.vision_model),
                                    interval=args.vision_interval, burst=args.vision_frames,
+                                   change_threshold=args.vision_change,
                                    on_note=lambda n: print(f"[scene] {'EMERGENCY ' if n.emergency else ''}"
                                                            f"people={n.people}: {n.notes}") if args.debug else None)
             watcher.start()
             chat.context_provider = watcher.context
             print(f"[vision] on: camera {cam_index}, {args.vision_frames} frames every {args.vision_interval:.0f}s, "
-                  f"{args.vision_model}; frames are not stored (emergencies go to emergencies/)")
+                  f"{args.vision_model}, described only when the scene changes; frames are not stored "
+                  f"(emergencies go to emergencies/)")
         except Exception as e:
             print(f"[error] vision unavailable: {e}")
             return 1

@@ -246,8 +246,11 @@ about 0.3 s apart, downsizes them, and asks a fast vision model
 burst) for a few lines of notes: how many people, rough ages, what they are
 doing or holding, mood. The latest note is handed to the brain on the next
 turn as "what you can see right now", so the character can greet and count
-visitors and refer to what they hold. Frames are discarded as soon as they
-are described; only if the model flags an emergency (someone hurt or in
+visitors and refer to what they hold. A burst is only sent to the model when
+the scene has changed (a tiny thumbnail is compared with the last described
+one; `--vision-change`, default 0.06, a still room scores ~0.01), with a
+forced refresh every 90 s, so an empty room costs nothing. Frames are
+discarded as soon as they are described; only if the model flags an emergency (someone hurt or in
 distress, fire, a clear hazard) are that burst and its note saved under
 `emergencies/<timestamp>/` (gitignored) and the brain told to stay calm and
 call an adult. `--no-vision` forces it off. Needs `opencv-python-headless`.

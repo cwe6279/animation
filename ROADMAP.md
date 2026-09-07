@@ -2,6 +2,21 @@
 
 Ideas agreed on but not built yet, roughly in priority order.
 
+## Body (later): servo controls
+Ears, eyes, brain and mouth exist; the body is the next organ. A `body.py`
+driver with the same shape as the audio and vision pieces:
+- **Outputs**: head pan/tilt (or a whole-face turntable), eyelid or ear
+  servos, arms or wings, an LED ring. Hardware via a PCA9685 servo board over
+  I2C on the Pi, or a serial link to an Arduino; a `NullBody` for desktops.
+- **Inputs it listens to**: `EyeMotion` gaze and `look_at` (head follows the
+  eyes with lag), emotion changes (ears back for angry, up for surprise),
+  speech energy from the audio engine (small head nods on stressed syllables),
+  vision notes (turn toward where people are), idle sounds (a shake with a
+  bleat).
+- **Safety**: rate and range limits per servo in face.json, a soft home
+  position on start/stop, and everything off if the loop crashes.
+- Config in face.json under `"body"`, off unless present.
+
 ## Character sounds (agreed 2026-09-07)
 - Each face folder gets a `sounds/` directory of short clips (a bleat, a
   purr, a dragon rumble, a chuckle), generated once (ElevenLabs sound

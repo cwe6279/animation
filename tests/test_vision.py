@@ -70,3 +70,31 @@ def test_chat_prepends_scene_context():
     list(chat.reply("hello"))
     sent = client.calls[0]["messages"][0]["content"]
     assert sent.startswith("[What you can see") and sent.endswith("Visitor says: hello")
+
+
+def test_unchanged_scene_skips_the_model_but_keeps_note_fresh(tmp_path):
+    import numpy as np
+    clk = Clock()
+    sigs = iter([np.zeros((14, 24)), np.zeros((14, 24)) + 0.01, np.zeros((14, 24)) + 0.5, np.zeros((14, 24)) + 0.5])
+    calls = []
+    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"notes": f"note {len(calls)}", "people": 1},
+                     emergency_dir=str(tmp_path), clock=clk, signature=lambda jpg: next(sigs))
+    w.observe_once(); clk.t += 9
+    w.observe_once(); clk.t += 9                 # ~same signature: skipped, note time refreshed
+    assert len(calls) == 1 and w.stats["skipped_unchanged"] == 1
+    assert w.latest().time == clk.t - 9 and "note 1" in w.context()
+    w.observe_once(); clk.t += 9                 # big change: described again
+    assert len(calls) == 2 and "note 2" in w.context()
+    w.observe_once()                             # same as last described: skipped
+    assert len(calls) == 2
+
+
+def test_heartbeat_describes_after_max_quiet(tmp_path):
+    import numpy as np
+    clk = Clock(); calls = []
+    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"notes": "still", "people": 0},
+                     emergency_dir=str(tmp_path), clock=clk, max_quiet_s=30, signature=lambda jpg: np.zeros((14, 24)))
+    w.observe_once()
+    for _ in range(5):
+        clk.t += 9; w.observe_once()
+    assert len(calls) == 2                       # one at start, one heartbeat after 30 s of no change

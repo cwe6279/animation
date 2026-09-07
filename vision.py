@@ -150,6 +150,31 @@ class CameraSource:
 
 
 # ─────────────────────────────────────────────────────
+# CHANGE DETECTION  (don't pay for a description of an unchanged scene)
+# ─────────────────────────────────────────────────────
+def frame_signature(jpeg: bytes, size=(24, 14)):
+    """Tiny grayscale thumbnail of a JPEG, as floats 0..1, for cheap comparison."""
+    import numpy as np
+    try:
+        import cv2
+        arr = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        if arr is None:
+            return None
+        small = cv2.resize(arr, size, interpolation=cv2.INTER_AREA)
+        return small.astype(np.float32) / 255.0
+    except Exception:
+        return None
+
+
+def change_score(a, b) -> float:
+    """Mean absolute difference between two signatures (0 = identical, 1 = opposite)."""
+    if a is None or b is None or a.shape != b.shape:
+        return 1.0
+    import numpy as np
+    return float(np.mean(np.abs(a - b)))
+
+
+# ─────────────────────────────────────────────────────
 # VISION MODEL
 # ─────────────────────────────────────────────────────
 def describe_with_claude(frames: List[bytes], model: str = "claude-haiku-4-5", client=None) -> dict:
@@ -187,12 +212,22 @@ class SceneWatcher:
     def __init__(self, source, describe: Callable[[List[bytes]], dict], interval: float = 9.0,
                  burst: int = 3, keep: int = 3, emergency_dir: Optional[str] = None,
                  on_note: Optional[Callable[[SceneNote], None]] = None,
-                 on_error: Optional[Callable[[str], None]] = None, clock=time.monotonic):
+                 on_error: Optional[Callable[[str], None]] = None, clock=time.monotonic,
+                 change_threshold: float = 0.06, max_quiet_s: float = 90.0,
+                 signature: Callable = frame_signature):
         self.source = source
         self.describe = describe
         self.interval = interval
         self.burst = burst
         self.keep = keep
+        # Skip the model when the scene has not changed: compare a tiny thumbnail
+        # of the new burst with the one last described. 0.06 ~ someone entering,
+        # sitting down or waving; camera noise and lighting flicker stay below it.
+        self.change_threshold = change_threshold
+        self.max_quiet_s = max_quiet_s          # describe anyway after this long
+        self.signature = signature
+        self._last_sig = None
+        self._last_described_at: Optional[float] = None
         self.emergency_dir = emergency_dir or os.path.join(HERE, "emergencies")
         self.on_note = on_note or (lambda n: None)
         self.on_error = on_error or (lambda msg: print(f"[vision] {msg}"))
@@ -201,7 +236,8 @@ class SceneWatcher:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self.stats = {"bursts": 0, "errors": 0, "emergencies": 0, "last_ms": 0}
+        self.stats = {"bursts": 0, "described": 0, "skipped_unchanged": 0, "errors": 0,
+                      "emergencies": 0, "last_ms": 0, "last_change": 0.0}
 
     # ── lifecycle ──
     def start(self) -> None:
@@ -234,10 +270,26 @@ class SceneWatcher:
         frames = self.source.burst(self.burst)
         if not frames:
             return None
+        self.stats["bursts"] += 1
+        now = self.clock()
+        sig = self.signature(frames[-1]) if self.signature else None
+        score = change_score(sig, self._last_sig) if self._last_sig is not None else 1.0
+        self.stats["last_change"] = round(score, 3)
+        quiet_for = (now - self._last_described_at) if self._last_described_at is not None else None
+        unchanged = (score < self.change_threshold and quiet_for is not None
+                     and quiet_for < self.max_quiet_s and self.latest() is not None)
+        if unchanged:
+            # Same scene: keep the existing note current instead of paying for a new one.
+            self.stats["skipped_unchanged"] += 1
+            with self._lock:
+                self._notes[-1].time = now
+            return None
         t0 = time.monotonic()
         data = self.describe(frames)
         self.stats["last_ms"] = round((time.monotonic() - t0) * 1000)
-        self.stats["bursts"] += 1
+        self.stats["described"] += 1
+        self._last_sig = sig
+        self._last_described_at = now
         note = SceneNote(time=self.clock(), notes=str(data.get("notes", "")).strip(),
                          people=int(data.get("people") or 0), emergency=bool(data.get("emergency")),
                          emergency_reason=str(data.get("emergency_reason") or ""),
