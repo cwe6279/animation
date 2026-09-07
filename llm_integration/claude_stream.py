@@ -32,8 +32,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def load_system_prompt() -> str:
     with open(os.path.join(HERE, "system_prompt.md"), encoding="utf-8") as f:
         text = f.read()
-    marker = "## System Prompt"
-    return text.split(marker, 1)[1].strip() if marker in text else text
+    # Everything below the "## System Prompt" heading *line* (the notes above it
+    # mention the heading in passing, so match the line, not the phrase).
+    import re
+    m = re.search(r"^## System Prompt\s*$", text, re.M)
+    return text[m.end():].strip() if m else text
 
 
 def stream_reply(prompt: str, model: str, effort: str, character: str | None) -> None:

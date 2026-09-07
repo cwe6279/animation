@@ -83,3 +83,10 @@ def test_openai_compat_chat_streams_and_keeps_history():
     assert kw["stream"] is True and kw["messages"][0]["role"] == "system"
     assert "Character: a cat" in kw["messages"][0]["content"]
     assert chat.messages[-1] == {"role": "assistant", "content": "[happy]Hi there!"}
+
+
+def test_system_prompt_starts_at_the_heading_not_the_notes():
+    from llm_integration.claude_chat import load_system_prompt
+    text = load_system_prompt()
+    assert text.startswith("You are a character speaking out loud")
+    assert "heading automatically" not in text
