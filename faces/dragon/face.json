@@ -22,13 +22,13 @@
   ],
   "eye_left": {
     "image": "eye_left.png",
-    "cx": 300,
+    "cx": 250,
     "cy": 340,
     "scale": 1.1071428571428572
   },
   "eye_right": {
     "image": "eye_right.png",
-    "cx": 500,
+    "cx": 550,
     "cy": 340,
     "scale": 1.1071428571428572
   },
