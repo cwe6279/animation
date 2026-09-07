@@ -336,7 +336,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
 <section id="wake">
   <div class="eyebrow">Wake mode <span class="file">voice_loop.py --wake · face.json wake_words</span></div>
   <h2>Wait to be called by name</h2>
-  <p>For a kiosk, <code>--wake</code> keeps the character dormant: it listens, and keeps watching if vision is on, but answers nothing until a wake word is heard. The wake words are the face's <code>wake_words</code> list, else its name; <code>--wake-word "eve, hey eve"</code> overrides. Matching tolerates mis-hearings such as "eave". Words after the name in the same sentence are answered at once; the name alone gets a reply to being called.</p>
+  <p><code>--wake</code> starts the character engaged and, after the idle timeout or a goodbye, drops it to dormant: it listens, and keeps watching if vision is on, but answers nothing until a wake word is heard. <code>--start-dormant</code> makes it wait to be called from the start, which is what a kiosk wants and what the Pi profile does. The wake words are the face's <code>wake_words</code> list, else its name; <code>--wake-word "eve, hey eve"</code> overrides. List likely mis-hearings in the face's wake words ("marsha", "martha", "marcia"); fuzzy matching is used only for longer names so "coat" cannot wake a goat. Words after the name in the same sentence are answered at once; the name alone gets a reply to being called.</p>
   <p>It goes dormant again after <code>--idle-timeout</code> seconds of silence (45 by default), or when the brain decides the conversation is over: the prompt asks it to end a farewell with the marker <code>[end]</code>, which the loop removes before the voice sees it. The Pi profile turns wake mode on.</p>
 </section>
 

@@ -56,7 +56,7 @@ class VoiceLoop:
                  speaker: Speaker, barge_in: bool = False,
                  on_event: Optional[Callable[[str, str], None]] = None,
                  wake_words: Optional[List[str]] = None, idle_timeout: float = 45.0,
-                 clock=time.monotonic):
+                 clock=time.monotonic, start_engaged: bool = True):
         self.stt = stt
         self.llm_reply = llm_reply
         self.speaker = speaker
@@ -69,7 +69,9 @@ class VoiceLoop:
         self.wake_words = sorted({w.strip().lower() for w in (wake_words or []) if w.strip()},
                                  key=lambda w: (-len(w.split()), -len(w)))
         self.idle_timeout = idle_timeout
-        self.engaged = not self.wake_words
+        # Start engaged (first visitor need not say the name); go dormant after the
+        # idle timeout or a goodbye. start_engaged=False for a kiosk that waits.
+        self.engaged = (not self.wake_words) or start_engaged
         self._last_activity = self.clock()
         self._lock = threading.Lock()
         self._thinking = False
@@ -301,6 +303,7 @@ def apply_pi_profile(args) -> None:
     args.fullscreen = True
     args.thinking = False
     args.wake = True                       # a kiosk waits to be called by name
+    args.start_dormant = True
     os.environ.setdefault("TALKER_FPS", "30")
     print(f"[profile] pi: stt={args.stt} llm={args.llm} fullscreen, 30 fps")
 
@@ -448,6 +451,8 @@ def main(argv=None) -> int:
                         "Default: the face's wake_words, else its name")
     p.add_argument("--idle-timeout", type=float, default=45.0,
                    help="Seconds of silence before returning to dormant in wake mode (default 45)")
+    p.add_argument("--start-dormant", action="store_true",
+                   help="In wake mode, start dormant instead of engaged (kiosk: wait to be called by name)")
     p.add_argument("--camera", default=None,
                    help='Turn on vision: camera name fragment ("c920") or index. Off unless given.')
     p.add_argument("--no-vision", action="store_true", help="Force vision off even if a profile or face enables it")
@@ -554,10 +559,11 @@ def main(argv=None) -> int:
             return 1
 
     loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in, wake_words=wake_words,
-                     idle_timeout=args.idle_timeout)
+                     idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant)
     loop.vision = watcher
     if wake_words:
-        print(f"[mode] dormant, listening for {', '.join(repr(w) for w in loop.wake_words)}")
+        names = ", ".join(repr(w) for w in loop.wake_words)
+        print(f"[mode] {'dormant, listening for ' + names if not loop.engaged else 'engaged; after ' + str(int(args.idle_timeout)) + 's of quiet, wakes on ' + names}")
     app.on_submit = loop.on_user_text        # typed text goes through Claude too
 
     if stt is not None:

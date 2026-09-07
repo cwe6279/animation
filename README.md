@@ -240,9 +240,11 @@ python voice_loop.py --face eve --wake                    # wake words from face
 python voice_loop.py --face eve --wake-word "eve, hey eve, hello eve"
 ```
 
-With `--wake` the character stays dormant: it listens and, if vision is on,
-keeps watching, but answers nothing until a wake word is heard (tolerant of
-mis-hearings like "eave"). Whatever follows the name in the same sentence is
+With `--wake` the character starts engaged, then after `--idle-timeout` seconds
+of silence (or a goodbye) goes dormant: it listens and, if vision is on, keeps
+watching, but answers nothing until a wake word is heard. `--start-dormant`
+makes it wait to be called from the start (the Pi profile does this). List
+likely mis-hearings in `wake_words` ("marsha", "martha", "marcia"). Whatever follows the name in the same sentence is
 answered at once; the name alone gets a reply to being called. It goes
 dormant again after `--idle-timeout` seconds of silence (45) or when the brain
 ends the conversation: the prompt asks it to finish a farewell with the marker

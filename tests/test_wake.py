@@ -14,7 +14,8 @@ def make(wake, llm=None, clk=None):
     clk = clk or Clock()
     spk = FakeSpeaker()
     loop = VoiceLoop(ScriptedSTT(), llm or (lambda t: iter(["hi ", t])), spk, wake_words=wake,
-                     idle_timeout=10, clock=clk, on_event=lambda k, s: events.append((k, s)))
+                     idle_timeout=10, clock=clk, on_event=lambda k, s: events.append((k, s)),
+                     start_engaged=False)
     return loop, spk, events, clk
 
 
@@ -51,6 +52,14 @@ def test_end_marker_is_stripped_and_disengages():
     loop.on_user_text("dragon, goodbye")
     assert wait(lambda: spk.spoken)
     assert spk.spoken[0] == "Bye now! " and not loop.engaged
+
+
+def test_wake_mode_can_start_engaged():
+    spk = FakeSpeaker()
+    loop = VoiceLoop(ScriptedSTT(), lambda t: iter(["x"]), spk, wake_words=["eve"], on_event=lambda k, s: None)
+    assert loop.engaged                                  # default: first visitor need not say the name
+    loop.on_user_text("hello there")
+    assert wait(lambda: spk.spoken)
 
 
 def test_no_wake_words_means_always_engaged():
