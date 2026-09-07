@@ -37,3 +37,9 @@ Thumbs.db
 
 # Camera emergency captures (contain images of people)
 emergencies/
+
+# Camera images and mic recordings: never commit pictures or voices of people
+*.jpg
+*.jpeg
+snapshots/
+recordings/
