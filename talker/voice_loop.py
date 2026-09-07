@@ -55,7 +55,7 @@ class VoiceLoop:
     def __init__(self, stt: STTBackend, llm_reply: Callable[[str], Iterator[str]],
                  speaker: Speaker, barge_in: bool = False,
                  on_event: Optional[Callable[[str, str], None]] = None,
-                 wake_words: Optional[List[str]] = None, idle_timeout: float = 45.0,
+                 wake_words: Optional[List[str]] = None, idle_timeout: float = 60.0,
                  clock=time.monotonic, start_engaged: bool = True):
         self.stt = stt
         self.llm_reply = llm_reply
@@ -185,10 +185,15 @@ class VoiceLoop:
                                   f"{(' (' + reason + ')') if reason else ''}")
 
     def tick(self) -> None:
-        """Idle timeout check; called per audio chunk."""
-        if self.engaged and self.wake_words and not self.speaker.is_busy and not self._thinking:
-            if self.clock() - self._last_activity > self.idle_timeout:
-                self.disengage(f"quiet for {self.idle_timeout:.0f}s")
+        """Idle timeout check; called per audio chunk. Silence is counted from the end of the
+        character's own speech, so a long reply never eats into the timeout."""
+        if not (self.engaged and self.wake_words):
+            return
+        if self.speaker.is_busy or self._thinking:
+            self._last_activity = self.clock()
+            return
+        if self.clock() - self._last_activity > self.idle_timeout:
+            self.disengage(f"quiet for {self.idle_timeout:.0f}s")
 
     # ── one turn ────────────────────────────────────────
     def on_user_text(self, text: str) -> None:
@@ -451,8 +456,8 @@ def main(argv=None) -> int:
     p.add_argument("--wake-word", default=None,
                    help='Comma-separated wake words (implies --wake), e.g. "eve, hey eve". '
                         "Default: the face's wake_words, else its name")
-    p.add_argument("--idle-timeout", type=float, default=45.0,
-                   help="Seconds of silence before returning to dormant in wake mode (default 45)")
+    p.add_argument("--idle-timeout", type=float, default=60.0,
+                   help="Seconds of silence after the character last spoke before it goes dormant (default 60)")
     p.add_argument("--start-dormant", action="store_true",
                    help="In wake mode, start dormant instead of engaged (kiosk: wait to be called by name)")
     p.add_argument("--camera", default=None,

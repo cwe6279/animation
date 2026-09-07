@@ -271,7 +271,7 @@ watching, but answers nothing until a wake word is heard. `--start-dormant`
 makes it wait to be called from the start (the Pi profile does this). List
 likely mis-hearings in `wake_words` ("marsha", "martha", "marcia"). Whatever follows the name in the same sentence is
 answered at once; the name alone gets a reply to being called. It goes
-dormant again after `--idle-timeout` seconds of silence (45) or when the brain
+dormant again after `--idle-timeout` seconds of silence after the character last spoke (60) or when the brain
 ends the conversation: the prompt asks it to finish a farewell with the marker
 `[end]`, which the loop strips before the voice. `wake_words` in face.json
 sets the defaults per character; `--profile pi` turns wake mode on.

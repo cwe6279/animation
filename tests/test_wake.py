@@ -67,3 +67,14 @@ def test_no_wake_words_means_always_engaged():
     assert loop.engaged
     loop.on_user_text("hello")
     assert wait(lambda: spk.spoken)
+
+
+def test_idle_timeout_counts_from_end_of_speech():
+    loop, spk, events, clk = make(["goat"])
+    loop.on_user_text("goat hello")
+    assert wait(lambda: spk.spoken) and loop.engaged
+    spk.busy = True                     # a long reply is playing
+    clk.t += 30; loop.tick(); assert loop.engaged
+    spk.busy = False                    # speech ends now; the 10 s timeout starts here
+    clk.t += 8; loop.tick(); assert loop.engaged
+    clk.t += 3; loop.tick(); assert not loop.engaged
