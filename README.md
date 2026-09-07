@@ -60,6 +60,23 @@ speak.py                 <- launcher: python speak.py --text "..." (was talker.p
 ROADMAP.md  requirements.txt  .env.example
 ```
 
+## Configuration at a glance
+
+Four areas, each with a default that works out of the box and options you switch with a flag
+(or a face.json key). Keys go in `.env`.
+
+| Area | Default | Options | Flag | Needs |
+|------|---------|---------|------|-------|
+| **LISTENING** (speech-to-text) | `whisper` local faster-whisper base.en, ~0.8 s after you stop | `elevenlabs` Scribe realtime (cloud, ~0.5 s, the Pi choice) · `vosk` local, light · `openai` cloud batch | `--stt`, `--silence-ms`, `--mic-device` | Whisper/Vosk: nothing · Scribe: `ELEVENLABS_API_KEY` · OpenAI: `OPENAI_API_KEY` |
+| **VISION** (camera) | **off** | on with a camera: 3 frames per burst, every 9 s, described by Claude Haiku 4.5 only when the picture changed | `--camera`, `--no-vision`, `--vision-interval`, `--vision-frames`, `--vision-change`, `--vision-model` | `ANTHROPIC_API_KEY`, `opencv-python-headless` |
+| **BRAIN** (LLM) | `claude` Opus 5, thinking off, ~1 s to first token | `--model claude-haiku-4-5` (~0.7 s) · `--thinking` for deeper answers · `openai` for comparison | `--llm`, `--model`, `--effort`, `--thinking`, `--character` | `ANTHROPIC_API_KEY` (workspace-scoped, prepaid) · `OPENAI_API_KEY` |
+| **SPEECH** (text-to-speech) | `elevenlabs` v3 when the key is set (performs `[tags]`, ~1 s to first audio), else `edge` free | `--tts-model flash` (~0.25 s, tags stripped) · `fish` Fish Audio · `edge` free | `--tts`, `--tts-model`, `--voice`, `--voice-speed`, `--output-device` | ElevenLabs: `ELEVENLABS_API_KEY` · Fish: `FISH_AUDIO_API_KEY` · edge: nothing |
+
+Per face, `face.json` can fix the voice (`voices`), the ElevenLabs model (`tts_model`),
+the wake words and the personality lives in `character.md`. `--profile pi` picks the
+cloud choices for a Raspberry Pi in one flag. Measured numbers for every option are in
+[Choosing backends](#choosing-backends-measured-results).
+
 ## How it fits together (latency-first)
 
 ```
