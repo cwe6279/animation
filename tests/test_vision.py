@@ -17,21 +17,27 @@ class Clock:
 
 def test_watcher_keeps_only_latest_notes_and_builds_context(tmp_path):
     clk = Clock()
-    replies = iter([{"notes": "two kids in costumes", "people": 2}, {"notes": "nobody in view", "people": 0},
-                    {"notes": "an adult waving", "people": 1}, {"notes": "a dog", "people": 0}])
-    w = SceneWatcher(FakeSource(), lambda f: next(replies), keep=2, emergency_dir=str(tmp_path), clock=clk)
+    replies = iter([{"state": "two kids in costumes", "changes": "two kids arrived", "people": 2},
+                    {"state": "empty room", "changes": "the kids left", "people": 0},
+                    {"state": "an adult waving", "changes": "an adult came in, waving", "people": 1},
+                    {"state": "an adult and a dog", "changes": "a dog appeared", "people": 1}])
+    seen_previous = []
+    def describe(frames, previous):
+        seen_previous.append(previous); return next(replies)
+    w = SceneWatcher(FakeSource(), describe, keep=2, emergency_dir=str(tmp_path), clock=clk)
     for _ in range(4):
         w.observe_once()
-    assert [n.notes for n in w._notes] == ["an adult waving", "a dog"]
+    assert seen_previous[1] == "two kids in costumes"           # the model gets the last state to diff against
+    assert [n.notes for n in w._notes] == ["an adult waving", "an adult and a dog"]
     ctx = w.context(max_age_s=40)
-    assert "a dog" in ctx and "camera notes" in ctx
+    assert ctx == "Camera: a dog appeared"                        # only the delta reaches the brain
     clk.t += 100                       # stale notes are not offered
     assert w.context(max_age_s=40) == ""
 
 
 def test_emergency_saves_frames_and_note(tmp_path):
-    w = SceneWatcher(FakeSource(), lambda f: {"notes": "child fell, crying", "people": 1, "emergency": True,
-                                             "emergency_reason": "child on the floor crying"},
+    w = SceneWatcher(FakeSource(), lambda f: {"state": "child on floor", "changes": "child fell, crying", "people": 1,
+                                             "emergency": True, "emergency_reason": "child on the floor crying"},
                      emergency_dir=str(tmp_path), on_error=lambda m: None)
     note = w.observe_once()
     assert note.emergency and w.stats["emergencies"] == 1
@@ -43,9 +49,19 @@ def test_emergency_saves_frames_and_note(tmp_path):
 
 
 def test_non_emergency_keeps_no_files(tmp_path):
-    w = SceneWatcher(FakeSource(), lambda f: {"notes": "quiet room", "people": 0}, emergency_dir=str(tmp_path))
+    w = SceneWatcher(FakeSource(), lambda f: {"state": "quiet room", "changes": "no change", "people": 0}, emergency_dir=str(tmp_path))
     w.observe_once(); w.observe_once()
     assert not list(tmp_path.iterdir())
+
+
+def test_no_change_gives_brain_nothing_but_first_look_gives_state(tmp_path):
+    notes = []
+    w = SceneWatcher(FakeSource(), lambda f, prev: {"state": "one adult at a desk", "changes": "no change", "people": 1},
+                     emergency_dir=str(tmp_path), on_note=notes.append, signature=None)
+    w.observe_once()
+    assert w.context() == "Camera: one adult at a desk" and len(notes) == 1   # first look: state
+    w.observe_once()
+    assert w.context() == "" and len(notes) == 1                             # nothing new: silence
 
 
 def test_describe_errors_are_counted_not_fatal(tmp_path):
@@ -81,14 +97,14 @@ def test_unchanged_scene_skips_the_model_but_keeps_note_fresh(tmp_path):
     clk = Clock()
     sigs = iter([np.zeros((14, 24)), np.zeros((14, 24)) + 0.01, np.zeros((14, 24)) + 0.5, np.zeros((14, 24)) + 0.5])
     calls = []
-    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"notes": f"note {len(calls)}", "people": 1},
+    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"state": f"state {len(calls)}", "changes": f"change {len(calls)}", "people": 1},
                      emergency_dir=str(tmp_path), clock=clk, signature=lambda jpg: next(sigs))
     w.observe_once(); clk.t += 9
     w.observe_once(); clk.t += 9                 # ~same signature: skipped, note time refreshed
     assert len(calls) == 1 and w.stats["skipped_unchanged"] == 1
-    assert w.latest().time == clk.t - 9 and "note 1" in w.context()
+    assert w.latest().time == clk.t - 9 and "change 1" in w.context()
     w.observe_once(); clk.t += 9                 # big change: described again
-    assert len(calls) == 2 and "note 2" in w.context()
+    assert len(calls) == 2 and "change 2" in w.context()
     w.observe_once()                             # same as last described: skipped
     assert len(calls) == 2
 
@@ -96,7 +112,7 @@ def test_unchanged_scene_skips_the_model_but_keeps_note_fresh(tmp_path):
 def test_heartbeat_describes_after_max_quiet(tmp_path):
     import numpy as np
     clk = Clock(); calls = []
-    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"notes": "still", "people": 0},
+    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"state": "still", "changes": "no change", "people": 0},
                      emergency_dir=str(tmp_path), clock=clk, max_quiet_s=30, signature=lambda jpg: np.zeros((14, 24)))
     w.observe_once()
     for _ in range(5):
@@ -107,7 +123,7 @@ def test_heartbeat_describes_after_max_quiet(tmp_path):
 def test_request_wakes_watcher_and_wait_for_returns(tmp_path):
     import threading
     calls = []
-    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"notes": "x", "people": 0},
+    w = SceneWatcher(FakeSource(), lambda f: calls.append(1) or {"state": "x", "changes": "x", "people": 0},
                      interval=60, emergency_dir=str(tmp_path))
     w.start()
     assert w.wait_for(1, timeout=2)                  # first tick
@@ -127,7 +143,7 @@ def test_loop_requests_burst_when_visitor_starts_talking():
 
     class FakeVision:
         def __init__(self): self.requests = 0
-        def request(self, force=True): self.requests += 1; return self.requests
+        def request(self, force=False): self.requests += 1; return self.requests
         def wait_for(self, ticket, timeout): return True
 
     class Spk:

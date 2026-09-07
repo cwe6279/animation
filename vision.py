@@ -32,21 +32,25 @@ from typing import Callable, List, Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-VISION_PROMPT = """You are the eyes of an animated character that talks with visitors (it may be a kids' event, a museum, a library). You get {n} frames taken about 0.3 s apart from its camera. Write short notes the character can use in conversation.
+VISION_PROMPT = """You are the eyes of an animated character that talks with visitors (a kids' event, a museum, a library). You get {n} frames taken about 0.3 s apart from its camera.
+
+Previous state of the scene, from your last look: {previous}
 
 Reply with JSON only:
-{{"notes": "<2-4 short sentences: how many people, rough ages (child/teen/adult), what they are doing, ANY object held up or shown to the camera (name it, its colour, any text on it), costumes or headwear, mood; say 'nobody in view' if empty>",
+{{"changes": "<what is DIFFERENT from the previous state, in one or two short plain sentences: people arriving or leaving, an object now held up or shown (name it, colour, any text on it), a costume or hat change, a wave or clear gesture. Nothing that was already true. If nothing meaningful changed, exactly: no change>",
+ "state": "<one line, at most 25 words: current scene summary to compare against next time>",
  "people": <integer>,
  "emergency": <true|false>,
  "emergency_reason": "<only if emergency: what you see>"}}
 
-Emergency means someone appears hurt, in danger, or in real distress, or there is fire/smoke or a clear hazard. Never guess identities. Keep notes factual and kind."""
+Do not describe posture, mood or expression unless it is striking. Never guess identities. Emergency means someone appears hurt, in danger or in real distress, or there is fire, smoke or a clear hazard."""
 
 
 @dataclass
 class SceneNote:
     time: float                      # time.monotonic() when the burst was taken
-    notes: str
+    notes: str                       # one-line current state (the watcher's baseline)
+    changes: str = ""                # what changed since the previous note ("" = nothing)
     people: int = 0
     emergency: bool = False
     emergency_reason: str = ""
@@ -177,8 +181,9 @@ def change_score(a, b) -> float:
 # ─────────────────────────────────────────────────────
 # VISION MODEL
 # ─────────────────────────────────────────────────────
-def describe_with_claude(frames: List[bytes], model: str = "claude-haiku-4-5", client=None) -> dict:
-    """Send JPEG frames to Claude and return the parsed JSON note."""
+def describe_with_claude(frames: List[bytes], previous: str = "", model: str = "claude-haiku-4-5",
+                         client=None) -> dict:
+    """Send JPEG frames (+ the previous one-line state) to Claude; returns the parsed JSON note."""
     import anthropic
     if client is None:
         from llm_integration.claude_chat import make_client
@@ -187,7 +192,8 @@ def describe_with_claude(frames: List[bytes], model: str = "claude-haiku-4-5", c
     for jpg in frames:
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                                     "data": base64.standard_b64encode(jpg).decode()}})
-    content.append({"type": "text", "text": VISION_PROMPT.format(n=len(frames))})
+    content.append({"type": "text", "text": VISION_PROMPT.format(
+        n=len(frames), previous=previous.strip() or "none yet (first look)")})
     resp = client.messages.create(model=model, max_tokens=300,
                                   messages=[{"role": "user", "content": content}])
     text = "".join(b.text for b in resp.content if b.type == "text")
@@ -195,7 +201,7 @@ def describe_with_claude(frames: List[bytes], model: str = "claude-haiku-4-5", c
     try:
         data = json.loads(m.group(0) if m else text)
     except Exception:
-        data = {"notes": text.strip()[:400], "people": 0, "emergency": False}
+        data = {"changes": text.strip()[:200], "state": text.strip()[:120], "people": 0, "emergency": False}
     return data
 
 
@@ -220,9 +226,10 @@ class SceneWatcher:
         self.interval = interval
         self.burst = burst
         self.keep = keep
-        # Skip the model when the scene has not changed: compare a tiny thumbnail
-        # of the new burst with the one last described. 0.06 ~ someone entering,
-        # sitting down or waving; camera noise and lighting flicker stay below it.
+        # Change filter: compare a 24x14 grayscale thumbnail of the new burst with
+        # the one last described; below `change_threshold` (mean pixel change,
+        # 0.035 = 3.5%) the model is not called. A still room measures ~1%,
+        # a raised hand or object ~4-8%, a person entering 10%+.
         self.change_threshold = change_threshold
         self.max_quiet_s = max_quiet_s          # describe anyway after this long
         self.signature = signature
@@ -316,13 +323,18 @@ class SceneWatcher:
             with self._lock:
                 self._notes[-1].time = now
             return None
+        previous = self.latest().notes if self.latest() else ""
         t0 = time.monotonic()
-        data = self.describe(frames)
+        data = self._call_describe(frames, previous)
         self.stats["last_ms"] = round((time.monotonic() - t0) * 1000)
         self.stats["described"] += 1
         self._last_sig = sig
         self._last_described_at = now
-        note = SceneNote(time=self.clock(), notes=str(data.get("notes", "")).strip(),
+        changes = str(data.get("changes") or "").strip()
+        if changes.lower().rstrip(".") in ("no change", "none", "nothing changed", ""):
+            changes = ""
+        state = str(data.get("state") or data.get("notes") or "").strip() or previous
+        note = SceneNote(time=self.clock(), notes=state, changes=changes,
                          people=int(data.get("people") or 0), emergency=bool(data.get("emergency")),
                          emergency_reason=str(data.get("emergency_reason") or ""),
                          wall_time=time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -331,8 +343,18 @@ class SceneWatcher:
         with self._lock:
             self._notes.append(note)
             del self._notes[:-self.keep]
-        self.on_note(note)
+        if note.changes or note.emergency or previous == "":
+            self.on_note(note)           # the brain only hears about real changes
         return note                      # frames go out of scope here: nothing kept
+
+    def _call_describe(self, frames, previous: str) -> dict:
+        """describe(frames) or describe(frames, previous) — both shapes accepted."""
+        import inspect
+        try:
+            n = len(inspect.signature(self.describe).parameters)
+        except (TypeError, ValueError):
+            n = 2
+        return self.describe(frames, previous) if n >= 2 else self.describe(frames)
 
     def _save_emergency(self, frames: List[bytes], note: SceneNote) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -353,14 +375,22 @@ class SceneWatcher:
             return self._notes[-1] if self._notes else None
 
     def context(self, max_age_s: float = 40.0) -> str:
-        """Text for the brain: the latest note if it is fresh, plus an emergency flag."""
+        """
+        Short text for the brain. Normally only what changed since the last
+        note; the full one-line state is used just for the very first look.
+        Empty when nothing changed or the note is stale.
+        """
         note = self.latest()
         if note is None:
             return ""
         age = note.age_s(self.clock())
         if age > max_age_s:
             return ""
-        s = f"What you can see right now (camera notes, {age:.0f}s old): {note.notes}"
+        first_look = len(self._notes) == 1
+        body = note.changes or (note.notes if first_look else "")
+        if not body and not note.emergency:
+            return ""
+        s = f"Camera: {body}" if body else "Camera:"
         if note.emergency:
-            s += f"\nEMERGENCY in view: {note.emergency_reason}. Stay calm, tell an adult to help, keep it short."
+            s += f" EMERGENCY in view: {note.emergency_reason}. Stay calm, tell an adult to help, keep it short."
         return s

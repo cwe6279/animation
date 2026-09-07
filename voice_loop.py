@@ -115,7 +115,8 @@ class VoiceLoop:
         t = self.stt.feed(pcm)
         speaking = bool(getattr(self.stt, "speech_active", False))
         if speaking and not self._was_speaking and self.vision is not None:
-            self._vision_ticket = self.vision.request(force=True)
+            # look now, but still only pay for a description if the picture changed
+            self._vision_ticket = self.vision.request(force=False)
         self._was_speaking = speaking
         if t is None:
             return
@@ -353,8 +354,9 @@ def main(argv=None) -> int:
     p.add_argument("--vision-frames", type=int, default=3, help="Frames per burst (default 3)")
     p.add_argument("--vision-model", default="claude-haiku-4-5", help="Vision model for scene notes")
     p.add_argument("--vision-change", type=float, default=0.035,
-                   help="Only describe a burst if the scene changed by more than this (0-1, default 0.035; "
-                        "a still room is ~0.01); a description is forced every 90 s regardless")
+                   help="Change filter: a burst is sent to the vision model only if the picture differs from "
+                        "the last described one by more than this fraction (default 0.035 = 3.5%% mean pixel "
+                        "change; a still room is ~1%%, a person entering 10%%+). A refresh is forced every 90 s.")
     p.add_argument("--fixed-fps", action="store_true",
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     args = p.parse_args(argv)
@@ -426,10 +428,13 @@ def main(argv=None) -> int:
             source = CameraSource(cam_index)
             def on_note(n):
                 if args.debug:
-                    print(f"[scene] {'EMERGENCY ' if n.emergency else ''}people={n.people}: {n.notes}")
-                chat.add_context(watcher.context())          # only fires when the scene changed
+                    print(f"[scene] {'EMERGENCY ' if n.emergency else ''}people={n.people}: "
+                          f"{n.changes or n.notes}")
+                ctx = watcher.context()
+                if ctx:
+                    chat.add_context(ctx)                    # only fires on a real change
 
-            watcher = SceneWatcher(source, lambda frames: describe_with_claude(frames, model=args.vision_model),
+            watcher = SceneWatcher(source, lambda frames, prev: describe_with_claude(frames, prev, model=args.vision_model),
                                    interval=args.vision_interval, burst=args.vision_frames,
                                    change_threshold=args.vision_change, on_note=on_note)
             watcher.start()
