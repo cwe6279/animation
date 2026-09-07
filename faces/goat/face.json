@@ -82,5 +82,5 @@
     ],
     "lid_tracking": 0.35
   },
-  "tts_model": "flash"
+  "tts_model": "v3"
 }
