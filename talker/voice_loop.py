@@ -126,7 +126,7 @@ class VoiceLoop:
         self._last_audio_in = time.monotonic()
         self.tick()
         busy = self.speaker.is_busy or self._thinking
-        now = time.monotonic()
+        now = self.clock()
         if busy:
             self._last_busy = now
             if not self.barge_in or self._thinking:
