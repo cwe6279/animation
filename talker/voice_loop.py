@@ -60,11 +60,19 @@ class VoiceLoop:
                  on_event: Optional[Callable[[str, str], None]] = None,
                  wake_words: Optional[List[str]] = None, idle_timeout: float = 60.0,
                  clock=time.monotonic, start_engaged: bool = True,
-                 sleep_words: Optional[List[str]] = None):
+                 sleep_words: Optional[List[str]] = None,
+                 barge_in_ms: int = 500, barge_in_boost: float = 2.5):
         self.stt = stt
         self.llm_reply = llm_reply
         self.speaker = speaker
         self.barge_in = barge_in
+        # Barge-in only after `barge_in_ms` of continuous speech, detected with the
+        # onset threshold multiplied by `barge_in_boost` while the character talks,
+        # so its own voice reaching the mic, or a cough, does not cut it off.
+        self.barge_in_ms = barge_in_ms
+        self.barge_in_boost = barge_in_boost
+        self._barge_since: Optional[float] = None
+        self._gated = False
         self.on_event = on_event or (lambda kind, text: print(f"[{kind}] {text}"))
         self.clock = clock
         # Wake mode: with wake words set, nothing is answered until one is heard;
@@ -123,13 +131,28 @@ class VoiceLoop:
             self._last_busy = now
             if not self.barge_in or self._thinking:
                 self.stt.reset()          # drop echo; nothing to transcribe
+                self._barge_since = None
                 return
+            if not self._gated and hasattr(self.stt, "set_playback_gate"):
+                self.stt.set_playback_gate(self.barge_in_boost)
+                self._gated = True
             t = self.stt.feed(pcm)
-            if self.stt.speech_active or (t and t.text):
-                self.on_event("barge-in", t.text if t else "")
-                self.speaker.interrupt()
-                self._last_busy = 0.0
+            talking = bool(getattr(self.stt, "speech_active", False)) or bool(t and t.text)
+            if talking:
+                if self._barge_since is None:
+                    self._barge_since = now
+                elif (now - self._barge_since) * 1000 >= self.barge_in_ms:
+                    self.on_event("barge-in", t.text if t and t.text else f"speech for {self.barge_in_ms} ms")
+                    self.speaker.interrupt()
+                    self._last_busy = 0.0
+                    self._barge_since = None
+            else:
+                self._barge_since = None
             return
+        if self._gated and hasattr(self.stt, "set_playback_gate"):
+            self.stt.set_playback_gate(1.0)
+            self._gated = False
+        self._barge_since = None
         if now - self._last_busy < self.GRACE_AFTER_SPEECH:
             self.stt.reset()
             return
@@ -468,6 +491,11 @@ def main(argv=None) -> int:
     p.add_argument("--no-thinking", action="store_true", help=argparse.SUPPRESS)   # kept for old scripts
     p.add_argument("--character", default=None, help='Persona, e.g. "EVE from WALL-E, terse and curious"')
     p.add_argument("--barge-in", action="store_true", help="Interrupt playback when you start talking")
+    p.add_argument("--barge-in-ms", type=int, default=500,
+                   help="Continuous speech needed before a barge-in interrupts (default 500 ms)")
+    p.add_argument("--barge-in-boost", type=float, default=2.5,
+                   help="How much louder than usual speech must be, while the character talks, to count "
+                        "(multiplier on the onset threshold; default 2.5; raise if it still cuts itself off)")
     p.add_argument("--text-only", action="store_true", help="Type in the window instead of using the mic")
     p.add_argument("--debug", "-d", action="store_true")
     p.add_argument("--no-hud", action="store_true", help="Hide key hints and text box")
@@ -597,7 +625,7 @@ def main(argv=None) -> int:
                    else (m.sleep_words if m.sleep_words else None))
     loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
-                     sleep_words=sleep_words)
+                     sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
     loop.vision = watcher
     print(f"[log] this session is being written to {log_path}")
     if wake_words:

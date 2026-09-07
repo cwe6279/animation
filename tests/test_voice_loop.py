@@ -83,17 +83,26 @@ def test_mic_ignored_while_speaking_and_during_grace():
     assert wait(lambda: spk.spoken == ["x"])
 
 
-def test_barge_in_interrupts_playback():
+def test_barge_in_needs_sustained_speech():
+    class Clk:
+        t = 0.0
+        def __call__(self): return self.t
+    clk = Clk()
     stt, spk = ScriptedSTT(), FakeSpeaker()
     events = []
-    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, barge_in=True,
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, barge_in=True, barge_in_ms=500, clock=clk,
                      on_event=lambda k, s: events.append(k))
     spk.busy = True
-    stt.queue = [None, Transcript("stop", False)]
-    loop._process(b"\x00" * 320)
-    assert spk.interrupts == 0
     stt.speech_active = True
+    loop._process(b"\x00" * 320)            # a blip: not yet
+    assert spk.interrupts == 0
+    clk.t += 0.2; loop._process(b"\x00" * 320)
+    assert spk.interrupts == 0
+    stt.speech_active = False               # the blip ended: counter resets
     loop._process(b"\x00" * 320)
+    stt.speech_active = True
+    clk.t += 0.1; loop._process(b"\x00" * 320)
+    clk.t += 0.6; loop._process(b"\x00" * 320)   # sustained talking over her
     assert spk.interrupts == 1 and "barge-in" in events
 
 

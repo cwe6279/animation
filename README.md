@@ -86,9 +86,11 @@ false wake-ups.
 **Projection.** Black background, `--fullscreen`, face scaled to the display; any projector
 works, brighter helps outdoors. Set `fps` to 30 in the face for a Pi.
 
-**Barge-in checklist.** Run with `--barge-in --debug`; if `[barge-in]` lines appear while the
-character speaks and nobody is talking, the mic still hears the speaker: move or angle it,
-lower the volume, or drop back to half-duplex.
+**Barge-in checklist.** Run with `--barge-in --debug`. A barge-in needs half a second of
+continuous speech (`--barge-in-ms`) that is louder than the onset threshold times
+`--barge-in-boost` (2.5) while the character talks. If `[barge-in]` lines still appear while
+it speaks and nobody is talking, raise the boost to 4, move or angle the mic, lower the
+volume, or drop back to half-duplex.
 
 ## Configuration at a glance
 

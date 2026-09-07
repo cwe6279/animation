@@ -45,6 +45,12 @@ class STTBackend:
     name = "base"
     sample_rate = 16000
     speech_active = False           # True while the user seems to be talking
+
+    def set_playback_gate(self, boost: float) -> None:
+        """Raise (boost > 1) the speech-onset threshold while the character is speaking."""
+        ep = getattr(self, "_ep", None)
+        if ep is not None:
+            ep.gate_boost = boost
     endpoint_delay_s = 0.0          # silence the endpointer waits for before deciding you stopped
     last_transcribe_s = 0.0         # time the last final transcription took (batch backends)
 
@@ -83,6 +89,7 @@ class EnergyEndpointer:
         self.calibrate_samples = int(sample_rate * calibrate_s)
         self.floor = min_rms
         self.active = False
+        self.gate_boost = 1.0            # >1 while the character speaks: demand a louder onset
         self._calibrated = 0
         self._above = 0
         self._quiet = 0
@@ -110,7 +117,7 @@ class EnergyEndpointer:
 
         if not self.active:
             self._pre = (self._pre + [pcm])[-3:]
-            start_thr = max(self.min_rms, self.floor * self.start_ratio)
+            start_thr = max(self.min_rms, self.floor * self.start_ratio) * self.gate_boost
             self._above = self._above + 1 if rms > start_thr else 0
             if self._above >= 2:
                 self.active = True
