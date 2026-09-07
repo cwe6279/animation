@@ -69,6 +69,7 @@ class SpeechPipeline:
         self.last_error: Optional[str] = None
         self.stats: dict = {}
         self.first_audio_at: float = 0.0   # time.monotonic() when the latest session's audio started
+        self.first_sentence_at: float = 0.0  # when the first sentence was handed to the TTS backend
 
     # ── lifecycle ──────────────────────────────────────────────────
     def start(self) -> None:
@@ -110,6 +111,10 @@ class SpeechPipeline:
         while True:
             sentences = await self._sessions.get()
             if sentences is None:
+                try:
+                    await self.backend.close()
+                except Exception:
+                    pass
                 return
             self._current = asyncio.ensure_future(self._run_session(sentences))
             try:
@@ -207,6 +212,8 @@ class SpeechPipeline:
                 clean, voiced, sentence_tags = parse_tags(s)
                 for idx, emo in sentence_tags:
                     tags.append((words_in_text + idx, emo))
+                if words_in_text == 0 and clean:
+                    self.first_sentence_at = time.monotonic()
                 words_in_text += len(clean.split())
                 if clean:
                     await clean_sentences.put(voiced if self.backend.supports_audio_tags else clean)

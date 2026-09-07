@@ -143,8 +143,10 @@ class VoiceLoop:
                 fa = getattr(self.speaker, "first_audio_at", 0.0)
                 if fa and fa != first_audio_before and fa >= t_end:
                     tok = stats["first_token_ms"]
+                    fs = getattr(self.speaker, "first_sentence_at", 0.0)
+                    sent = f" -> first sentence to TTS {round((fs - t_stop) * 1000)} ms" if fs and fs >= t_end else ""
                     self.on_event("turn", f"you stopped -> transcript {round((t_end - t_stop) * 1000)} ms"
-                                  f" -> first token {tok if tok is not None else '?'} ms"
+                                  f" -> first token {tok if tok is not None else '?'} ms{sent}"
                                   f" -> first audio {round((fa - t_stop) * 1000)} ms")
                     return
                 time.sleep(0.02)

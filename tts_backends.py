@@ -78,6 +78,10 @@ class TTSBackend:
         """Optional: pre-open connections / spawn helpers to cut first-utterance latency."""
         return None
 
+    async def close(self) -> None:
+        """Release connections. Called when the speech pipeline stops."""
+        return None
+
 
 # ─────────────────────────────────────────────────────
 # FFMPEG PIPE DECODER  (MP3 stream -> PCM stream)
@@ -353,13 +357,34 @@ class ElevenLabsBackend(TTSBackend):
             async for ev in self._synthesize_ws(sentences):
                 yield ev
 
+    async def _http_session(self):
+        """One keep-alive HTTP session per backend: no TLS handshake per reply."""
+        import aiohttp
+        if getattr(self, "_http", None) is None or self._http.closed:
+            self._http = aiohttp.ClientSession(connector=aiohttp.TCPConnector(keepalive_timeout=120))
+        return self._http
+
+    async def warm_up(self) -> None:
+        if self.transport == "http":
+            try:
+                http = await self._http_session()
+                async with http.get("https://api.elevenlabs.io/v1/user", headers={"xi-api-key": self.api_key}):
+                    pass          # establishes the TLS connection; the response itself is irrelevant
+            except Exception:
+                pass
+
+    async def close(self) -> None:
+        http = getattr(self, "_http", None)
+        if http is not None and not http.closed:
+            await http.close()
+
     async def _synthesize_http(self, sentences):
         """One POST .../stream/with-timestamps per sentence (NDJSON lines)."""
-        import aiohttp
         session_frames = 0
         url = (f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}"
                f"/stream/with-timestamps?output_format=pcm_{self.sample_rate}")
-        async with aiohttp.ClientSession() as http:
+        http = await self._http_session()
+        if True:
             while True:
                 sentence = await sentences.get()
                 if sentence is END_OF_TEXT:
