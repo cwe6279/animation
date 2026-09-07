@@ -38,6 +38,19 @@ Ideas agreed on but not built yet, roughly in priority order.
 - Wake word or push-to-talk button for noisy rooms.
 - Memory across sessions (what it learned about the visitor).
 
+## Asset pipeline (user templates -> generated, checked art)
+- `check_face.py` is the deterministic half: files, sizes, transparency,
+  alignment. Exit code and `--json` output are meant for automation.
+- **Textured mouth style**: `mouth_closed.png` + `mouth_inside.png` with an
+  opening mask derived from the lip outline; continuous open/width/round
+  from the same smoothed values the procedural mouth uses. Removes the
+  six-state flicker and cuts the art a generator must get consistent from
+  six images to two. Later: mesh warp of one lip image from keypoints.
+- **Vision loop**: user uploads a template (a base image or reference);
+  an image model generates the missing parts per `faces/ART_SPEC.md`; a
+  vision model plus `check_face.py` judge consistency (same character,
+  same style, parts aligned); regenerate until the folder passes.
+
 ## Beyond Halloween
 - The platform is general: parks, libraries, schools, museums. Faces for
   historical figures and mascots; persona files that carry facts the

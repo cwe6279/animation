@@ -26,12 +26,15 @@ may be omitted; missing parts fall back to glowing procedural shapes.
 
 Six mouths cover all twelve mouth shapes the renderer uses.
 
-## Canvas, one rule that must hold for every file
+## Canvas
 
-- **800 × 800 pixels, PNG, RGBA with a transparent background.** Every file
-  is the full canvas. Position each part where it sits on the finished face;
-  the renderer overlays the files at (0, 0). A cropped export renders in the
-  wrong place.
+- **`face_base.png` and every `mouth_*.png`: 800 × 800 pixels, PNG, RGBA with
+  a transparent background, the full canvas.** Position the part where it sits
+  on the finished face; the renderer overlays these files at (0, 0). A cropped
+  export renders in the wrong place.
+- **Eyes and nose may be standalone images of any size** (the eye alone on a
+  transparent background). The renderer centres them on the `cx`/`cy` in
+  `face.json` and applies `scale`. Full-canvas exports are also accepted.
 - Transparent everywhere except the part itself. No background colour, no
   white box, no drop shadow baked in (the renderer adds glow).
 - Design for projection on black: shapes should read on a black ground.
@@ -70,10 +73,19 @@ them and change only the last sentence.
 > mouth tight round / mouth wide flat with teeth / mouth relaxed half open],
 > placed exactly where it sits on the face, everything else transparent.
 
-After generation, verify each file is 800 × 800 with transparency, then set
+After generation, run `python check_face.py faces/<name>` to validate the
+folder (sizes, transparency, alignment of the mouth states), then set
 `eye_left.cx/cy`, `eye_right.cx/cy` and `mouth.anchor_cx/cy` in `face.json`
 to the centres of those parts and run:
 
 ```bash
 python talker.py --face <name> --debug --text "Testing one two three"
 ```
+
+## Fewer images: the textured mouth (planned)
+
+Instead of six mouth states, two images: `mouth_closed.png` (lips at rest)
+and `mouth_inside.png` (teeth and tongue, drawn as if the mouth were open).
+The renderer derives the opening from the lip outline and animates it
+continuously. When this lands, prefer it for generated art: two consistent
+images are far easier to produce than six aligned ones.
