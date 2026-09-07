@@ -207,7 +207,7 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
 
 <section id="faces">
   <div class="eyebrow">Character library <span class="file">faces/&lt;name&gt;/face.json</span></div>
-  <h2>Five faces so far, each with its own voice and persona</h2>
+  <h2>Seven faces so far, each with its own voice and persona</h2>
   <p>A face is a folder. The manifest carries art positions, glow colour, idle behaviour, the default voice per backend, and the persona line sent to the brain. Command line flags override any of them for one run. The current five came from a Halloween build; a face can just as well be a historical figure, a school mascot, or an exhibit's narrator.</p>
   <div class="faces">
     <div class="face">
@@ -236,7 +236,18 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
       <div class="meta">Generated head and visor art, no mouth; eyes pulse with speech, glance 22 px, blink every 3 to 7 s.</div>
       <div class="meta">Persona: EVE, terse, curious, impatient. <b>Voice id still needed.</b></div>
     </div>
+    <div class="face">
+      <div class="name" style="color: #B4C0D2"><span class="dot"></span><span style="color: var(--ink)">goat</span></div>
+      <div class="meta">Bar-pupil eyes rendered from an Adafruit Uncanny Eyes design; procedural mouth.</div>
+      <div class="meta">Persona: friendly old farm goat, snack-obsessed. Voice id still needed.</div>
+    </div>
+    <div class="face">
+      <div class="name" style="color: #FF7814"><span class="dot"></span><span style="color: var(--ink)">dragon</span></div>
+      <div class="meta">Slit-pupil molten eyes from Uncanny Eyes; six-tooth procedural jaw.</div>
+      <div class="meta">Persona: ancient gentle dragon who guards a library. Voice id still needed.</div>
+    </div>
   </div>
+  <p>Any design from the Uncanny Eyes project converts the same way: <code>python faces/tools/uncanny_eye.py &lt;its convert/&lt;eye&gt; folder&gt; faces/&lt;name&gt;</code>. Emotion squish, tilt, blinks and glances apply to these eyes like any other art eye.</p>
   <div class="tweak"><strong>Most-tweaked fields:</strong> <code>character.md</code> (personality), <code>voices.elevenlabs</code> (voice id), <code>glow_color</code>, <code>gaze.amount</code>, and the eye and mouth <code>cx</code>/<code>cy</code> positions.</div>
 </section>
 
@@ -372,7 +383,8 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
 <section id="tools">
   <div class="eyebrow">Test tools <span class="file">tests/ · bench_stt.py · bench_llm.py</span></div>
   <h2>Prove it before you trust it</h2>
-<pre><code>pytest tests                                  # 36 tests, no mic or display needed
+<pre><code>pytest tests                                  # 37 tests, no mic or display needed
+python check_face.py faces/&lt;name&gt;             # validate a face folder against the art spec
 python bench_stt.py --synth                   # recognizers on clean and noisy synthesized clips
 python bench_stt.py recordings/               # the same on your own recorded clips
 python bench_llm.py                           # brains: speed and how well they follow the tag spec

@@ -1,0 +1,73 @@
+{
+  "name": "dragon",
+  "description": "Dragon: vertical slit pupils, molten orange iris (eyes from Adafruit Uncanny Eyes).",
+  "canvas_w": 800,
+  "canvas_h": 800,
+  "fps": 60,
+  "bg_color": [
+    0,
+    0,
+    0
+  ],
+  "glow_color": [
+    255,
+    120,
+    20
+  ],
+  "glow_intensity": 0.8,
+  "eye_color": [
+    255,
+    180,
+    40
+  ],
+  "eye_left": {
+    "image": "eye_left.png",
+    "cx": 300,
+    "cy": 340,
+    "scale": 0.6
+  },
+  "eye_right": {
+    "image": "eye_right.png",
+    "cx": 500,
+    "cy": 340,
+    "scale": 0.6
+  },
+  "blink": true,
+  "blink_interval": [
+    3.0,
+    6.0
+  ],
+  "blink_speed": 12.0,
+  "gaze": {
+    "amount": 10,
+    "interval": [
+      2.0,
+      5.0
+    ],
+    "speed": 3.0,
+    "while_speaking": 0.4
+  },
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "anchor_cx": 400,
+    "anchor_cy": 545,
+    "max_w": 260,
+    "min_w": 160,
+    "color": [
+      255,
+      140,
+      30
+    ],
+    "dark_color": [
+      20,
+      5,
+      0
+    ],
+    "style": "toothed",
+    "n_teeth": 6
+  },
+  "voices": {
+    "edge": "en-GB-RyanNeural"
+  }
+}
