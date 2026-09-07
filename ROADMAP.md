@@ -19,9 +19,8 @@ Ideas agreed on but not built yet, roughly in priority order.
   script; `SpeechPipeline` checks it before calling the backend.
 
 ## Latency
-- Benchmark Groq (Llama 70B) and OpenAI as the brain *inside the loop* with
-  the per-turn `[turn]` line; keep Claude if the character quality gap is
-  worth the extra ~0.5 s.
+- Keep judging brains *inside the loop* with the per-turn `[turn]` line;
+  Claude Haiku is the faster Claude when Opus feels slow.
 - Pre-open the ElevenLabs websocket for Flash sessions (saves ~100 ms).
 - Shorter system prompt variant for the voice loop.
 
@@ -29,7 +28,7 @@ Ideas agreed on but not built yet, roughly in priority order.
 - **Wi-Fi and network setup without a keyboard**: first-boot captive portal or
   a config file on the boot partition (SSID, password, API keys), plus a
   status face state for "no network".
-- Cloud speech-to-text by default there (`--stt elevenlabs` or `--stt groq`).
+- Cloud speech-to-text by default there (`--stt elevenlabs`).
 - Face at 30 fps; measure the renderer on the Pi 5.
 - Systemd unit + `--fullscreen` autostart; watchdog that restarts on crash.
 

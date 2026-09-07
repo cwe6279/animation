@@ -297,7 +297,6 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     <tr><th>Key</th><th>Used for</th><th>Where to get it</th></tr>
     <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Claude as the brain</td><td>console.anthropic.com, Settings, API keys. Create it inside a workspace; the API is prepaid, so add credits first. Organization-wide keys also need <code>ANTHROPIC_WORKSPACE_ID</code>.</td></tr>
     <tr><td><code>ELEVENLABS_API_KEY</code></td><td>Voice (v3, Flash) and Scribe speech to text</td><td>elevenlabs.io, Settings, API keys. Enable text-to-speech, speech-to-text and voices permissions. Community voices must be added to My Voices before the API can use them.</td></tr>
-    <tr><td><code>GROQ_API_KEY</code></td><td>Groq brain and Groq Whisper speech to text</td><td>console.groq.com, Keys</td></tr>
     <tr><td><code>OPENAI_API_KEY</code></td><td>OpenAI brain and transcription, for comparison</td><td>platform.openai.com, API keys. Prepaid, separate from ChatGPT.</td></tr>
   </table></div>
   <p>edge-tts, Vosk and local Whisper need no keys. The Whisper and Vosk models download to <code>~/.cache/talker</code> on first use.</p>
@@ -344,7 +343,6 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
     <tr><th><code>--stt</code></th><th>Backend</th><th class="num">WER</th><th class="num">Noisy</th><th class="num">s/clip</th><th>Runs</th></tr>
     <tr><td><code>whisper</code> default</td><td>faster-whisper base.en</td><td class="num">2.1%</td><td class="num">2.8%</td><td class="num">0.19</td><td>local; seconds per turn on a Pi</td></tr>
     <tr><td><code>vosk</code></td><td>Vosk small</td><td class="num">4.1%</td><td class="num">7.0%</td><td class="num">0.19</td><td>local, live partials, weak in noise</td></tr>
-    <tr><td><code>groq</code></td><td>whisper-large-v3-turbo</td><td class="num best">0.7%</td><td class="num">1.4%</td><td class="num">0.46</td><td>cloud, cheap</td></tr>
     <tr><td><code>openai --model gpt-4o-mini-transcribe</code></td><td>gpt-4o-mini-transcribe</td><td class="num best">0.0%</td><td class="num">0.0%</td><td class="num">0.77</td><td>cloud</td></tr>
     <tr><td><code>elevenlabs</code></td><td>Scribe realtime</td><td class="num">1.4%</td><td class="num">1.4%</td><td class="num">0.51</td><td>cloud, live partials, server decides when you stopped</td></tr>
   </table></div>
@@ -354,10 +352,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
   <div class="tablewrap"><table>
     <tr><th><code>--llm</code> / model</th><th class="num">First token</th><th class="num">Known</th><th class="num">Leading</th><th class="num">Tags/sent</th><th class="num">md</th><th>Verdict</th></tr>
     <tr><td><code>claude</code> opus-5, thinking off, default</td><td class="num">940 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.69</td><td class="num">0%</td><td>Best writing: specific, witty, in character</td></tr>
-    <tr><td><code>claude --model claude-haiku-4-5</code></td><td class="num">650 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.75</td><td class="num">0%</td><td>Good, wordier</td></tr>
-    <tr><td><code>groq</code> qwen/qwen3.8-27b</td><td class="num best">200 ms</td><td class="num">81%</td><td class="num">96%</td><td class="num">0.71</td><td class="num">0%</td><td>Fast and decent; invents tags like [sly grin] the eyes ignore</td></tr>
-    <tr><td><code>groq --model openai/gpt-oss-20b</code></td><td class="num">290 ms</td><td class="num">83%</td><td class="num">83%</td><td class="num">1.08</td><td class="num">12%</td><td>Over-tags, some markdown</td></tr>
-    <tr><td><code>groq --model openai/gpt-oss-120b</code></td><td class="num">375 ms</td><td class="num">100%</td><td class="num">88%</td><td class="num">1.00</td><td class="num">12%</td><td>Compliant but terse</td></tr>
+    <tr><td><code>claude --model claude-haiku-4-5</code></td><td class="num best">650 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.75</td><td class="num">0%</td><td>Good, wordier; the faster Claude</td></tr>
     <tr><td><code>openai</code> gpt-4o-mini</td><td class="num">500 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.54</td><td class="num">12%</td><td>Compliant, chirpy, many exclamation marks</td></tr>
   </table></div>
   <p>Opus with thinking on adds about a second. <code>--no-thinking</code> is the default in the Pi profile. <code>--effort</code> raises answer quality at the cost of speed.</p>
@@ -371,7 +366,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
   </table></div>
 
   <h3>Profiles</h3>
-  <p><code>--profile pi</code> sets cloud speech to text (Groq, or ElevenLabs without a Groq key), the Groq brain when a key is present, fullscreen, 30 fps, and thinking off. Any flag you pass explicitly still wins, so <code>--llm claude</code> keeps Claude's writing on the Pi at about a second per reply.</p>
+  <p><code>--profile pi</code> sets ElevenLabs Scribe for speech to text, Claude with thinking off, fullscreen, and 30 fps. Any flag you pass explicitly still wins; <code>--model claude-haiku-4-5</code> is the faster Claude.</p>
 </section>
 
 <section id="tools">

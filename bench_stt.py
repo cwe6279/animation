@@ -3,7 +3,7 @@ bench_stt.py — accuracy and speed of every speech-to-text backend on the same 
 
     python bench_stt.py --synth                # edge-tts clips, clean + noisy (no mic needed)
     python bench_stt.py recordings/            # your own clips from: voice_loop.py --mic-test --record recordings/
-    python bench_stt.py recordings/ --backends whisper:base.en,whisper:small.en,groq,elevenlabs
+    python bench_stt.py recordings/ --backends whisper:base.en,whisper:small.en,openai,elevenlabs
 
 A recordings folder holds 16 kHz mono WAVs and a transcripts.txt with
 "<file>\\t<reference text>" lines (the mic test writes a draft; correct it).
@@ -140,9 +140,9 @@ def make_transcribers(specs: List[str]) -> Dict[str, Callable[[bytes], str]]:
                     text += " " + json.loads(v._rec.FinalResult()).get("text", "")
                     return text.strip()
                 out[f"vosk {opt or 'small'}"] = f
-            elif name in ("groq", "openai"):
+            elif name == "openai":
                 from stt_backends import OpenAICompatSTT
-                be = OpenAICompatSTT.groq(model=opt or None) if name == "groq" else OpenAICompatSTT.openai(model=opt or None)
+                be = OpenAICompatSTT.openai(model=opt or None)
 
                 def f(pcm, be=be):
                     buf = io.BytesIO()
@@ -188,8 +188,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("folder", nargs="?", help="recordings folder (WAVs + transcripts.txt)")
     p.add_argument("--synth", action="store_true", help="use synthesized clips instead of a folder")
-    p.add_argument("--backends", default="whisper:base.en,whisper:small.en,vosk,groq,elevenlabs",
-                   help="comma list: whisper[:size], vosk[:model], groq[:model], openai[:model], elevenlabs[:model]")
+    p.add_argument("--backends", default="whisper:base.en,whisper:small.en,vosk,openai,elevenlabs",
+                   help="comma list: whisper[:size], vosk[:model], openai[:model], elevenlabs[:model]")
     args = p.parse_args()
     if not args.synth and not args.folder:
         p.error("give a recordings folder or --synth")

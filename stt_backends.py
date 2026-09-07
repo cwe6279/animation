@@ -375,13 +375,12 @@ class ElevenLabsSTT(STTBackend):
 
 
 # ─────────────────────────────────────────────────────
-# OPENAI-COMPATIBLE BATCH (Groq whisper-large-v3-turbo, OpenAI whisper-1)
+# OPENAI BATCH (whisper-1, gpt-4o-mini-transcribe)
 # ─────────────────────────────────────────────────────
 class OpenAICompatSTT(STTBackend):
     """
     Batch cloud transcription: our energy endpointer decides when you stopped,
-    then the clip is uploaded as a WAV. No partials. Groq is fast and cheap
-    (Whisper large on their hardware); OpenAI is the reference.
+    then the clip is uploaded as a WAV. No partials.
     """
     name = "openai"
 
@@ -401,11 +400,6 @@ class OpenAICompatSTT(STTBackend):
                 raise RuntimeError(f"{name} STT needs an API key in the environment")
             client = OpenAI(api_key=api_key, base_url=base_url)
         self._client = client
-
-    @classmethod
-    def groq(cls, model: Optional[str] = None, **kw):
-        return cls(model or "whisper-large-v3-turbo", os.environ.get("GROQ_API_KEY"),
-                   "https://api.groq.com/openai/v1", name="groq", **kw)
 
     @classmethod
     def openai(cls, model: Optional[str] = None, **kw):
@@ -445,7 +439,7 @@ class OpenAICompatSTT(STTBackend):
 
 
 STT_BACKENDS = {"vosk": VoskSTT, "whisper": WhisperSTT, "elevenlabs": ElevenLabsSTT,
-                "groq": OpenAICompatSTT.groq, "openai": OpenAICompatSTT.openai}
+                "openai": OpenAICompatSTT.openai}
 
 
 def make_stt(name: str = "vosk", **kwargs) -> STTBackend:

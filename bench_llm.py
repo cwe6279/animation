@@ -2,7 +2,7 @@
 bench_llm.py — how well each brain follows the performance-tag spec, plus speed.
 
     python bench_llm.py                       # all configured brains
-    python bench_llm.py --llms "groq:qwen/qwen3.8-27b,claude:claude-haiku-4-5"
+    python bench_llm.py --llms "claude:claude-haiku-4-5,openai:gpt-4o-mini"
 
 Scores per reply (against llm_integration/system_prompt.md):
   known tags    share of tags that are in the allowed vocabulary / face map
@@ -80,16 +80,14 @@ def make_chat(spec: str):
         from llm_integration.claude_chat import ClaudeChat
         return ClaudeChat(model=model or "claude-opus-5", character=CHAR, thinking=False), spec
     from llm_integration.openai_compat_chat import OpenAICompatChat
-    maker = OpenAICompatChat.groq if kind == "groq" else OpenAICompatChat.openai
-    chat = maker(model=model or None, character=CHAR)
+    chat = OpenAICompatChat.openai(model=model or None, character=CHAR)
     return chat, f"{kind}:{chat.model}"
 
 
 def main() -> int:
     load_dotenv()
     p = argparse.ArgumentParser()
-    p.add_argument("--llms", default="claude:claude-opus-5,claude:claude-haiku-4-5,groq:qwen/qwen3.8-27b,"
-                                     "groq:openai/gpt-oss-20b,groq:openai/gpt-oss-120b,openai:gpt-4o-mini")
+    p.add_argument("--llms", default="claude:claude-opus-5,claude:claude-haiku-4-5,openai:gpt-4o-mini")
     p.add_argument("--samples", type=int, default=2, help="replies to print per model")
     args = p.parse_args()
 

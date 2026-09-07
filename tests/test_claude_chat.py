@@ -77,7 +77,7 @@ def test_openai_compat_chat_streams_and_keeps_history():
                                  NS(choices=[NS(delta=NS(content="there!"))])])
             self.chat = NS(completions=Completions())
     client = FakeClient()
-    chat = OpenAICompatChat("llama-3.3-70b-versatile", api_key=None, client=client, character="a cat")
+    chat = OpenAICompatChat("gpt-4o-mini", api_key=None, client=client, character="a cat")
     assert "".join(chat.reply("hello")) == "[happy]Hi there!"
     kw = client.calls[0]
     assert kw["stream"] is True and kw["messages"][0]["role"] == "system"

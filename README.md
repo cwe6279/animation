@@ -203,8 +203,8 @@ first audio). Options:
   otherwise the speakers get transcribed). Default is half-duplex: mic ignored during playback.
 - `--text-only` — type in the window instead of using a mic; same Claude round trip
 - `--effort medium` — better answers, slower first token. `--model` to change the model.
-- `--llm groq` / `--llm openai` — a different brain (Llama on Groq, or OpenAI) for benchmarks; `--model` picks the model
-- `--stt groq` / `--stt openai` — cloud batch speech-to-text (Groq is fast and cheap; needs the key)
+- `--llm openai` — OpenAI as the brain, for side-by-side comparison; `--model` picks the model
+- `--stt openai` — OpenAI batch speech-to-text, for comparison
 
 The pieces are independent: `VoiceLoop` (voice_loop.py) only needs an STT object,
 a function that returns an iterator of reply text, and something with
@@ -219,12 +219,11 @@ cannot run fast. One flag picks the right set:
 python voice_loop.py --face green_cat --profile pi --mic-device gomic --output-device jabra
 ```
 
-`--profile pi` = cloud speech-to-text (`groq` if you have a Groq key, else
-`elevenlabs`), Groq as the brain when a key is present (~200 ms to first
-token), fullscreen, 30 fps, Claude thinking off. Any flag you pass explicitly
-still wins, e.g. add `--llm claude` to keep Claude's writing. Tested on a
-Pi 5 with 4 GB or more; a Pi 4 works but everything local is about twice as
-slow. Cloud stages cost the same on a Pi as on a desktop.
+`--profile pi` = ElevenLabs Scribe realtime for speech-to-text, Claude with
+thinking off, fullscreen, 30 fps. Any flag you pass explicitly still wins,
+e.g. `--model claude-haiku-4-5` for a faster brain. Tested on a Pi 5 with
+4 GB or more; a Pi 4 works but everything local is about twice as slow.
+Cloud stages cost the same on a Pi as on a desktop.
 
 ### Speech-to-text options, measured on a desktop
 
@@ -233,7 +232,6 @@ slow. Cloud stages cost the same on a Pi as on a desktop.
 | `whisper` (default) | local CPU | ~0.7 s (0.4 s silence + 0.3 s transcribe) | high | 2–5 s per turn |
 | `vosk` | local CPU | ~0.5 s, live partials | fair (small) / good (large) | fine |
 | `elevenlabs` | cloud | ~0.5 s, live partials | high | fine (no CPU) |
-| `groq` | cloud batch | silence wait + ~0.3–0.6 s upload/transcribe | high (Whisper large) | fine (no CPU) |
 | `openai` | cloud batch | silence wait + ~0.5–1 s | high | fine (no CPU) |
 
 Every turn prints one `[turn]` line: time from when you stopped talking to the
@@ -265,14 +263,13 @@ mic, so expect higher error rates in a room.
 | `whisper` (default) | faster-whisper base.en | 2.1% | 1.4% | 2.8% | 0.19 | local |
 | `whisper --whisper-model small.en` | faster-whisper small.en | 2.7% | 1.4% | 4.2% | 0.48 | local |
 | `vosk` | vosk small | 4.1% | 1.4% | 7.0% | 0.19 | local, live partials |
-| `groq` | whisper-large-v3-turbo | **0.7%** | 0.0% | 1.4% | 0.46 | cloud |
 | `openai` | whisper-1 | 1.4% | 1.4% | 1.4% | 1.39 | cloud |
 | `openai --model gpt-4o-mini-transcribe` | gpt-4o-mini-transcribe | **0.0%** | 0.0% | 0.0% | 0.77 | cloud |
 | `elevenlabs` | Scribe (batch v1 measured; the loop uses realtime) | 1.4% | 1.4% | 1.4% | 0.51 | cloud, live partials, server VAD |
 
-Recommendation: local Whisper on a desktop (free, ~0.7 s after you stop);
-Groq or ElevenLabs realtime on a Pi. Vosk only if you must stay offline on
-weak hardware.
+Recommendation: local Whisper on a desktop (free, ~0.8 s after you stop);
+ElevenLabs realtime on a Pi (~0.5 s after you stop, no local CPU). Vosk only
+if you must stay offline on weak hardware.
 
 **Brains** — same cat persona, 8 prompts each. *known* = share of tags in the
 allowed vocabulary; *leading* = tags placed before words; *tags/sent* = tags
@@ -283,15 +280,12 @@ replies with markdown or emoji.
 |---------------------|------------:|------:|--------:|----------:|---:|------:|-------|
 | `claude` claude-opus-5, `--no-thinking` (default) | 940 ms | 100% | 100% | 0.69 | 0% | 25 | best writing: specific, witty, in character |
 | `claude --model claude-haiku-4-5` | 650 ms | 100% | 100% | 0.75 | 0% | 26 | good; longer, occasional *asterisk* emphasis |
-| `groq` qwen/qwen3.8-27b | **200 ms** | 81% | 96% | 0.71 | 0% | 19 | fast and decent; invents tags (`[sly grin]`) the face can't map |
-| `groq --model openai/gpt-oss-20b` | 290 ms | 83% | 83% | 1.08 | 12% | 22 | over-tags, some markdown |
-| `groq --model openai/gpt-oss-120b` | 375 ms | 100% | 88% | 1.00 | 12% | 10 | compliant but terse |
 | `openai` gpt-4o-mini | 500 ms | 100% | 100% | 0.54 | 12% | 22 | compliant; chirpy, many exclamation marks |
 
-Opus with thinking on adds ~1 s to first token. Every model tags more than the
+Opus with thinking on adds ~1 s to first token; `--no-thinking` or
+`--model claude-haiku-4-5` are the levers. Every model tags more than the
 prompt asks; tighten rule 3 in `llm_integration/system_prompt.md` if it feels
-busy. Unknown tags are still performed by ElevenLabs v3 (it accepts free-form
-cues) but do not move the eyes.
+busy.
 
 **Voices** — time to first audio through the whole pipeline, ElevenLabs on a
 warm connection.

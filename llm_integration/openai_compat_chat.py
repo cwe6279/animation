@@ -1,11 +1,9 @@
 """
-openai_compat_chat.py — streaming multi-turn chat over any OpenAI-compatible API.
+openai_compat_chat.py — streaming multi-turn chat over the OpenAI API.
 
-Covers OpenAI itself and Groq (Llama etc. on Groq's LPUs), which is worth a
-look for a voice loop because of its time to first token. Same interface as
-ClaudeChat: reply(text) yields chunks, history is kept.
+Same interface as ClaudeChat: reply(text) yields chunks, history is kept.
+Used for side-by-side comparisons; Claude is the default brain.
 
-    chat = OpenAICompatChat.groq(model="llama-3.3-70b-versatile", character="a spooky cat")
     chat = OpenAICompatChat.openai(model="gpt-4o-mini", character="...")
 
 Uses the same system prompt (emotion/performance tags) as ClaudeChat.
@@ -23,8 +21,6 @@ try:
 except ImportError:
     from claude_chat import VOICE_RULES, load_system_prompt
 
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_DEFAULT_MODEL = "qwen/qwen3.8-27b"     # ~150 ms to first token, in character
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 
 
@@ -48,11 +44,6 @@ class OpenAICompatChat:
         self.client = client
 
     @classmethod
-    def groq(cls, model: Optional[str] = None, character: Optional[str] = None, **kw):
-        return cls(model or GROQ_DEFAULT_MODEL, os.environ.get("GROQ_API_KEY"), GROQ_BASE_URL,
-                   character=character, name="groq", **kw)
-
-    @classmethod
     def openai(cls, model: Optional[str] = None, character: Optional[str] = None, **kw):
         return cls(model or OPENAI_DEFAULT_MODEL, os.environ.get("OPENAI_API_KEY"), None,
                    character=character, name="openai", **kw)
@@ -62,16 +53,12 @@ class OpenAICompatChat:
         self.messages = self.messages[-self.max_history:]
         parts: List[str] = []
         try:
-            extra = {}
-            if "gpt-oss" in self.model:
-                extra["reasoning_effort"] = "low"    # otherwise it spends the budget thinking
             stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "system", "content": self.system}] + self.messages,
                 max_tokens=256,
                 temperature=self.temperature,
                 stream=True,
-                **extra,
             )
             for chunk in stream:
                 if not chunk.choices:

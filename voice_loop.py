@@ -176,15 +176,13 @@ class VoiceLoop:
 def apply_pi_profile(args) -> None:
     """
     Raspberry Pi: keep every heavy stage in the cloud. Local Whisper takes
-    seconds per turn there; Groq's Whisper is ~0.5 s and near-perfect, and
-    ElevenLabs Scribe realtime is the fallback. Only fills in what the user
-    did not set explicitly.
+    seconds per turn there; ElevenLabs Scribe realtime commits ~0.5 s after
+    you stop with no local CPU. Only fills in what the user did not set
+    explicitly.
     """
     import os
     if args.stt == "whisper":          # the parser default, i.e. not chosen by the user
-        args.stt = "groq" if os.environ.get("GROQ_API_KEY") else "elevenlabs"
-    if args.llm == "claude" and args.model is None and os.environ.get("GROQ_API_KEY"):
-        args.llm = "groq"              # ~200 ms to first token; use --llm claude to override
+        args.stt = "elevenlabs"
     if args.silence_ms is None:
         args.silence_ms = 500
     args.fullscreen = True
@@ -201,7 +199,7 @@ def stt_kwargs(args) -> dict:
         return {"model_path": args.vosk_model, "silence_ms": args.silence_ms}
     if args.stt == "whisper":
         return {"model_size": args.whisper_model, "silence_ms": args.silence_ms}
-    if args.stt in ("elevenlabs", "groq", "openai"):
+    if args.stt in ("elevenlabs", "openai"):
         return {"silence_ms": args.silence_ms}
     return {}
 
@@ -282,13 +280,13 @@ def main(argv=None) -> int:
     load_dotenv()
     p = argparse.ArgumentParser(description="Talk to an animated face: mic -> STT -> Claude -> voice")
     p.add_argument("--profile", choices=["desktop", "pi"], default=None,
-                   help="pi: cloud speech-to-text (groq, or elevenlabs if no Groq key), Groq brain, "
+                   help="pi: cloud speech-to-text (elevenlabs), Claude with thinking off, "
                         "fullscreen, 30 fps — nothing heavy runs locally. Explicit flags still win.")
     p.add_argument("--face", default="eve")
     p.add_argument("--face-dir", default=None)
     p.add_argument("--stt", default="whisper",
                    help="whisper (default, local, accurate) | vosk (local, light) | "
-                        "elevenlabs (cloud Scribe realtime, best for a Pi) | groq | openai (cloud batch)")
+                        "elevenlabs (cloud Scribe realtime, best for a Pi) | openai (cloud batch)")
     p.add_argument("--vosk-model", default=None,
                    help="small (default) | lgraph | large | path. Larger = more accurate")
     p.add_argument("--whisper-model", default=None, help="faster-whisper size, e.g. base.en, small.en")
@@ -311,10 +309,10 @@ def main(argv=None) -> int:
     p.add_argument("--tts-model", default=None,
                    help="ElevenLabs model: eleven_v3 (default; performs [sigh]/[excited]-style tags) "
                         "or eleven_flash_v2_5 (~0.5 s faster, tags stripped)")
-    p.add_argument("--llm", default="claude", choices=["claude", "groq", "openai"],
-                   help="Which brain answers: claude (default), groq (Llama on Groq), openai")
+    p.add_argument("--llm", default="claude", choices=["claude", "openai"],
+                   help="Which brain answers: claude (default) or openai (for comparison)")
     p.add_argument("--model", default=None,
-                   help="Model id for the chosen --llm (defaults: claude-opus-5, qwen/qwen3.8-27b on Groq, gpt-4o-mini)")
+                   help="Model id for the chosen --llm (defaults: claude-opus-5, gpt-4o-mini)")
     p.add_argument("--effort", default="low", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--no-thinking", action="store_true",
                    help="Skip Claude's reasoning pass: faster first token, slightly less considered replies")
@@ -367,8 +365,7 @@ def main(argv=None) -> int:
                           thinking=not args.no_thinking)
     else:
         from llm_integration.openai_compat_chat import OpenAICompatChat
-        chat = (OpenAICompatChat.groq if args.llm == "groq" else OpenAICompatChat.openai)(
-            model=args.model, character=character)
+        chat = OpenAICompatChat.openai(model=args.model, character=character)
     print(f"[voice] brain: {args.llm} {chat.model}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen)
