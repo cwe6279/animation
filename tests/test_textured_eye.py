@@ -71,3 +71,17 @@ def test_compositor_renders_and_reacts():
     cx = lambda f: np.average(np.arange(96), weights=((f[..., :3].sum(axis=2) < 30) & (f[..., 3] > 128)).sum(axis=0) + 1e-6)
     assert cx(right) > cx(left) + 5                           # pupil moved with the gaze
     assert eye.render((0.3, 0.0), 0.2, 0.0) is right           # cached for identical state
+
+
+@pytest.mark.parametrize("scale", [0.7, 1.0, 1.2])
+def test_blink_rate_is_sane_under_emotion_multiplier(scale):
+    clk = Clock(); m = EyeMotion(EyeMotionConfig(blink_gap_s=2.0), rng=np.random.default_rng(3), clock=clk)
+    blinks = 0; was_open = True
+    for _ in range(int(30 / 0.01)):
+        clk.t += 0.01; m.update(0.01, Emotion.NEUTRAL, blink_scale=scale)
+        if was_open and m.blink > 0.5:
+            blinks += 1; was_open = False
+        elif m.blink < 0.1:
+            was_open = True
+    # 30 s at a 0-2 s gap: roughly 10-30 blinks scaled; never hundreds, never zero
+    assert 5 <= blinks <= 60, blinks

@@ -88,6 +88,7 @@ class EyeMotion:
         self._blink_start = now
         self._blink_dur = 0.05
         self._next_blink = now + 1.0 + self.rng.uniform(0, self.cfg.blink_gap_s)
+        self._blink_scale = 1.0
         self.pupil = self.cfg.pupil_base
         self._pupil_noise = 0.0
         self._pupil_target = 0.0
@@ -132,8 +133,9 @@ class EyeMotion:
         else:
             self.gaze = self._g_to + self.rng.normal(0, c.micro * c.gaze_radius, 2) * 0.5
 
-        # ── blink ──
-        if self._blink_phase == 0 and now >= self._next_blink * (1.0 / max(0.1, blink_scale)):
+        # ── blink ──  (blink_scale >1 = blink more often; it scales the gap, not the clock)
+        self._blink_scale = max(0.1, blink_scale)
+        if self._blink_phase == 0 and now >= self._next_blink:
             self._blink_phase = 1
             self._blink_start = now
             self._blink_dur = self.rng.uniform(*c.blink_close_s)
@@ -149,7 +151,8 @@ class EyeMotion:
             self.blink = max(0.0, 1.0 - t)
             if t >= 1.0:
                 self._blink_phase = 0
-                self._next_blink = now + self._blink_dur * 1.5 + self.rng.uniform(0, c.blink_gap_s)
+                gap = self._blink_dur * 1.5 + self.rng.uniform(0, c.blink_gap_s)
+                self._next_blink = now + gap / self._blink_scale
         # ── pupil: slow wander + emotion ──
         if now >= self._pupil_next:
             self._pupil_target = self.rng.uniform(-0.06, 0.06)
