@@ -204,7 +204,7 @@ first audio). Options:
 - `--stt vosk` — light local recognizer (`--vosk-model lgraph|large` for better accuracy)
 - `--stt whisper` — the default: local faster-whisper (accurate; ~300 ms per turn on a desktop CPU, seconds on a Pi)
 - `--silence-ms 400` — how long a pause ends your turn (default 600); lower is snappier, cuts more
-- `--no-thinking` — skip Claude's reasoning pass: roughly halves the first-token wait
+- `--thinking` — turn on Claude's reasoning pass (off by default; adds about a second to the first token)
 - `--model claude-haiku-4-5` — fastest replies, a little less wit
 - `--barge-in` — keep listening while it speaks and interrupt when you talk (use headphones,
   otherwise the speakers get transcribed). Default is half-duplex: mic ignored during playback.
@@ -226,8 +226,8 @@ cannot run fast. One flag picks the right set:
 python voice_loop.py --face green_cat --profile pi --mic-device gomic --output-device jabra
 ```
 
-`--profile pi` = ElevenLabs Scribe realtime for speech-to-text, Claude with
-thinking off, fullscreen, 30 fps. Any flag you pass explicitly still wins,
+`--profile pi` = ElevenLabs Scribe realtime for speech-to-text, fullscreen,
+30 fps. Any flag you pass explicitly still wins,
 e.g. `--model claude-haiku-4-5` for a faster brain. Tested on a Pi 5 with
 4 GB or more; a Pi 4 works but everything local is about twice as slow.
 Cloud stages cost the same on a Pi as on a desktop.
@@ -285,12 +285,12 @@ replies with markdown or emoji.
 
 | `--llm` / `--model` | first token | known | leading | tags/sent | md | words | notes |
 |---------------------|------------:|------:|--------:|----------:|---:|------:|-------|
-| `claude` claude-opus-5, `--no-thinking` (default) | 940 ms | 100% | 100% | 0.69 | 0% | 25 | best writing: specific, witty, in character |
+| `claude` claude-opus-5 (default, thinking off) | 940 ms | 100% | 100% | 0.69 | 0% | 25 | best writing: specific, witty, in character |
 | `claude --model claude-haiku-4-5` | 650 ms | 100% | 100% | 0.75 | 0% | 26 | good; longer, occasional *asterisk* emphasis |
 | `openai` gpt-4o-mini | 500 ms | 100% | 100% | 0.54 | 12% | 22 | compliant; chirpy, many exclamation marks |
 
-Opus with thinking on adds ~1 s to first token; `--no-thinking` or
-`--model claude-haiku-4-5` are the levers. Every model tags more than the
+`--thinking` adds ~1 s to first token; `--model claude-haiku-4-5` is the
+faster lever. Every model tags more than the
 prompt asks; tighten rule 3 in `llm_integration/system_prompt.md` if it feels
 busy.
 

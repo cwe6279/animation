@@ -186,7 +186,7 @@ def apply_pi_profile(args) -> None:
     if args.silence_ms is None:
         args.silence_ms = 500
     args.fullscreen = True
-    args.no_thinking = True
+    args.thinking = False
     os.environ.setdefault("TALKER_FPS", "30")
     print(f"[profile] pi: stt={args.stt} llm={args.llm} fullscreen, 30 fps")
 
@@ -280,8 +280,8 @@ def main(argv=None) -> int:
     load_dotenv()
     p = argparse.ArgumentParser(description="Talk to an animated face: mic -> STT -> Claude -> voice")
     p.add_argument("--profile", choices=["desktop", "pi"], default=None,
-                   help="pi: cloud speech-to-text (elevenlabs), Claude with thinking off, "
-                        "fullscreen, 30 fps — nothing heavy runs locally. Explicit flags still win.")
+                   help="pi: cloud speech-to-text (elevenlabs), fullscreen, 30 fps — nothing heavy "
+                        "runs locally. Explicit flags still win.")
     p.add_argument("--face", default="eve")
     p.add_argument("--face-dir", default=None)
     p.add_argument("--stt", default="whisper",
@@ -314,8 +314,9 @@ def main(argv=None) -> int:
     p.add_argument("--model", default=None,
                    help="Model id for the chosen --llm (defaults: claude-opus-5, gpt-4o-mini)")
     p.add_argument("--effort", default="low", choices=["low", "medium", "high", "xhigh", "max"])
-    p.add_argument("--no-thinking", action="store_true",
-                   help="Skip Claude's reasoning pass: faster first token, slightly less considered replies")
+    p.add_argument("--thinking", action="store_true",
+                   help="Enable Claude's reasoning pass before answering (about +1 s to first token; off by default)")
+    p.add_argument("--no-thinking", action="store_true", help=argparse.SUPPRESS)   # kept for old scripts
     p.add_argument("--character", default=None, help='Persona, e.g. "EVE from WALL-E, terse and curious"')
     p.add_argument("--barge-in", action="store_true", help="Interrupt playback when you start talking")
     p.add_argument("--text-only", action="store_true", help="Type in the window instead of using the mic")
@@ -364,7 +365,7 @@ def main(argv=None) -> int:
 
     if args.llm == "claude":
         chat = ClaudeChat(model=args.model or "claude-opus-5", effort=args.effort, character=character,
-                          thinking=not args.no_thinking)
+                          thinking=bool(args.thinking))
     else:
         from llm_integration.openai_compat_chat import OpenAICompatChat
         chat = OpenAICompatChat.openai(model=args.model, character=character)

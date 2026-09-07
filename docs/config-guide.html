@@ -364,11 +364,11 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
   <p>Same cat persona, eight prompts. <em>Known</em> is the share of tags in the allowed vocabulary; <em>leading</em> the share placed before words; <em>md</em> replies with markdown or emoji.</p>
   <div class="tablewrap"><table>
     <tr><th><code>--llm</code> / model</th><th class="num">First token</th><th class="num">Known</th><th class="num">Leading</th><th class="num">Tags/sent</th><th class="num">md</th><th>Verdict</th></tr>
-    <tr><td><code>claude</code> opus-5, thinking off, default</td><td class="num">940 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.69</td><td class="num">0%</td><td>Best writing: specific, witty, in character</td></tr>
+    <tr><td><code>claude</code> opus-5, default (thinking off)</td><td class="num">940 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.69</td><td class="num">0%</td><td>Best writing: specific, witty, in character</td></tr>
     <tr><td><code>claude --model claude-haiku-4-5</code></td><td class="num best">650 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.75</td><td class="num">0%</td><td>Good, wordier; the faster Claude</td></tr>
     <tr><td><code>openai</code> gpt-4o-mini</td><td class="num">500 ms</td><td class="num">100%</td><td class="num">100%</td><td class="num">0.54</td><td class="num">12%</td><td>Compliant, chirpy, many exclamation marks</td></tr>
   </table></div>
-  <p>Opus with thinking on adds about a second. <code>--no-thinking</code> is the default in the Pi profile. <code>--effort</code> raises answer quality at the cost of speed.</p>
+  <p>Thinking is off by default; <code>--thinking</code> turns it on and adds about a second to the first token. <code>--effort</code> raises answer quality at the cost of speed.</p>
 
   <h3>Voices</h3>
   <div class="tablewrap"><table>
@@ -379,7 +379,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
   </table></div>
 
   <h3>Profiles</h3>
-  <p><code>--profile pi</code> sets ElevenLabs Scribe for speech to text, Claude with thinking off, fullscreen, and 30 fps. Any flag you pass explicitly still wins; <code>--model claude-haiku-4-5</code> is the faster Claude.</p>
+  <p><code>--profile pi</code> sets ElevenLabs Scribe for speech to text, fullscreen, and 30 fps. Any flag you pass explicitly still wins; <code>--model claude-haiku-4-5</code> is the faster Claude.</p>
 </section>
 
 <section id="tools">
