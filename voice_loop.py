@@ -146,9 +146,10 @@ class VoiceLoop:
                            r"face|colou?r|what am i|who am i|how many|show|showing|picture|drawing)\b", re.I)
 
     def _answer(self, text: str) -> None:
-        # A visual question: give the in-flight burst a moment to land first.
+        # A visual question: give the in-flight burst time to land first (capture ~0.5 s
+        # + vision model ~2.3 s, minus what already elapsed while the visitor spoke).
         if self.vision is not None and self._vision_ticket is not None and self.VISUAL_RE.search(text):
-            self.vision.wait_for(self._vision_ticket, timeout=1.5)
+            self.vision.wait_for(self._vision_ticket, timeout=2.5)
         self._vision_ticket = None
         t_end = time.monotonic()
         t_stop = self._speech_end_at or t_end       # typed text: no STT stage

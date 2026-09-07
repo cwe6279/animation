@@ -131,10 +131,10 @@ class CameraSource:
         for _ in range(5):                       # let exposure settle
             self.cap.read()
 
-    def burst(self, n: int = 3, spacing_s: float = 0.3) -> List[bytes]:
+    def burst(self, n: int = 3, spacing_s: float = 0.12) -> List[bytes]:
         frames: List[bytes] = []
         for i in range(n):
-            for _ in range(3):                   # drain stale buffered frames
+            for _ in range(2):                   # drain stale buffered frames
                 self.cap.grab()
             ok, frame = self.cap.read()
             if ok:

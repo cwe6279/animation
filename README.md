@@ -246,7 +246,7 @@ about 0.3 s apart, downsizes them, and asks a fast vision model
 burst) for a few lines of notes: how many people, rough ages, what they are
 doing or holding, mood. A burst is also taken the moment a visitor starts
 talking, so the note is fresh by the time the transcript lands; a visual
-question ("what's this", "can you see", "how many") waits up to 1.5 s for it.
+question ("what's this", "can you see", "how many") waits up to 2.5 s for it.
 When a burst changes the scene, the note is inserted into the conversation as
 a separate context entry (marked as not spoken by anyone) ahead of the next
 thing the visitor says; quiet turns add nothing, and the visitor's words are
