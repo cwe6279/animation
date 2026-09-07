@@ -78,3 +78,22 @@ def test_idle_timeout_counts_from_end_of_speech():
     spk.busy = False                    # speech ends now; the 10 s timeout starts here
     clk.t += 8; loop.tick(); assert loop.engaged
     clk.t += 3; loop.tick(); assert not loop.engaged
+
+
+def test_sleep_words_put_it_to_sleep_and_interrupt():
+    loop, spk, events, _ = make(["eve"])
+    loop.engage()
+    loop.on_user_text("hold on")
+    assert not loop.engaged and spk.interrupts == 1 and spk.spoken == []
+    loop.on_user_text("Eve, hello")            # wake again
+    assert loop.engaged and wait(lambda: spk.spoken)
+    loop.on_user_text("please stop doing that to the goat")   # 'stop' inside a real sentence: not a sleep command
+    assert loop.engaged
+    loop.on_user_text("Stop!")
+    assert not loop.engaged
+
+
+def test_sleep_words_ignored_without_wake_mode():
+    loop, spk, events, _ = make(None)
+    loop.on_user_text("stop")
+    assert loop.engaged and wait(lambda: spk.spoken)

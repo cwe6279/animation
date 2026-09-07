@@ -367,7 +367,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
   <div class="eyebrow">Wake mode <span class="file">voice_loop.py --wake · face.json wake_words</span></div>
   <h2>Wait to be called by name</h2>
   <p><code>--wake</code> starts the character engaged and, after the idle timeout or a goodbye, drops it to dormant: it listens, and keeps watching if vision is on, but answers nothing until a wake word is heard. <code>--start-dormant</code> makes it wait to be called from the start, which is what a kiosk wants and what the Pi profile does. The wake words are the face's <code>wake_words</code> list, else its name; <code>--wake-word "eve, hey eve"</code> overrides. List likely mis-hearings in the face's wake words ("marsha", "martha", "marcia"); fuzzy matching is used only for longer names so "coat" cannot wake a goat. Words after the name in the same sentence are answered at once; the name alone gets a reply to being called.</p>
-  <p>It goes dormant again after <code>--idle-timeout</code> seconds of silence counted from the end of its own last reply (60 by default), or when the brain decides the conversation is over: the prompt asks it to end a farewell with the marker <code>[end]</code>, which the loop removes before the voice sees it. The Pi profile turns wake mode on.</p>
+  <p>It goes dormant again after <code>--idle-timeout</code> seconds of silence counted from the end of its own last reply (60 by default), when the brain decides the conversation is over (it ends a farewell with the marker <code>[end]</code>, which the loop removes before the voice sees it), or when a visitor says a <strong>sleep word</strong> on its own: "stop", "wait", "hold on", "hang on", "pause", "quiet", "go to sleep", "enough", "goodbye" and a few more, up to four words. A sleep word also cuts the character off mid-sentence, and with <code>--barge-in</code> it works while it is still talking. <code>--sleep-word "..."</code> or <code>sleep_words</code> in face.json override the list. The Pi profile turns wake mode on.</p>
 </section>
 
 <section id="vision">
@@ -455,6 +455,7 @@ python voice_loop.py --mic-test --mic-device gomic --stt elevenlabs   # try a re
   <div class="tablewrap"><table>
     <tr><th>Symptom</th><th>Likely cause and fix</th></tr>
     <tr><td>It speaks "Sorry, I could not think of an answer"</td><td>The brain call failed. The terminal has an <code>[error] LLM failed</code> line: usually a missing or unscoped key, or no credits.</td></tr>
+    <tr><td>Coughs or noises come out as words</td><td>Whisper runs behind a voice-activity filter and a confidence cut-off and ignores clips under 0.35 s. If it still happens, raise <code>--silence-ms</code> a little or move the mic closer to where people speak.</td></tr>
     <tr><td>Mic never hears anything</td><td>Wrong device or gain. Run <code>--mic-test</code> and check the level line; pick the device by name.</td></tr>
     <tr><td>Every turn is exactly 15 seconds long</td><td>Room noise above the endpointer's threshold. Fixed in the current build; if it recurs, lower the mic gain.</td></tr>
     <tr><td>"Invalid sample rate" or "no default output device"</td><td>Old builds. Devices now open at any supported rate and fall back to another output.</td></tr>

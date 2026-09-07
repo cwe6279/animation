@@ -304,7 +304,14 @@ answered at once; the name alone gets a reply to being called. It goes
 dormant again after `--idle-timeout` seconds of silence after the character last spoke (60) or when the brain
 ends the conversation: the prompt asks it to finish a farewell with the marker
 `[end]`, which the loop strips before the voice. `wake_words` in face.json
-sets the defaults per character; `--profile pi` turns wake mode on.
+sets the defaults per character; `--profile pi` turns wake mode on. **Sleep words** put it to
+sleep at once and cut it off mid-sentence: "stop", "wait", "hold on", "hang on", "pause",
+"quiet", "go to sleep", "enough", "goodbye" and a few more, when said on their own (up to four
+words); `--sleep-word "..."` or `sleep_words` in face.json override the list. With `--barge-in`
+a sleep word works while the character is still talking.
+
+Sounds are not words: Whisper runs behind a voice-activity filter and a confidence cut-off, and
+clips under 0.35 s are dropped, so coughs, chair scrapes and music no longer become sentences.
 
 ### Vision (optional, off unless `--camera` is given)
 

@@ -240,12 +240,19 @@ class WhisperSTT(STTBackend):
             return Transcript("", False) if self._ep.active else None
         t0 = time.monotonic()
         samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
-        segments, _ = self._model.transcribe(samples, language="en", beam_size=1, vad_filter=False,
+        if len(samples) < self.sample_rate * 0.35:          # a click or a cough, not a sentence
+            self.last_transcribe_s = time.monotonic() - t0
+            return None
+        # vad_filter runs Silero VAD first so coughs, chair scrapes and music are
+        # dropped before Whisper can turn them into words.
+        segments, _ = self._model.transcribe(samples, language="en", beam_size=1, vad_filter=True,
+                                             vad_parameters={"min_silence_duration_ms": 300,
+                                                             "speech_pad_ms": 200},
                                              condition_on_previous_text=False)
         kept = []
         for seg in segments:
             # Whisper invents "You", "Thank you." etc. on noise; drop low-confidence segments.
-            if seg.no_speech_prob > 0.6 or seg.avg_logprob < -1.2:
+            if seg.no_speech_prob > 0.45 or seg.avg_logprob < -1.0:
                 continue
             kept.append(seg.text.strip())
         text = " ".join(kept).strip()

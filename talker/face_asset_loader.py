@@ -128,13 +128,14 @@ class FaceManifest:
     voice_speed: Optional[float] = None # speaking rate multiplier (Flash / edge; v3 ignores)
     character:  str = ""                # personality; loaded from character.md next to face.json
     wake_words: List[str] = field(default_factory=list)   # wake mode: names that start a conversation
+    sleep_words: List[str] = field(default_factory=list)  # wake mode: short phrases that end it at once
 
     _KNOWN_TOP = {
         "name", "description", "canvas_w", "canvas_h", "fps", "bg_color", "face_base",
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
         "eye_left", "eye_right", "eye_color", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
-        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye", "wake_words",
+        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words",
     }
     _KNOWN_EYE = {"image", "cx", "cy", "scale", "opacity"}
     _KNOWN_MOUTH = {"anchor_cx", "anchor_cy", "max_w", "min_w", "scale", "offset_x", "offset_y",
@@ -185,6 +186,7 @@ class FaceManifest:
         m.voice_speed = float(d["voice_speed"]) if d.get("voice_speed") else None
         m.textured_eye = dict(d.get("textured_eye") or {})
         m.wake_words = [str(w) for w in (d.get("wake_words") or [])]
+        m.sleep_words = [str(w) for w in (d.get("sleep_words") or [])]
         m.character   = str(d.get("character", ""))
 
         for side in ("eye_left", "eye_right"):

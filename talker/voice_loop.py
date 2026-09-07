@@ -51,12 +51,16 @@ class VoiceLoop:
 
     GRACE_AFTER_SPEECH = 0.35      # seconds to keep ignoring the mic after playback ends
     END_MARKER = "[end]"           # the brain appends this when the conversation is over
+    DEFAULT_SLEEP_WORDS = ["stop", "wait", "hold on", "hang on", "pause", "quiet", "be quiet", "shush",
+                           "go to sleep", "sleep now", "that's enough", "enough", "stop talking",
+                           "hold that thought", "one moment", "goodbye", "bye bye", "bye"]
 
     def __init__(self, stt: STTBackend, llm_reply: Callable[[str], Iterator[str]],
                  speaker: Speaker, barge_in: bool = False,
                  on_event: Optional[Callable[[str, str], None]] = None,
                  wake_words: Optional[List[str]] = None, idle_timeout: float = 60.0,
-                 clock=time.monotonic, start_engaged: bool = True):
+                 clock=time.monotonic, start_engaged: bool = True,
+                 sleep_words: Optional[List[str]] = None):
         self.stt = stt
         self.llm_reply = llm_reply
         self.speaker = speaker
@@ -72,6 +76,9 @@ class VoiceLoop:
         # Start engaged (first visitor need not say the name); go dormant after the
         # idle timeout or a goodbye. start_engaged=False for a kiosk that waits.
         self.engaged = (not self.wake_words) or start_engaged
+        # Short utterances that put the character to sleep at once (and cut it off).
+        self.sleep_words = [w.strip().lower() for w in (sleep_words if sleep_words is not None
+                                                        else self.DEFAULT_SLEEP_WORDS) if w.strip()]
         self._last_activity = self.clock()
         self._lock = threading.Lock()
         self._thinking = False
@@ -172,6 +179,19 @@ class VoiceLoop:
                     return (i, i + n)
         return None
 
+    def is_sleep_command(self, text: str) -> bool:
+        """A short utterance that is (mostly) a sleep word: 'stop', 'hold on', 'wait a sec'."""
+        if not self.wake_words or not self.sleep_words:
+            return False
+        words = self._norm(text)
+        if not words or len(words) > 4:
+            return False
+        joined = " ".join(words)
+        for phrase in self.sleep_words:
+            if joined == phrase or joined.startswith(phrase + " ") or joined.endswith(" " + phrase):
+                return True
+        return False
+
     def engage(self, reason: str = "") -> None:
         if not self.engaged:
             self.engaged = True
@@ -199,6 +219,11 @@ class VoiceLoop:
     def on_user_text(self, text: str) -> None:
         """Handle a finished user utterance (also used by --text-only)."""
         if self.wake_words:
+            if self.engaged and self.is_sleep_command(text):
+                self.on_event("you", text)
+                self.speaker.interrupt()
+                self.disengage("sleep word")
+                return
             span = self.find_wake_word(text)
             if not self.engaged:
                 if span is None:
@@ -460,6 +485,9 @@ def main(argv=None) -> int:
                    help="Seconds of silence after the character last spoke before it goes dormant (default 60)")
     p.add_argument("--start-dormant", action="store_true",
                    help="In wake mode, start dormant instead of engaged (kiosk: wait to be called by name)")
+    p.add_argument("--sleep-word", default=None,
+                   help='Comma-separated phrases that put the character to sleep at once (default: "stop, wait, '
+                        'hold on, hang on, pause, quiet, go to sleep, enough, goodbye, bye" and a few more)')
     p.add_argument("--camera", default=None,
                    help='Turn on vision: camera name fragment ("c920") or index. Off unless given.')
     p.add_argument("--no-vision", action="store_true", help="Force vision off even if a profile or face enables it")
@@ -565,8 +593,11 @@ def main(argv=None) -> int:
             print(f"[error] vision unavailable: {e}")
             return 1
 
+    sleep_words = ([w for w in args.sleep_word.split(",")] if args.sleep_word
+                   else (m.sleep_words if m.sleep_words else None))
     loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in, wake_words=wake_words,
-                     idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant)
+                     idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
+                     sleep_words=sleep_words)
     loop.vision = watcher
     print(f"[log] this session is being written to {log_path}")
     if wake_words:
