@@ -74,7 +74,12 @@ Tested with: a Logitech C920 webcam, a Samson Go Mic (USB condenser), a Jabra Sp
 **Placement.** Camera at the visitors' eye level, wide enough to see a small group and what
 they hold up; it only needs to see people, not the projection. Keep the projected face out
 of the camera's view or it may describe itself. Mic within about a metre of where people
-stand; a USB condenser or a small shotgun mic beats a laptop mic. Speaker volume moderate:
+stand; a USB condenser or a small shotgun mic beats a laptop mic. A cardioid mic (the Go Mic
+in its cardioid setting) rejects sound from directly behind it, so put the speaker on the
+mic's back side, a metre or more away, facing the visitors past the mic. A foam windscreen or
+a small baffle behind the capsule helps outdoors but does not replace that placement. A
+non-USB mic needs a class-compliant USB audio interface (XLR: Scarlett Solo or Behringer UM2,
+with phantom power for condensers; 3.5 mm plug-in-power mics: an adapter that supplies it). Speaker volume moderate:
 loud speakers make the mic hear the character, which defeats barge-in and can trigger
 false wake-ups.
 
