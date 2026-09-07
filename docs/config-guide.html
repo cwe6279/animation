@@ -340,6 +340,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
     <tr><td><code>fps</code> in face.json, <code>TALKER_FPS</code></td><td>Render rate. 30 halves the work on a Pi; lip sync timing comes from the audio clock, not the frame rate.</td></tr>
     <tr><td><code>--sync-offset</code></td><td>Shift the whole face against the audio in seconds. Negative moves the face earlier. Tune in 0.02 steps with the debug overlay on.</td></tr>
     <tr><td><code>--lead</code></td><td>How far mouth shapes lead their sound, default 0.04 s, to offset the easing.</td></tr>
+    <tr><td>Adaptive frame rate, <code>--fixed-fps</code> to pin</td><td>On by default: when frames run over budget the target steps down 60, 45, 30, 20, 15 and steps back up after a few calm seconds. Lip sync is unaffected. The debug overlay shows target and per-frame work.</td></tr>
     <tr><td><code>--no-audio</code></td><td>Render without a sound device, for a headless check.</td></tr>
   </table></div>
 </section>

@@ -325,6 +325,8 @@ def main(argv=None) -> int:
                    help="Projection mode: fullscreen, face scaled to the display, no overlay or cursor (F toggles)")
     p.add_argument("--sync-offset", type=float, default=0.0)
     p.add_argument("--no-audio", action="store_true", help="No sound device (implies --text-only)")
+    p.add_argument("--fixed-fps", action="store_true",
+                   help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     args = p.parse_args(argv)
     if args.profile == "pi":
         apply_pi_profile(args)
@@ -368,7 +370,7 @@ def main(argv=None) -> int:
         chat = OpenAICompatChat.openai(model=args.model, character=character)
     print(f"[voice] brain: {args.llm} {chat.model}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
-                    fullscreen=args.fullscreen)
+                    fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps)
 
     stt = None
     if not text_only:

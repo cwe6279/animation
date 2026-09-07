@@ -26,6 +26,7 @@ import pygame
 
 from audio_engine import BaseAudioEngine, NullAudioEngine
 from face_asset_loader import AssetFaceRenderer, FaceAssetLoader, LoadedFaceAssets, default_manifest
+from frame_governor import FrameGovernor
 from phoneme_scheduler import Emotion, ScheduleReader, Viseme, parse_emotion
 from speech_pipeline import SpeechPipeline
 from tts_backends import TTSBackend, make_backend
@@ -134,7 +135,8 @@ class TalkerApp:
     def __init__(self, assets: LoadedFaceAssets, audio: BaseAudioEngine,
                  backend: Optional[TTSBackend] = None, debug: bool = False,
                  default_emotion: Optional[str] = None, auto_exit: bool = False,
-                 lead_seconds: float = 0.04, show_hud: bool = True, fullscreen: bool = False):
+                 lead_seconds: float = 0.04, show_hud: bool = True, fullscreen: bool = False,
+                 adaptive_fps: bool = True):
         self.debug = debug
         self.show_hud = show_hud and not fullscreen
         self.fullscreen = fullscreen
@@ -147,6 +149,7 @@ class TalkerApp:
         m = assets.manifest
         self._w, self._h = m.canvas_w, m.canvas_h
         self._fps = max(1, int(os.environ.get("TALKER_FPS", m.fps)))   # TALKER_FPS overrides face.json
+        self.governor = FrameGovernor(self._fps, enabled=adaptive_fps)
         self.renderer = AssetFaceRenderer(assets)
 
         os.environ.setdefault("SDL_VIDEO_CENTERED", "1")
@@ -263,6 +266,7 @@ class TalkerApp:
                 if self._auto_exit_at is not None and now >= self._auto_exit_at:
                     break
 
+                t_work = time.perf_counter()
                 rms, t = self.audio.get_state()
                 if self._amplitude_mode or self._mic_mode:
                     viseme, emotion = amp_to_viseme(rms), Emotion.NEUTRAL
@@ -281,7 +285,8 @@ class TalkerApp:
                         self.screen.blit(s, (10, 10 + i * 22))
                     self.textbox.draw(self.screen, dt)
                 pygame.display.flip()
-                self.clock.tick(self._fps)
+                fps = self.governor.record(time.perf_counter() - t_work, dt)
+                self.clock.tick(fps)
                 if t > 600:      # keep memory flat in long sessions
                     self.schedule.trim_before(t - 60)
         finally:
@@ -325,7 +330,8 @@ class TalkerApp:
             f"Open:    {r._open:.2f}",
             f"Width:   {r._width_t:.2f}",
             f"Round:   {r._rounded_blend:.2f}",
-            f"FPS:     {self.clock.get_fps():.0f}",
+            f"FPS:     {self.clock.get_fps():.0f} / {self.governor.fps} target",
+            f"Frame:   {self.governor.last_avg * 1000:.1f} ms work",
             f"Queued:  {self.audio.queued_seconds():.2f}s",
         ]
         if p is not None and p.stats.get("time_to_first_audio_ms") is not None:
@@ -391,6 +397,8 @@ def main(argv=None) -> int:
     parser.add_argument("--lead", type=float, default=0.04,
                         help="Seconds mouth shapes lead their sound to offset easing lag")
     parser.add_argument("--no-audio", action="store_true", help="Render without a sound device")
+    parser.add_argument("--fixed-fps", action="store_true",
+                        help="Disable the adaptive frame rate (by default the face steps down to 45/30/20/15 fps under load)")
     parser.add_argument("--output-device", default=None,
                         help='Output device: name fragment ("jabra") or index (see voice_loop.py --list-devices)')
     args = parser.parse_args(argv)
@@ -425,7 +433,7 @@ def main(argv=None) -> int:
     audio = build_audio(args.no_audio, args.sync_offset, args.output_device)
     app = TalkerApp(assets, audio, backend, debug=args.debug, default_emotion=args.emotion,
                     auto_exit=args.auto_exit, lead_seconds=args.lead, show_hud=not args.no_hud,
-                    fullscreen=args.fullscreen)
+                    fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps)
 
     if args.text:
         app.speak(args.text)

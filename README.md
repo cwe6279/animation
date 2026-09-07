@@ -196,6 +196,9 @@ first audio). Options:
 - `--mic-test` — print levels and transcripts only, to check a mic before going live
 - `--tts elevenlabs --voice <id>` — ElevenLabs voice (needs `ELEVENLABS_API_KEY`)
 - `--tts-model eleven_flash_v2_5` — faster ElevenLabs model (~0.5 s quicker than the default v3; tags stripped)
+- `--fixed-fps` — pin the frame rate. By default a frame governor steps the face down to 45/30/20/15 fps
+  when frames run over budget (a busy Pi) and back up once there is headroom; lip sync is unaffected
+  because timing comes from the audio clock. The debug overlay shows the current target.
 - `--stt elevenlabs` — cloud speech-to-text (ElevenLabs Scribe realtime). Server-side endpointing,
   committed transcript ~0.5 s after you stop, zero local CPU: the choice for a Raspberry Pi.
 - `--stt vosk` — light local recognizer (`--vosk-model lgraph|large` for better accuracy)
