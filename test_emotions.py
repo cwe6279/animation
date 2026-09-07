@@ -10,7 +10,7 @@ import subprocess
 import sys
 import os
 
-FACE = "green_cat"
+FACE = "cat"
 PYTHON = sys.executable
 
 # Each entry: (description, text with inline emotion tags)

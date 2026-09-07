@@ -1,7 +1,7 @@
 """
 check_face.py — validate a face folder against faces/ART_SPEC.md.
 
-    python check_face.py faces/green_cat
+    python check_face.py faces/cat
     python check_face.py path/to/new_face --json      # machine-readable, for an asset-generation loop
 
 Checks the deterministic half of "does this face have the assets it needs":

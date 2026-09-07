@@ -188,10 +188,10 @@
   <h2>Starting it</h2>
   <p>Activate the virtualenv first (<code>source .venv/bin/activate</code>). The conversation loop is <code>voice_loop.py</code>; <code>talker.py</code> only speaks text you give it.</p>
 <pre><code># Desktop: local Whisper, Claude, ElevenLabs v3, the cat's own voice and persona
-python voice_loop.py --face green_cat --mic-device gomic --output-device jabra --debug
+python voice_loop.py --face cat --mic-device gomic --output-device jabra --debug
 
 # Raspberry Pi: everything heavy in the cloud, fullscreen, 30 fps
-python voice_loop.py --face green_cat --profile pi --mic-device gomic --output-device jabra
+python voice_loop.py --face cat --profile pi --mic-device gomic --output-device jabra
 
 # No mic: type in the window, replies still go through the brain
 python voice_loop.py --face eve --text-only
@@ -219,7 +219,7 @@ python talker.py --face skull --text "[whispers] Who dares enter?"</code></pre>
       <div class="meta">Voice, persona: not set yet</div>
     </div>
     <div class="face">
-      <div class="name" style="color: var(--glow-cat)"><span class="dot"></span><span style="color: var(--ink)">green_cat</span></div>
+      <div class="name" style="color: var(--glow-cat)"><span class="dot"></span><span style="color: var(--ink)">cat</span></div>
       <div class="meta">Her own eye art unwrapped into live parts: the slit pupils move and dilate. Six mouth states.</div>
       <div class="meta">ElevenLabs voice <b>sssn4wp3AspuK2kvy3Ym</b>, edge fallback Aria</div>
       <div class="meta">Persona: sly Halloween cat, playful, likes to tease</div>
