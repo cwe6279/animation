@@ -1,5 +1,5 @@
 """
-talker.py — Phoneme-synced animated face
+speak.py — Phoneme-synced animated face
 ========================================
 Input:   --text "..."  |  --file audio.wav  |  --mic  |  type in the window
 Output:  pygame window (live display)
@@ -24,12 +24,12 @@ from typing import Callable, Iterable, Optional
 
 import pygame
 
-from audio_engine import BaseAudioEngine, NullAudioEngine
-from face_asset_loader import AssetFaceRenderer, FaceAssetLoader, LoadedFaceAssets, default_manifest
-from frame_governor import FrameGovernor
-from phoneme_scheduler import Emotion, ScheduleReader, Viseme, parse_emotion
-from speech_pipeline import SpeechPipeline
-from tts_backends import TTSBackend, make_backend
+from .audio_engine import BaseAudioEngine, NullAudioEngine
+from .face_asset_loader import AssetFaceRenderer, FaceAssetLoader, LoadedFaceAssets, default_manifest
+from .frame_governor import FrameGovernor
+from .phoneme_scheduler import Emotion, ScheduleReader, Viseme, parse_emotion
+from .speech_pipeline import SpeechPipeline
+from .tts_backends import TTSBackend, make_backend
 
 
 # ═══════════════════════════════════════════════════════
@@ -357,8 +357,8 @@ class TalkerApp:
 def resolve_face_dir(face: str, face_dir: Optional[str]) -> Optional[str]:
     if face_dir:
         return face_dir
-    here = os.path.dirname(os.path.abspath(__file__))
-    candidate = os.path.join(here, "faces", face)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidate = os.path.join(root, "faces", face)
     return candidate if os.path.isfile(os.path.join(candidate, "face.json")) else None
 
 
@@ -366,7 +366,7 @@ def build_audio(no_audio: bool, sync_offset: float, output_device: Optional[int]
     if no_audio:
         return NullAudioEngine(sync_offset=sync_offset)
     try:
-        from audio_engine import AudioEngine
+        from .audio_engine import AudioEngine
         return AudioEngine(sync_offset=sync_offset, output_device=output_device)
     except Exception as e:
         print(f"[audio] no output device ({e}); running silent")
@@ -374,9 +374,9 @@ def build_audio(no_audio: bool, sync_offset: float, output_device: Optional[int]
 
 
 def main(argv=None) -> int:
-    from env_config import load_dotenv
+    from .env_config import load_dotenv
     load_dotenv()
-    from session_log import start_session_log
+    from .session_log import start_session_log
     log_path = start_session_log("talker")
     parser = argparse.ArgumentParser(description="Talker — phoneme-synced animated face")
     parser.add_argument("--text", "-t", type=str, help="Speak this text (supports [emotion] tags)")

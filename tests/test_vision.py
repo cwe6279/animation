@@ -1,7 +1,7 @@
 import sys, os, json, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
-from vision import SceneWatcher, SceneNote, resolve_camera
+from talker.vision import SceneWatcher, SceneNote, resolve_camera
 
 
 class FakeSource:
@@ -78,7 +78,7 @@ def test_resolve_camera_accepts_index():
 
 def test_chat_inserts_scene_context_only_when_pushed():
     pytest.importorskip("anthropic")
-    from llm_integration.claude_chat import ClaudeChat
+    from talker.brains.claude_chat import ClaudeChat
     from tests.test_claude_chat import FakeClient
     client = FakeClient(["ok"])
     chat = ClaudeChat(client=client)
@@ -133,8 +133,8 @@ def test_request_wakes_watcher_and_wait_for_returns(tmp_path):
 
 
 def test_loop_requests_burst_when_visitor_starts_talking():
-    from voice_loop import VoiceLoop
-    from stt_backends import STTBackend, Transcript
+    from talker.voice_loop import VoiceLoop
+    from talker.stt_backends import STTBackend, Transcript
 
     class STT(STTBackend):
         speech_active = False
@@ -165,7 +165,7 @@ def test_loop_requests_burst_when_visitor_starts_talking():
 
 
 def test_trivial_deltas_are_dropped():
-    from vision import _trivial_change
+    from talker.vision import _trivial_change
     assert _trivial_change("Person's hand position changed slightly; no significant new objects or arrivals.")
     assert _trivial_change("no change") and _trivial_change("No change.") and _trivial_change("")
     assert not _trivial_change("A child came in holding a red balloon.")

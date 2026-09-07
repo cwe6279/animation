@@ -1,5 +1,5 @@
 """
-env_config.py — load secrets from a .env file next to the code.
+talker/env_config.py — load secrets from a .env file next to the code.
 
     ELEVENLABS_API_KEY=...      (aliases accepted: ELEVEN_LABS_API, ELEVEN_LABS_API_KEY, ELEVEN_API_KEY)
     ANTHROPIC_API_KEY=...
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root
 
 ALIASES = {
     "ELEVENLABS_API_KEY": ["ELEVEN_LABS_API", "ELEVEN_LABS_API_KEY", "ELEVEN_API_KEY", "ELEVENLABS_KEY"],

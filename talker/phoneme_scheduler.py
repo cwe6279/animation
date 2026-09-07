@@ -1,5 +1,5 @@
 """
-phoneme_scheduler.py
+talker/phoneme_scheduler.py
 ====================
 Pure, incremental text -> phoneme -> viseme scheduling.
 

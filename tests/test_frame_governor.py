@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from frame_governor import FrameGovernor
+from talker.frame_governor import FrameGovernor
 
 
 def test_steps_down_under_load_and_recovers():

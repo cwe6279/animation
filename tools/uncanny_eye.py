@@ -1,7 +1,7 @@
 """
 uncanny_eye.py — render a Talker eye image from an Adafruit "Uncanny Eyes" design.
 
-    python faces/tools/uncanny_eye.py <uncanny convert/<eye> folder> <out_dir> [--size 400] [--pupil 0.22]
+    python tools/uncanny_eye.py <uncanny convert/<eye> folder> <out_dir> [--size 400] [--pupil 0.22]
 
 Reads the design's source parts (iris.png polar strip, pupilMap.png distance
 field, lid-upper.png / lid-lower.png masks, sclera.png) and composes one open
@@ -14,6 +14,11 @@ Uncanny Eyes: https://github.com/adafruit/uncanny_eyes (MIT, Adafruit / Phillip 
 """
 
 from __future__ import annotations
+
+import os as _os, sys as _sys
+ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if ROOT not in _sys.path:
+    _sys.path.insert(0, ROOT)
 
 import argparse
 import math

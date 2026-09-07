@@ -1,5 +1,5 @@
 """
-speech_pipeline.py
+talker/speech_pipeline.py
 ==================
 Glues a streaming TTS backend to the audio timeline and the viseme schedule.
 
@@ -34,12 +34,12 @@ import time
 import traceback
 from typing import Callable, Iterable, List, Optional, Tuple
 
-from audio_engine import BaseAudioEngine
-from phoneme_scheduler import (
+from .audio_engine import BaseAudioEngine
+from .phoneme_scheduler import (
     Emotion, EmotionEvent, ScheduleReader, SentenceSplitter,
     parse_tags, word_to_viseme_events, warm_up_g2p,
 )
-from tts_backends import (
+from .tts_backends import (
     AudioChunk, END_OF_TEXT, SentenceDone, TTSBackend, WordBoundary,
 )
 

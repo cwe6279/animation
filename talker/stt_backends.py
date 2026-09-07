@@ -1,5 +1,5 @@
 """
-stt_backends.py
+talker/stt_backends.py
 ===============
 Streaming speech-to-text for the voice round trip.
 

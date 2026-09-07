@@ -1,8 +1,8 @@
 """
-check_face.py — validate a face folder against faces/ART_SPEC.md.
+tools/check_face.py — validate a face folder against docs/ART_SPEC.md.
 
-    python check_face.py faces/cat
-    python check_face.py path/to/new_face --json      # machine-readable, for an asset-generation loop
+    python tools/check_face.py faces/cat
+    python tools/check_face.py path/to/new_face --json      # machine-readable, for an asset-generation loop
 
 Checks the deterministic half of "does this face have the assets it needs":
 files present, canvas size and transparency, opaque bounds sensible, eyes
@@ -12,6 +12,11 @@ only extra dependency.
 """
 
 from __future__ import annotations
+
+import os as _os, sys as _sys
+ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if ROOT not in _sys.path:
+    _sys.path.insert(0, ROOT)
 
 import argparse
 import json
@@ -179,7 +184,7 @@ def check_face(face_dir: str) -> Report:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Validate a face folder against faces/ART_SPEC.md")
+    p = argparse.ArgumentParser(description="Validate a face folder against docs/ART_SPEC.md")
     p.add_argument("face_dir")
     p.add_argument("--json", action="store_true", help="print a JSON report (for automation)")
     args = p.parse_args()

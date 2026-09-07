@@ -1,5 +1,5 @@
 """
-frame_governor.py — adaptive frame rate for weak hardware (a Raspberry Pi).
+talker/frame_governor.py — adaptive frame rate for weak hardware (a Raspberry Pi).
 
 Measures how long each frame's work takes (update + draw + flip). If frames
 keep running over the budget for the current target rate, the target steps

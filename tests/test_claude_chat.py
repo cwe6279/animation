@@ -2,7 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 pytest.importorskip("anthropic")
-from llm_integration.claude_chat import ClaudeChat
+from talker.brains.claude_chat import ClaudeChat
 
 
 class FakeStream:
@@ -62,7 +62,7 @@ def test_failed_turn_leaves_no_dangling_user_message():
 
 def test_openai_compat_chat_streams_and_keeps_history():
     pytest.importorskip("openai")
-    from llm_integration.openai_compat_chat import OpenAICompatChat
+    from talker.brains.openai_compat_chat import OpenAICompatChat
     from types import SimpleNamespace as NS
 
     class FakeClient:
@@ -86,7 +86,7 @@ def test_openai_compat_chat_streams_and_keeps_history():
 
 
 def test_system_prompt_starts_at_the_heading_not_the_notes():
-    from llm_integration.claude_chat import load_system_prompt
+    from talker.brains.claude_chat import load_system_prompt
     text = load_system_prompt()
     assert text.startswith("You are a character speaking out loud")
     assert "heading automatically" not in text

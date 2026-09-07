@@ -16,10 +16,7 @@ from typing import Iterator, List, Optional
 
 from openai import OpenAI
 
-try:
-    from .claude_chat import VISION_RULES, VOICE_RULES, WAKE_RULES, load_system_prompt
-except ImportError:
-    from claude_chat import VISION_RULES, VOICE_RULES, WAKE_RULES, load_system_prompt
+from .claude_chat import VISION_RULES, VOICE_RULES, WAKE_RULES, load_system_prompt
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 

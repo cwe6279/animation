@@ -1,8 +1,8 @@
 import sys, os, time, threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stt_backends import EnergyEndpointer, STTBackend, Transcript
-from voice_loop import VoiceLoop
+from talker.stt_backends import EnergyEndpointer, STTBackend, Transcript
+from talker.voice_loop import VoiceLoop
 import numpy as np
 
 
@@ -154,7 +154,7 @@ def test_energy_endpointer_detects_utterance():
 def test_talker_app_satisfies_speaker_interface():
     """VoiceLoop drives TalkerApp; make sure the app exposes what the loop calls."""
     import inspect
-    import talker
+    import talker.app as talker
     for name in ("speak_stream", "interrupt", "is_busy"):
         assert hasattr(talker.TalkerApp, name), name
     assert isinstance(inspect.getattr_static(talker.TalkerApp, "is_busy"), property)

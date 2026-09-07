@@ -70,7 +70,7 @@ driver with the same shape as the audio and vision pieces:
 - Memory across sessions (what it learned about the visitor).
 
 ## Asset pipeline (user templates -> generated, checked art)
-- `check_face.py` is the deterministic half: files, sizes, transparency,
+- `tools/check_face.py` is the deterministic half: files, sizes, transparency,
   alignment. Exit code and `--json` output are meant for automation.
 - **Textured mouth style**: `mouth_closed.png` + `mouth_inside.png` with an
   opening mask derived from the lip outline; continuous open/width/round
@@ -78,8 +78,8 @@ driver with the same shape as the audio and vision pieces:
   six-state flicker and cuts the art a generator must get consistent from
   six images to two. Later: mesh warp of one lip image from keypoints.
 - **Vision loop**: user uploads a template (a base image or reference);
-  an image model generates the missing parts per `faces/ART_SPEC.md`; a
-  vision model plus `check_face.py` judge consistency (same character,
+  an image model generates the missing parts per `docs/ART_SPEC.md`; a
+  vision model plus `tools/check_face.py` judge consistency (same character,
   same style, parts aligned); regenerate until the folder passes.
 
 ## Beyond Halloween
@@ -87,16 +87,16 @@ driver with the same shape as the audio and vision pieces:
   historical figures and mascots; persona files that carry facts the
   character must stick to; a "docent mode" prompt that answers questions
   about an exhibit and declines off-topic ones gracefully.
-- Art from image models via `faces/ART_SPEC.md` (the locked spec).
+- Art from image models via `docs/ART_SPEC.md` (the locked spec).
 
 ## Eyes (studied Adafruit Uncanny Eyes, Sept 2026)
-- DONE: `textured_eye.py` — saccade-and-hold motion, asymmetric blinks, lid
+- DONE: `talker/textured_eye.py` — saccade-and-hold motion, asymmetric blinks, lid
   tracking, emotion-driven pupil dilation, numpy compositor from iris strip +
   pupil map + lid masks (~1.7 ms/frame for two eyes). Goat and dragon use it
   (`"textured_eye"` in face.json). `EyeMotion.look_at(x, y)` exists for a
   camera or voice direction to drive.
 - Apply the motion model to image eyes too (EVE, cat) as whole-eye saccades.
-- DONE: `faces/tools/unwrap_eye.py` turns flat eye art into live parts; the
+- DONE: `tools/unwrap_eye.py` turns flat eye art into live parts; the
   cat's pupils now move and dilate.
 - Pupil size from a light sensor; look-at from a camera.
 - **Physical eyes on small round displays** (GC9A01 / OLED modules over SPI

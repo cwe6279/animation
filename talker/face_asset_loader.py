@@ -1,5 +1,5 @@
 """
-face_asset_loader.py
+talker/face_asset_loader.py
 ====================
 Loads artist-created face assets (PNG) from a face directory and renders them.
 
@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pygame
 
-from phoneme_scheduler import Emotion, VISEME_PROPS, Viseme
+from .phoneme_scheduler import Emotion, VISEME_PROPS, Viseme
 
 
 # ─────────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ class FaceManifest:
     draw_stem:  bool = False            # pumpkin-type faces
     stem_color: Tuple = (60, 120, 20)
 
-    # Live textured eyes (see textured_eye.py). When set, both eyes are composed
+    # Live textured eyes (see talker/textured_eye.py). When set, both eyes are composed
     # per frame from the parts in `dir` (relative to the face folder) instead of
     # eye_left/eye_right images; the left eye is the mirror of the right.
     #   {"dir": "eye", "size": 224, "lid_open": 0.55, "gaze_radius": 0.35,
@@ -428,7 +428,7 @@ class FaceAssetLoader:
 
         te = manifest.textured_eye
         if te.get("dir"):
-            from textured_eye import TexturedEyeAssets, TexturedEye
+            from .textured_eye import TexturedEyeAssets, TexturedEye
             folder = path_of(te["dir"])
             size = int(te.get("size", 224))
             lid_open = float(te.get("lid_open", 0.55))
@@ -558,7 +558,7 @@ class AssetFaceRenderer:
         # Live textured eyes: shared motion model (both eyes move together)
         self._eye_motion = None
         if assets.textured is not None:
-            from textured_eye import EyeMotion, EyeMotionConfig
+            from .textured_eye import EyeMotion, EyeMotionConfig
             te = m.textured_eye
             cfg = EyeMotionConfig()
             if "gaze_radius" in te:

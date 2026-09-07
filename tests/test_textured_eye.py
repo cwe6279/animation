@@ -2,8 +2,8 @@ import sys, os, math
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pytest
-from phoneme_scheduler import Emotion
-from textured_eye import EyeMotion, EyeMotionConfig, TexturedEye, TexturedEyeAssets
+from talker.phoneme_scheduler import Emotion
+from talker.textured_eye import EyeMotion, EyeMotionConfig, TexturedEye, TexturedEyeAssets
 
 GOAT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "faces", "goat", "eye")
 
@@ -93,7 +93,7 @@ def test_eye_lids_mask_hides_more_as_lids_close():
     _os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     import pygame
     pygame.display.init(); pygame.display.set_mode((1, 1), pygame.HIDDEN)
-    from face_asset_loader import AssetFaceRenderer, FaceAssetLoader, default_manifest
+    from talker.face_asset_loader import AssetFaceRenderer, FaceAssetLoader, default_manifest
     m = default_manifest("lids"); m.eye_lids = True
     r = AssetFaceRenderer(FaceAssetLoader().build(m))
     visible = []

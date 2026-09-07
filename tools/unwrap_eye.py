@@ -1,10 +1,10 @@
 """
 unwrap_eye.py — turn a flat eye picture into live textured-eye parts.
 
-    python faces/tools/unwrap_eye.py faces/cat/eye_right.png faces/cat/eye --size 256
+    python tools/unwrap_eye.py faces/cat/eye_right.png faces/cat/eye --size 256
 
 Takes one eye image (RGBA, the eye alone on a transparent background, pupil
-roughly in the middle) and writes the parts textured_eye.py animates:
+roughly in the middle) and writes the parts talker/textured_eye.py animates:
 
     iris.png        polar strip of the iris, angle across, distance down,
                     sampled outward from the pupil edge (reflections removed)
@@ -23,6 +23,11 @@ Right eye in, left eye is mirrored by the renderer.
 """
 
 from __future__ import annotations
+
+import os as _os, sys as _sys
+ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if ROOT not in _sys.path:
+    _sys.path.insert(0, ROOT)
 
 import argparse
 import json

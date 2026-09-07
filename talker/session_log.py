@@ -1,7 +1,7 @@
 """
-session_log.py — mirror everything printed to a per-session log file.
+talker/session_log.py — mirror everything printed to a per-session log file.
 
-    from session_log import start_session_log
+    from .session_log import start_session_log
     start_session_log("voice")          # -> logs/voice-20260907-181530.log
 
 Keeps the terminal output unchanged; the copy in logs/ (gitignored) lets a
@@ -15,7 +15,7 @@ import os
 import sys
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root
 LOG_DIR = os.path.join(HERE, "logs")
 
 

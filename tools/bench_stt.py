@@ -1,9 +1,9 @@
 """
-bench_stt.py — accuracy and speed of every speech-to-text backend on the same clips.
+tools/bench_stt.py — accuracy and speed of every speech-to-text backend on the same clips.
 
-    python bench_stt.py --synth                # edge-tts clips, clean + noisy (no mic needed)
-    python bench_stt.py recordings/            # your own clips from: voice_loop.py --mic-test --record recordings/
-    python bench_stt.py recordings/ --backends whisper:base.en,whisper:small.en,openai,elevenlabs
+    python tools/bench_stt.py --synth                # edge-tts clips, clean + noisy (no mic needed)
+    python tools/bench_stt.py recordings/            # your own clips from: voice_loop.py --mic-test --record recordings/
+    python tools/bench_stt.py recordings/ --backends whisper:base.en,whisper:small.en,openai,elevenlabs
 
 A recordings folder holds 16 kHz mono WAVs and a transcripts.txt with
 "<file>\\t<reference text>" lines (the mic test writes a draft; correct it).
@@ -11,6 +11,11 @@ Reports word error rate (lower is better) and seconds per clip.
 """
 
 from __future__ import annotations
+
+import os as _os, sys as _sys
+ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if ROOT not in _sys.path:
+    _sys.path.insert(0, ROOT)
 
 import argparse
 import asyncio
@@ -25,7 +30,7 @@ from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 
-from env_config import load_dotenv
+from talker.env_config import load_dotenv
 
 SENTENCES = [
     "What is the weather like on Mars today, and should I bring a jacket?",
@@ -41,7 +46,7 @@ VOICES = ["en-US-GuyNeural", "en-US-JennyNeural", "en-GB-RyanNeural"]
 # ─── clips ───────────────────────────────────────────────────────────
 def synth_pcm(text: str, voice: str) -> bytes:
     import edge_tts
-    from tts_backends import find_ffmpeg
+    from talker.tts_backends import find_ffmpeg
 
     async def run():
         mp3 = b""
@@ -115,7 +120,7 @@ def make_transcribers(specs: List[str]) -> Dict[str, Callable[[bytes], str]]:
         try:
             if name == "whisper":
                 from faster_whisper import WhisperModel
-                from stt_backends import CACHE_DIR
+                from talker.stt_backends import CACHE_DIR
                 size = opt or "base.en"
                 model = WhisperModel(size, device="cpu", compute_type="int8",
                                      download_root=os.path.join(CACHE_DIR, "whisper"))
@@ -126,7 +131,7 @@ def make_transcribers(specs: List[str]) -> Dict[str, Callable[[bytes], str]]:
                     return " ".join(x.text.strip() for x in segs)
                 out[f"whisper {size}"] = f
             elif name == "vosk":
-                from stt_backends import VoskSTT
+                from talker.stt_backends import VoskSTT
                 v = VoskSTT(model_path=opt or None)
 
                 def f(pcm, v=v):
@@ -141,7 +146,7 @@ def make_transcribers(specs: List[str]) -> Dict[str, Callable[[bytes], str]]:
                     return text.strip()
                 out[f"vosk {opt or 'small'}"] = f
             elif name == "openai":
-                from stt_backends import OpenAICompatSTT
+                from talker.stt_backends import OpenAICompatSTT
                 be = OpenAICompatSTT.openai(model=opt or None)
 
                 def f(pcm, be=be):

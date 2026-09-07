@@ -1,7 +1,7 @@
 # Talker Performance Tags — LLM System Prompt
 
 Use this prompt (or adapt it) when integrating an LLM to generate text for the
-Talker animated face. `llm_integration/claude_chat.py` loads everything below
+Talker animated face. `talker/brains/claude_chat.py` loads everything below
 the "## System Prompt" heading automatically.
 
 ---

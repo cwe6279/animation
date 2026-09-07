@@ -1,5 +1,5 @@
 """
-vision.py — a camera watcher that takes notes about the scene for the brain.
+talker/vision.py — a camera watcher that takes notes about the scene for the brain.
 
     python voice_loop.py --list-cameras
     python voice_loop.py --face eve --camera c920            # or an index: --camera 0
@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root
 
 VISION_PROMPT = """You are the eyes of an animated character that talks with visitors (a kids' event, a museum, a library). You get {n} frames taken about 0.3 s apart from its camera.
 
@@ -186,7 +186,7 @@ def describe_with_claude(frames: List[bytes], previous: str = "", model: str = "
     """Send JPEG frames (+ the previous one-line state) to Claude; returns the parsed JSON note."""
     import anthropic
     if client is None:
-        from llm_integration.claude_chat import make_client
+        from .brains.claude_chat import make_client
         client = make_client()
     content = []
     for jpg in frames:

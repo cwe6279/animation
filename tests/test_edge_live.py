@@ -2,7 +2,7 @@
 import sys, os, socket, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
-from tts_backends import find_ffmpeg
+from talker.tts_backends import find_ffmpeg
 
 
 def _online():
@@ -17,10 +17,10 @@ pytestmark = pytest.mark.skipif(not (_online() and find_ffmpeg()), reason="needs
 
 
 def test_edge_backend_streams_audio_and_words():
-    from audio_engine import NullAudioEngine
-    from phoneme_scheduler import ScheduleReader
-    from speech_pipeline import SpeechPipeline
-    from tts_backends import EdgeTTSBackend
+    from talker.audio_engine import NullAudioEngine
+    from talker.phoneme_scheduler import ScheduleReader
+    from talker.speech_pipeline import SpeechPipeline
+    from talker.tts_backends import EdgeTTSBackend
     eng = NullAudioEngine()
     sched = ScheduleReader()
     p = SpeechPipeline(eng, sched, EdgeTTSBackend())

@@ -1,5 +1,5 @@
 """
-textured_eye.py
+talker/textured_eye.py
 ===============
 Live eyes composed per frame from texture parts, after Adafruit's Uncanny
 Eyes: the pupil and iris move inside a fixed outline, the pupil dilates, the
@@ -36,7 +36,7 @@ try:
 except ImportError:      # the compositor is testable without a display
     pygame = None
 
-from phoneme_scheduler import Emotion
+from .phoneme_scheduler import Emotion
 
 
 # ─────────────────────────────────────────────────────

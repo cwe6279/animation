@@ -1,6 +1,6 @@
 import sys, os, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from voice_loop import VoiceLoop
+from talker.voice_loop import VoiceLoop
 from tests.test_voice_loop import ScriptedSTT, FakeSpeaker, wait
 
 

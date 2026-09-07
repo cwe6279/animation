@@ -2,10 +2,10 @@ import sys, os, asyncio, time, threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from audio_engine import NullAudioEngine
-from phoneme_scheduler import Emotion, ScheduleReader, Viseme
-from speech_pipeline import SpeechPipeline
-from tts_backends import (AudioChunk, END_OF_TEXT, ElevenLabsBackend, SentenceDone,
+from talker.audio_engine import NullAudioEngine
+from talker.phoneme_scheduler import Emotion, ScheduleReader, Viseme
+from talker.speech_pipeline import SpeechPipeline
+from talker.tts_backends import (AudioChunk, END_OF_TEXT, ElevenLabsBackend, SentenceDone,
                           TTSBackend, WordBoundary)
 
 
@@ -162,7 +162,7 @@ def test_elevenlabs_alignment_to_words():
 
 
 def test_elevenlabs_wordizer_spans_chunks_and_skips_tags():
-    from tts_backends import _AlignmentWordizer
+    from talker.tts_backends import _AlignmentWordizer
     w = _AlignmentWordizer(base_t=0.0)
     # "[sigh] hel" | "lo there" split across two HTTP chunks; tag straddles nothing here,
     # but the word "hello" does.

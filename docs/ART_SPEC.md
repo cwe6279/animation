@@ -3,7 +3,7 @@
 Give this file, unchanged, to an image-generation model or an artist when you
 want art for a new Talker face. Every rule below is required by the renderer;
 do not relax them. The rendering code is the source of truth
-(`face_asset_loader.py`); this document restates its expectations.
+(`talker/face_asset_loader.py`); this document restates its expectations.
 
 ## Deliverable
 
@@ -73,13 +73,13 @@ them and change only the last sentence.
 > mouth tight round / mouth wide flat with teeth / mouth relaxed half open],
 > placed exactly where it sits on the face, everything else transparent.
 
-After generation, run `python check_face.py faces/<name>` to validate the
+After generation, run `python tools/check_face.py faces/<name>` to validate the
 folder (sizes, transparency, alignment of the mouth states), then set
 `eye_left.cx/cy`, `eye_right.cx/cy` and `mouth.anchor_cx/cy` in `face.json`
 to the centres of those parts and run:
 
 ```bash
-python talker.py --face <name> --debug --text "Testing one two three"
+python speak.py --face <name> --debug --text "Testing one two three"
 ```
 
 ## Fewer images: the textured mouth (planned)

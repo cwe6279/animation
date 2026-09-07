@@ -16,13 +16,13 @@ def _online():
 def _vosk_ready():
     try:
         import vosk  # noqa
-        from stt_backends import VOSK_MODEL_NAME, CACHE_DIR
+        from talker.stt_backends import VOSK_MODEL_NAME, CACHE_DIR
         return os.path.isdir(os.path.join(CACHE_DIR, VOSK_MODEL_NAME))
     except ImportError:
         return False
 
 
-from tts_backends import find_ffmpeg
+from talker.tts_backends import find_ffmpeg
 pytestmark = pytest.mark.skipif(not (_online() and find_ffmpeg() and _vosk_ready()),
                                 reason="needs internet + ffmpeg + vosk model")
 
@@ -41,8 +41,8 @@ def synth_pcm16k(text: str) -> bytes:
 
 
 def test_vosk_transcribes_synth_speech():
-    from stt_backends import VoskSTT
-    from voice_loop import VoiceLoop
+    from talker.stt_backends import VoskSTT
+    from talker.voice_loop import VoiceLoop
     stt = VoskSTT()
     pcm = synth_pcm16k("What is the weather like on Mars today?") + bytes(16000 * 2)  # + 1 s silence
     heard = []

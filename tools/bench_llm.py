@@ -1,10 +1,10 @@
 """
-bench_llm.py — how well each brain follows the performance-tag spec, plus speed.
+tools/bench_llm.py — how well each brain follows the performance-tag spec, plus speed.
 
-    python bench_llm.py                       # all configured brains
-    python bench_llm.py --llms "claude:claude-haiku-4-5,openai:gpt-4o-mini"
+    python tools/bench_llm.py                       # all configured brains
+    python tools/bench_llm.py --llms "claude:claude-haiku-4-5,openai:gpt-4o-mini"
 
-Scores per reply (against llm_integration/system_prompt.md):
+Scores per reply (against talker/brains/system_prompt.md):
   known tags    share of tags that are in the allowed vocabulary / face map
   leading       share of tags placed before words (not trailing a sentence)
   tags/sent     tags per sentence (the prompt asks for most sentences to have none)
@@ -14,6 +14,11 @@ Scores per reply (against llm_integration/system_prompt.md):
 
 from __future__ import annotations
 
+import os as _os, sys as _sys
+ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if ROOT not in _sys.path:
+    _sys.path.insert(0, ROOT)
+
 import argparse
 import re
 import statistics
@@ -21,8 +26,8 @@ import sys
 import time
 from typing import Dict, List
 
-from env_config import load_dotenv
-from phoneme_scheduler import _TAG_RE, tag_to_emotion
+from talker.env_config import load_dotenv
+from talker.phoneme_scheduler import _TAG_RE, tag_to_emotion
 
 PROMPTS = [
     "Who goes there?",
@@ -77,9 +82,9 @@ def score(reply: str) -> Dict[str, float]:
 def make_chat(spec: str):
     kind, _, model = spec.partition(":")
     if kind == "claude":
-        from llm_integration.claude_chat import ClaudeChat
+        from talker.brains.claude_chat import ClaudeChat
         return ClaudeChat(model=model or "claude-opus-5", character=CHAR, thinking=False), spec
-    from llm_integration.openai_compat_chat import OpenAICompatChat
+    from talker.brains.openai_compat_chat import OpenAICompatChat
     chat = OpenAICompatChat.openai(model=model or None, character=CHAR)
     return chat, f"{kind}:{chat.model}"
 

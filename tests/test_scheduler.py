@@ -2,7 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from phoneme_scheduler import (
+from talker.phoneme_scheduler import (
     Emotion, EmotionEvent, ScheduleReader, SentenceSplitter, Viseme, VisemeEvent,
     arpabet_to_visemes, grapheme_to_arpabet_fallback, parse_emotion_tags,
     split_sentences, word_to_viseme_events, estimate_word_times,
@@ -22,7 +22,7 @@ def test_parse_emotion_tags_unknown_and_stacked():
 
 
 def test_parse_tags_voice_text_and_vocabulary():
-    from phoneme_scheduler import parse_tags, tag_to_emotion
+    from talker.phoneme_scheduler import parse_tags, tag_to_emotion
     clean, voiced, tags = parse_tags("[excited]Oh wow! [light chuckle] It was cute. [British accent] Right?")
     assert clean == "Oh wow! It was cute. Right?"
     assert voiced == "[excited] Oh wow! [light chuckle] It was cute. [British accent] Right?"
