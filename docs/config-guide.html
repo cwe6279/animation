@@ -242,7 +242,7 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
 
 <section id="faces">
   <div class="eyebrow">Character library <span class="file">faces/&lt;name&gt;/face.json</span></div>
-  <h2>Seven faces so far, each with its own voice and persona</h2>
+  <h2>Eight characters so far, each with its own voice and persona</h2>
   <p>A face is a folder. The manifest carries art positions, glow colour, idle behaviour, the default voice per backend, and the persona line sent to the brain. Command line flags override any of them for one run. The current five came from a Halloween build; a face can just as well be a historical figure, a school mascot, or an exhibit's narrator.</p>
   <div class="faces">
     <div class="face">
@@ -281,6 +281,11 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
       <div class="meta">Live textured slit-pupil eyes from Uncanny Eyes; six-tooth procedural jaw.</div>
       <div class="meta">Persona: ancient gentle dragon who guards a library. Voice id still needed.</div>
     </div>
+    <div class="face">
+      <div class="name" style="color: #9A9AA8"><span class="dot"></span><span style="color: var(--ink)">brain</span></div>
+      <div class="meta">Voice only: <b>draw_eyes false</b>, mouth opacity 0, black screen. Proof that the loop needs no face.</div>
+      <div class="meta">Persona: Anne Uhmellmahaye, a brain in a jar who thinks she is your assistant. Own ElevenLabs voice.</div>
+    </div>
   </div>
   <p>Your own flat eye art can be made live too: <code>python tools/unwrap_eye.py faces/&lt;name&gt;/eye_right.png faces/&lt;name&gt;/eye</code> finds the pupil, unwraps the iris, cuts a pupil map in the pupil's real shape, derives lids from the outline and keeps reflections as an overlay, then prints the block to paste into face.json. Any design from the Uncanny Eyes project works as-is: copy its <code>convert/&lt;eye&gt;</code> parts into <code>faces/&lt;name&gt;/eye/</code> and add a <code>textured_eye</code> block to face.json. The pupil and iris then move on saccades, dilate with emotion (surprise wide, anger a hairline), and the upper lid follows a downward gaze; our squish and tilt still apply on top.</p>
   <div class="tweak"><strong>Most-tweaked fields:</strong> <code>character.md</code> (personality), <code>voices.elevenlabs</code> (voice id), <code>glow_color</code>, <code>gaze.amount</code>, and the eye and mouth <code>cx</code>/<code>cy</code> positions.</div>
@@ -306,6 +311,7 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     <tr><td><code>blink</code>, <code>blink_interval</code>, <code>blink_speed</code></td><td>Blink on/off, random gap in seconds, snappiness. Emotions scale the gap: surprise blinks rarely, sad often.</td><td>true, [2.5, 5.5], 9</td></tr>
     <tr><td><code>gaze</code></td><td>Idle glances: <code>amount</code> px, <code>interval</code> s, <code>speed</code>, and <code>while_speaking</code> 0 to 1 to damp movement while talking. Omit for none.</td><td>amount 12 to 22</td></tr>
     <tr><td><code>eye_speech_pulse</code></td><td>Eyes grow by this fraction when the mouth is fully open. For faces without a mouth.</td><td>0 to 0.15</td></tr>
+    <tr><td><code>draw_eyes</code></td><td><code>false</code> draws no eyes at all; with mouth opacity 0 the character is voice only.</td><td>true / false</td></tr>
     <tr><td><code>eye_lids</code></td><td>For image eyes without pupils (EVE): emotions are drawn as lid cuts, a happy crescent, an angry slant, a sad droop, and blinks close the lids rather than squashing the eye.</td><td>true / false</td></tr>
     <tr><td><code>textured_eye</code></td><td>Live eyes from parts in <code>dir</code>: <code>size</code> render pixels, <code>gaze_radius</code> how far the pupil wanders, <code>pupil</code> [min, base, max] size, <code>lid_tracking</code> how much the upper lid follows a downward gaze. Replaces <code>gaze</code>/blink settings for that face.</td><td>size 224, radius 0.35</td></tr>
     <tr><td><code>mouth</code></td><td><code>anchor_cx</code>/<code>anchor_cy</code>, <code>min_w</code>/<code>max_w</code>, <code>style</code> toothed or rounded, <code>n_teeth</code>, <code>color</code>, <code>scale</code>/<code>offset_x</code>/<code>offset_y</code> for PNG mouths, <code>opacity</code>. Opacity 0 removes the mouth entirely.</td><td>style rounded</td></tr>

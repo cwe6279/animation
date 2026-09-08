@@ -1,0 +1,54 @@
+{
+  "name": "brain",
+  "description": "Anne Uhmellmahaye: a talking brain in a jar, voice only, no face.",
+  "canvas_w": 800,
+  "canvas_h": 800,
+  "fps": 30,
+  "bg_color": [
+    0,
+    0,
+    0
+  ],
+  "glow_color": [
+    0,
+    0,
+    0
+  ],
+  "glow_intensity": 0.0,
+  "draw_eyes": false,
+  "blink": false,
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "anchor_cx": 400,
+    "anchor_cy": 500,
+    "max_w": 1,
+    "min_w": 1,
+    "opacity": 0.0,
+    "color": [
+      0,
+      0,
+      0
+    ],
+    "dark_color": [
+      0,
+      0,
+      0
+    ],
+    "style": "rounded",
+    "n_teeth": 0
+  },
+  "voices": {
+    "elevenlabs": "zrHiDhphv9ZnVXBqCLjz",
+    "edge": "en-US-AriaNeural"
+  },
+  "tts_model": "v3",
+  "wake_words": [
+    "anne",
+    "ann",
+    "annie",
+    "brain",
+    "hey anne",
+    "hey brain"
+  ]
+}

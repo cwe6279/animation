@@ -90,6 +90,7 @@ class FaceManifest:
     eye_left:  EyeConfig = field(default_factory=EyeConfig)
     eye_right: EyeConfig = field(default_factory=EyeConfig)
     eye_color: Tuple = (255, 200, 0)    # procedural eyes
+    draw_eyes: bool = True              # false = no eyes at all (a voice-only character)
     blink:     bool = True
     eye_speech_pulse: float = 0.0       # eyes grow by this fraction when the mouth is fully open
     eye_lids: bool = False              # image/procedural eyes: emotion as lid cuts (crescents, slants) and lid blinks
@@ -133,7 +134,7 @@ class FaceManifest:
     _KNOWN_TOP = {
         "name", "description", "canvas_w", "canvas_h", "fps", "bg_color", "face_base",
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
-        "eye_left", "eye_right", "eye_color", "blink", "blink_interval", "blink_speed",
+        "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
         "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words",
     }
@@ -166,6 +167,7 @@ class FaceManifest:
         m.glow_intensity = float(d.get("glow_intensity", m.glow_intensity))
         m.eye_color   = tuple(d.get("eye_color", m.eye_color))
         m.blink       = bool(d.get("blink", m.blink))
+        m.draw_eyes   = bool(d.get("draw_eyes", m.draw_eyes))
         m.eye_speech_pulse = float(d.get("eye_speech_pulse", m.eye_speech_pulse))
         m.eye_lids = bool(d.get("eye_lids", m.eye_lids))
         m.blink_interval = tuple(float(x) for x in d.get("blink_interval", m.blink_interval))
@@ -655,7 +657,9 @@ class AssetFaceRenderer:
             surf.blit(self.assets.face_base, (0, 0))
             if m.draw_stem:
                 self._draw_stem(surf)
-        if self.assets.textured is not None:
+        if not m.draw_eyes:
+            pass                                   # a voice-only character
+        elif self.assets.textured is not None:
             self._draw_textured_eye(surf, m.eye_left, self.assets.textured[1], is_left=True)
             self._draw_textured_eye(surf, m.eye_right, self.assets.textured[0], is_left=False)
         else:

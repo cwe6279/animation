@@ -15,7 +15,7 @@ Designed for projection on black — faces render as floating features with glow
 - **Pluggable TTS**: edge-tts (free, default) or ElevenLabs (lower latency, raw PCM)
 - Phoneme-accurate lip sync via TTS word timestamps + g2p phoneme mapping
 - In-window text box — press Enter, type, Enter again to speak; Ctrl+C to interrupt
-- Multiple faces: **pumpkin**, **cat**, **skull**, **ghost**, **eve**, **goat**, **dragon** (or create your own)
+- Multiple faces: **pumpkin**, **cat**, **skull**, **ghost**, **eve**, **goat**, **dragon**, and **brain**, a voice-only assistant with no face at all (or create your own)
 - Emotion tags — `[angry]`, `[happy]`, `[sad]`, `[surprise]`, `[annoyed]` change eye expressions mid-sentence
 - Artist-friendly: drop in PNG art and tweak `face.json`; missing art falls back to procedural glowing shapes
 - Debug overlay showing viseme, emotion, FPS, audio queue, and time-to-first-audio
@@ -50,7 +50,7 @@ tools/
   demo_emotions.py       <- cycles the emotion tags on a face
   claude_stream.py       <- one-shot: stream a Claude reply to stdout for `speak.py --stdin`
 faces/                   <- one folder per character: face.json, character.md, art, eye/ parts
-  _template/  pumpkin/  cat/  skull/  ghost/  eve/  goat/  dragon/
+  _template/  pumpkin/  cat/  skull/  ghost/  eve/  goat/  dragon/  brain/ (voice only)
 docs/
   config-guide.html      <- the tuning guide (every setting, measured choices)
   ART_SPEC.md            <- locked art spec for artists and image models
@@ -655,6 +655,7 @@ Tweak `face.json` without re-exporting PNGs:
 - **`tts_model`** — ElevenLabs model for this face: `"v3"` (performs tags, ~1 s to first audio) or `"flash"` (~0.25 s, tags stripped); `--tts-model` overrides
 - **`character.md`** (a file next to face.json) — the personality: who the character is, traits, tone, boundaries. Concatenated with the shared `talker/brains/system_prompt.md` at runtime, so the shared file holds delivery rules and the face folder holds only personality. `--character` on the command line overrides it for one run
 - **`gaze`** / **`blink_interval`** / **`blink_speed`** / **`eye_speech_pulse`** — idle glances, blink timing, and eye pulse while speaking (image and procedural eyes)
+- **`draw_eyes: false`** — no eyes at all; with mouth `opacity: 0` the character is voice only (the `brain` face)
 - **`eye_lids`** — for image eyes without pupils (EVE): emotions become lid cuts, a happy crescent, an angry slant, a sad droop, and blinks close the lids instead of squashing the eye
 - **Making your own eye art live**: `python tools/unwrap_eye.py faces/<name>/eye_right.png faces/<name>/eye`
   finds the pupil, unwraps the iris into a polar strip, cuts a pupil map in the pupil's real shape,
