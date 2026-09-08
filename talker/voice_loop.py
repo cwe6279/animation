@@ -534,7 +534,8 @@ def main(argv=None) -> int:
     p.add_argument("--llm", default="claude", choices=["claude", "openai"],
                    help="Which brain answers: claude (default) or openai (for comparison)")
     p.add_argument("--model", default=None,
-                   help="Model id for the chosen --llm (defaults: claude-opus-5, gpt-4o-mini)")
+                   help="Model id for the chosen --llm (defaults: claude-haiku-4-5 for speed; "
+                        "--model claude-opus-5 for the best writing at ~2 s more per reply; openai: gpt-4o-mini)")
     p.add_argument("--effort", default="low", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--thinking", action="store_true",
                    help="Enable Claude's reasoning pass before answering (about +1 s to first token; off by default)")
@@ -642,7 +643,7 @@ def main(argv=None) -> int:
         wake_words = ([w for w in args.wake_word.split(",")] if args.wake_word
                       else (m.wake_words or [m.name.replace("_", " ")]))
     if args.llm == "claude":
-        chat = ClaudeChat(model=args.model or "claude-opus-5", effort=args.effort, character=character,
+        chat = ClaudeChat(model=args.model or "claude-haiku-4-5", effort=args.effort, character=character,
                           thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words))
     else:
         from .brains.openai_compat_chat import OpenAICompatChat
