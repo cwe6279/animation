@@ -73,7 +73,8 @@ class VoiceLoop:
         # so its own voice reaching the mic, or a cough, does not cut it off.
         self.barge_in_ms = barge_in_ms
         self.barge_in_boost = barge_in_boost
-        self.barge_in_duty = 0.6       # share of the window the mic must stay above the boosted onset level
+        self.barge_in_duty = 0.4       # share of the window the mic must be above the boosted onset level
+                                       # (a voice with its syllable gaps: ~0.5; a knock and its ring: ~0.2)
         self._loud: "collections.deque[tuple]" = collections.deque()   # (time, rms) over the barge window
         self.paused = False
         self._barge_since: Optional[float] = None
@@ -841,6 +842,9 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("barge_in_boost", lambda: loop.barge_in_boost, lambda v: setattr(loop, "barge_in_boost", v),
                   "How much louder than the usual onset threshold speech must be while the character talks. Raise if it interrupts itself.",
                   kind="float", lo=1.0, hi=10.0, flag="--barge-in-boost")
+    panel.tunable("barge_in_duty", lambda: loop.barge_in_duty, lambda v: setattr(loop, "barge_in_duty", v),
+                  "Share of the barge-in window the mic must be loud. A voice is about 0.5, a knock about 0.2. Raise if bangs get through, lower if your voice does not.",
+                  kind="float", lo=0.1, hi=1.0)
     panel.tunable("echo_threshold", lambda: loop.echo_threshold, lambda v: setattr(loop, "echo_threshold", v),
                   "Mic/speaker loudness correlation above this is treated as the character's own voice, not a barge-in.",
                   kind="float", lo=0.0, hi=1.0)
