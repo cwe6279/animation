@@ -120,6 +120,7 @@ Four areas, each with a default that works out of the box and options you switch
 |------|---------|---------|------|-------|
 | **LISTENING** (speech-to-text) | `whisper` local faster-whisper base.en, ~0.8 s after you stop | `elevenlabs` Scribe realtime (cloud, ~0.5 s, the Pi choice) · `vosk` local, light · `openai` cloud batch | `--stt`, `--silence-ms`, `--mic-device` | Whisper/Vosk: nothing · Scribe: `ELEVENLABS_API_KEY` · OpenAI: `OPENAI_API_KEY` |
 | **VISION** (camera) | **off** | on with a camera: 3 frames per burst, every 9 s, described by Claude Haiku 4.5 only when the picture changed | `--camera`, `--no-vision`, `--vision-interval`, `--vision-frames`, `--vision-change`, `--vision-model` | `ANTHROPIC_API_KEY`, `opencv-python-headless` |
+| **SPEECH, local** | `piper` en_US-hfc_female-medium, ~20 ms to first audio, no key, offline | `--tts piper --voice en_US-ryan-high` (any Piper voice, downloaded once) · `voices.piper` in face.json · tags drive the eyes only |
 | **BRAIN** (LLM) | `claude` Haiku 4.5, ~0.7 s to first token | `--model claude-opus-5` best writing, ~2 s more per reply · `--thinking` for deeper answers · `ollama` local, no key · `openai` for comparison | `--llm`, `--model`, `--effort`, `--thinking`, `--character` | `ANTHROPIC_API_KEY` (workspace-scoped, prepaid) · `OPENAI_API_KEY` |
 | **SPEECH** (text-to-speech) | `elevenlabs` v3 when the key is set (performs `[tags]`, ~1 s to first audio), else `edge` free | `--tts-model flash` (~0.25 s, tags stripped) · `fish` Fish Audio · `edge` free | `--tts`, `--tts-model`, `--voice`, `--voice-speed`, `--output-device` | ElevenLabs: `ELEVENLABS_API_KEY` · Fish: `FISH_AUDIO_API_KEY` · edge: nothing |
 
@@ -287,6 +288,7 @@ first audio). Options:
   otherwise the speakers get transcribed). Default is half-duplex: mic ignored during playback.
 - `--text-only` — type in the window instead of using a mic; same Claude round trip
 - `--effort medium` — better answers, slower first token. `--model` to change the model.
+- `--tts piper` — the local voice: no key, no network, lip sync from the model's own phoneme timings. `--voice` picks any [Piper voice](https://github.com/OHF-Voice/piper1-gpl/blob/main/VOICES.md) (or `voices.piper` in face.json, or `PIPER_VOICE`); it downloads once. Measured against the other engines in *Local voices* below
 - `--llm ollama --model <name>` — a local brain through [Ollama](https://ollama.com): no key, no cloud, thinking
   forced off so the first token is quick (well under a second on a desktop GPU, after a one-time load).
   `--list-models` shows what the server has; `--ollama-host` or `OLLAMA_HOST` points at a remote server.

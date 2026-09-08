@@ -15,6 +15,10 @@ edge-tts>=7.0.0
 # Its NLTK data (cmudict, tagger) is downloaded on first run.
 g2p-en>=2.1.0
 
+# Local, offline voice (--tts piper): a 60 MB ONNX voice, ~20 ms to first audio on a
+# desktop and a few hundred ms on a Pi 5; word timings come from the model itself.
+piper-tts[alignment]>=1.3.0
+
 # Optional: cloud TTS with lower latency + raw PCM (set ELEVENLABS_API_KEY)
 # (no extra package: uses aiohttp, already pulled in by edge-tts)
 

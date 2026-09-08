@@ -554,12 +554,130 @@ class FishAudioBackend(TTSBackend):
 
 
 # ─────────────────────────────────────────────────────
+# PIPER (local, offline)
+# ─────────────────────────────────────────────────────
+PIPER_DEFAULT_VOICE = "en_US-hfc_female-medium"
+PIPER_DATA_DIR = os.path.join(os.path.expanduser("~"), ".cache", "talker", "piper")
+
+
+def piper_word_spans(phoneme_alignments) -> List[Tuple[float, float]]:
+    """
+    Word (start, end) in samples from Piper's phoneme alignments: words are the
+    runs of phonemes between ' ' entries; '^' and '$' are the utterance markers.
+    Trailing punctuation stays with its word, so a comma's pause closes the mouth
+    late rather than early, which reads better on a face.
+    """
+    spans: List[Tuple[float, float]] = []
+    pos = 0
+    start: Optional[int] = None
+    for a in phoneme_alignments:
+        n = int(a.num_samples)
+        ph = a.phoneme
+        if ph in (" ", "^", "$"):          # word gap or utterance marker: close the open word
+            if start is not None:
+                spans.append((start, pos))
+                start = None
+        elif start is None:
+            start = pos
+        pos += n
+    if start is not None:
+        spans.append((start, pos))
+    return spans
+
+
+class PiperBackend(TTSBackend):
+    """
+    Piper (https://github.com/OHF-Voice/piper1-gpl): a small ONNX voice that runs
+    offline on a Pi. Loads once, then synthesizes each sentence in a worker
+    thread (about 20 ms on a desktop, a few hundred on a Pi 5) and hands the
+    PCM over with word timings taken from the model's own phoneme alignments,
+    so lip sync is exact, not fitted. No key, no network after the first voice
+    download.
+
+    voice: a Piper voice name (en_US-hfc_female-medium, en_US-ryan-high, ...) or
+    a path to an .onnx file; PIPER_VOICE in the environment sets the default.
+    Voices download once into ~/.cache/talker/piper (PIPER_DATA_DIR).
+    """
+    name = "piper"
+    supports_audio_tags = False
+
+    def __init__(self, voice: Optional[str] = None, model: Optional[str] = None,
+                 speed: Optional[float] = None, data_dir: Optional[str] = None,
+                 threads: Optional[int] = None):
+        from piper import PiperVoice
+        from piper.config import SynthesisConfig
+        name = voice or (model if model and model.endswith(".onnx") else None) \
+            or os.environ.get("PIPER_VOICE") or PIPER_DEFAULT_VOICE
+        self.data_dir = data_dir or os.environ.get("PIPER_DATA_DIR") or PIPER_DATA_DIR
+        path = name if name.endswith(".onnx") else os.path.join(self.data_dir, f"{name}.onnx")
+        if not os.path.exists(path):
+            from pathlib import Path
+            from piper.download_voices import download_voice
+            os.makedirs(self.data_dir, exist_ok=True)
+            print(f"[piper] downloading voice {name} to {self.data_dir} ...")
+            download_voice(name, Path(self.data_dir))
+        self.voice_name = os.path.splitext(os.path.basename(path))[0]
+        self.voice = PiperVoice.load(path, include_alignments=True)
+        self.threads = threads or min(4, os.cpu_count() or 4)
+        try:                                   # bound the ONNX threads (leave cores for STT and the face)
+            import onnxruntime as ort
+            so = ort.SessionOptions()
+            so.intra_op_num_threads = self.threads
+            so.inter_op_num_threads = 1
+            self.voice.session = ort.InferenceSession(path, sess_options=so, providers=["CPUExecutionProvider"])
+        except Exception as e:
+            print(f"[piper] could not set thread count: {e}")
+        self.sample_rate = int(self.voice.config.sample_rate)
+        self.syn_config = SynthesisConfig(length_scale=1.0 / float(speed)) if speed else None
+        list(self.voice.synthesize("Ready.", self.syn_config))       # warm the graph once
+
+    def _synth(self, sentence: str):
+        return list(self.voice.synthesize(sentence, self.syn_config, include_alignments=True))
+
+    async def synthesize(self, sentences):
+        from .phoneme_scheduler import fit_word_times
+        loop = asyncio.get_running_loop()
+        session_frames = 0
+        while True:
+            sentence = await sentences.get()
+            if sentence is END_OF_TEXT:
+                return
+            if not sentence.strip():
+                continue
+            chunks = await loop.run_in_executor(None, self._synth, sentence)
+            words = sentence.split()
+            spans: List[Tuple[float, float]] = []       # absolute session seconds
+            pcms: List[bytes] = []
+            frames = session_frames
+            for c in chunks:
+                pcm = c.audio_int16_bytes
+                if c.phoneme_alignments:
+                    for s0, s1 in piper_word_spans(c.phoneme_alignments):
+                        spans.append(((frames + s0) / self.sample_rate, (frames + s1) / self.sample_rate))
+                frames += len(pcm) // 2
+                pcms.append(pcm)
+            if len(spans) == len(words):
+                for w, (t0, t1) in zip(words, spans):
+                    yield WordBoundary(w, t0, t1)
+            else:                                        # counts differ (numbers, symbols): fit instead
+                base_t = session_frames / self.sample_rate
+                duration = (frames - session_frames) / self.sample_rate
+                for w, t0, t1 in fit_word_times(sentence, duration):
+                    yield WordBoundary(w, base_t + t0, base_t + t1)
+            session_frames = frames
+            for pcm in pcms:
+                yield AudioChunk(pcm)
+            yield SentenceDone(sentence)
+
+
+# ─────────────────────────────────────────────────────
 # FACTORY
 # ─────────────────────────────────────────────────────
 BACKENDS = {
     "edge": EdgeTTSBackend,
     "elevenlabs": ElevenLabsBackend,
     "fish": FishAudioBackend,
+    "piper": PiperBackend,          # local, offline
 }
 
 

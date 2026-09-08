@@ -396,7 +396,7 @@ def main(argv=None) -> int:
     parser.add_argument("--emotion", type=str, default=None,
                         help="Default emotion: neutral, happy, angry, annoyed, sad, surprise")
     parser.add_argument("--auto-exit", action="store_true", help="Exit after speech finishes (for scripts)")
-    parser.add_argument("--tts", type=str, default="edge", help="TTS backend: edge (default) or elevenlabs")
+    parser.add_argument("--tts", type=str, default="edge", help="TTS backend: edge (default), elevenlabs, piper (local, offline) or fish")
     parser.add_argument("--voice", type=str, default=None,
                         help="Voice name/id for the backend (edge: en-US-GuyNeural, elevenlabs: voice id)")
     parser.add_argument("--tts-model", type=str, default=None,
