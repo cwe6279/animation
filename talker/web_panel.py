@@ -25,6 +25,7 @@ panel.action(...), panel.status_fn, panel.calibrator, panel.snapshot.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -149,19 +150,24 @@ class WifiControl:
         devs = []
         r = self._run("-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status")
         for line in r.stdout.splitlines():
-            parts = line.split(":")
+            parts = self._fields(line)
             if len(parts) >= 4 and parts[1] in ("wifi", "ethernet"):
                 devs.append({"device": parts[0], "type": parts[1], "state": parts[2], "connection": parts[3]})
         return {"available": True, "devices": devs, "ip": lan_ip()}
+
+    @staticmethod
+    def _fields(line: str) -> List[str]:
+        """nmcli -t separates fields with ':' and escapes a ':' inside a value as '\\:'."""
+        return [f.replace("\\:", ":") for f in re.split(r"(?<!\\):", line)]
 
     def scan(self) -> List[Dict[str, Any]]:
         r = self._run("-f", "ACTIVE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes", timeout=40)
         seen: Dict[str, Dict[str, Any]] = {}
         for line in r.stdout.splitlines():
-            parts = line.replace("\\:", "").split(":")
+            parts = self._fields(line)
             if len(parts) < 4:
                 continue
-            active, ssid, signal, sec = parts[0], parts[1].replace("", ":"), parts[2], parts[3]
+            active, ssid, signal, sec = parts[0], parts[1], parts[2], parts[3]
             if not ssid:
                 continue
             row = {"ssid": ssid, "signal": int(signal or 0), "security": sec or "open", "active": active == "yes"}

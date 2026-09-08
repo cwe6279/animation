@@ -55,3 +55,9 @@ def test_describe_parser_handles_percent_and_bools():
     p.add_argument("--barge-in", action="store_true", help="interrupt")
     rows = describe_parser(p, p.parse_args([]))
     assert rows[0]["help"] == "3.5% change (default 0.035)" and rows[1]["value"] == "False"
+
+
+def test_nmcli_fields_unescape_colons():
+    from talker.web_panel import WifiControl
+    assert WifiControl._fields("no:HomeNet:100:WPA2 WPA3") == ["no", "HomeNet", "100", "WPA2 WPA3"]
+    assert WifiControl._fields(r"yes:Cafe\:Wifi:80:WPA2") == ["yes", "Cafe:Wifi", "80", "WPA2"]
