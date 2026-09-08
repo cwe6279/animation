@@ -23,6 +23,7 @@ or a mic that does not hear the speakers.
 from __future__ import annotations
 
 import argparse
+import collections
 import os
 import queue
 import re
@@ -72,6 +73,8 @@ class VoiceLoop:
         # so its own voice reaching the mic, or a cough, does not cut it off.
         self.barge_in_ms = barge_in_ms
         self.barge_in_boost = barge_in_boost
+        self.barge_in_duty = 0.6       # share of the window the mic must stay above the boosted onset level
+        self._loud: "collections.deque[tuple]" = collections.deque()   # (time, rms) over the barge window
         self.paused = False
         self._barge_since: Optional[float] = None
         self._gated = False
@@ -148,11 +151,15 @@ class VoiceLoop:
             import numpy as _np
             frame = _np.frombuffer(pcm, dtype=_np.int16).astype(_np.float32)
             self._echo.add_mic(now, float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0)
+            rms = float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0
+            self._loud.append((now, rms))
+            while self._loud and now - self._loud[0][0] > self.barge_in_ms / 1000.0:
+                self._loud.popleft()
             talking = bool(getattr(self.stt, "speech_active", False)) or bool(t and t.text)
             if talking:
                 if self._barge_since is None:
                     self._barge_since = now
-                elif (now - self._barge_since) * 1000 >= self.barge_in_ms:
+                elif (now - self._barge_since) * 1000 >= self.barge_in_ms and self._sustained():
                     env = getattr(self.speaker, "output_envelope", None)
                     corr = self._echo.correlation(env(), now) if env else 0.0
                     if corr >= self.echo_threshold:
@@ -196,6 +203,17 @@ class VoiceLoop:
             self.on_user_text(t.text.strip())
 
     # ── wake mode ───────────────────────────────────────
+    @staticmethod
+    def _sustained(self) -> bool:
+        """True when the mic stayed loud for most of the barge window. The endpointer's
+        'active' flag lingers through its silence gate, so a single knock would otherwise
+        count as continuous speech."""
+        thr = self.stt.onset_threshold() if hasattr(self.stt, "onset_threshold") else None
+        if not thr or len(self._loud) < 3:
+            return True
+        loud = sum(1 for _, r in self._loud if r >= thr)
+        return loud / len(self._loud) >= self.barge_in_duty
+
     @staticmethod
     def _norm(text: str) -> List[str]:
         return re.sub(r"[^a-z0-9' ]+", " ", text.lower()).split()

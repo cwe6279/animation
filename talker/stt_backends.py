@@ -52,6 +52,13 @@ class STTBackend:
         if ep is not None:
             ep.gate_boost = boost
 
+    def onset_threshold(self) -> Optional[float]:
+        """The mic level that counts as speech right now (floor x start ratio x playback boost)."""
+        ep = getattr(self, "_ep", None)
+        if ep is None:
+            return None
+        return max(float(ep.floor), float(ep.min_rms)) * float(ep.start_ratio) * float(ep.gate_boost)
+
     def set_silence_ms(self, ms: int) -> None:
         """Change the pause that ends an utterance, live (the web panel's silence gate)."""
         ep = getattr(self, "_ep", None)

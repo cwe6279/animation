@@ -204,3 +204,28 @@ def test_echo_guard_tells_echo_from_a_person():
     for t in range(0, 150):
         person.add_mic(t / 100.0, 1500 + 700 * math.sin(2 * math.pi * 1.3 * t / 100.0 + 1.0))   # a different rhythm
     assert person.correlation(out, 1.5) < 0.5
+
+
+def test_barge_in_ignores_a_knock_but_not_sustained_loudness():
+    """A knock trips the endpointer, whose active flag lingers through its silence gate;
+    the barge-in must still see the mic stay loud for most of the window."""
+    import numpy as np
+
+    class Clk:
+        t = 0.0
+        def __call__(self): return self.t
+    clk = Clk()
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    stt._ep = type("Ep", (), {"floor": 100.0, "min_rms": 100.0, "start_ratio": 3.0, "gate_boost": 4.0})()
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, barge_in=True, barge_in_ms=500, clock=clk)
+    spk.busy = True
+    quiet = np.zeros(320, np.int16).tobytes()
+    loud = (np.ones(320, np.int16) * 5000).tobytes()
+    stt.speech_active = True                     # the endpointer latched on a knock...
+    loop._process(loud)
+    for _ in range(30):                          # ...and stays 'active' through quiet frames
+        clk.t += 0.02; loop._process(quiet)
+    assert spk.interrupts == 0                   # 600 ms of mostly silence: not a barge-in
+    for _ in range(30):                          # a person talking over it: loud frames throughout
+        clk.t += 0.02; loop._process(loud)
+    assert spk.interrupts == 1
