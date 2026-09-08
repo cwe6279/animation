@@ -1005,9 +1005,9 @@ class AssetFaceRenderer:
         """A carved smile: corners turned up, a curved band at rest that opens from the
         middle while speaking, with a few goofy square teeth left uncut."""
         k = self._k
-        lift = int(w * 0.17)                          # how far the corners rise
+        lift = int(w * 0.28)                          # how far the corners rise (a wide carved grin)
         top_c = cy - int(6 * k) - int(open_h * 0.45)  # centre of the top edge
-        bot_c = cy + int(40 * k) + int(open_h * 0.6)  # centre of the bottom edge
+        bot_c = cy + int(w * 0.19) + int(open_h * 0.6)  # centre of the bottom edge: a fat crescent at rest
         base = cy - lift
 
         def edge_y(u: float, centre: int) -> int:     # quadratic from corner to centre
@@ -1020,14 +1020,14 @@ class AssetFaceRenderer:
         self._draw_shape(surf, pts, mc.color, layers=5, spread=12, shadow_corner=bot[2])
 
         # goofy teeth: (edge, position across the mouth -0.5..0.5, width as a fraction of w)
-        layout = [("top", -0.19, 0.15), ("bottom", 0.15, 0.13), ("top", 0.34, 0.10),
-                  ("bottom", -0.35, 0.08)][:max(0, mc.n_teeth)]
+        layout = [("top", -0.22, 0.14), ("bottom", 0.11, 0.10), ("top", 0.06, 0.07),
+                  ("bottom", -0.13, 0.08)][:max(0, mc.n_teeth)]
         for edge, fx, fw in layout:
             u = fx * 2
             x = cx + int(fx * w)
             tw = max(4, int(fw * w))
             ty, by = edge_y(u, top_c), edge_y(u, bot_c)
-            th = int(min((by - ty) * 0.66, (22 + open_h * 0.35) * k))
+            th = int(min((by - ty) * 0.55, (26 + open_h * 0.35) * k))
             if th < 3:
                 continue
             # the tooth is uncut shell: dark, overlapping the edge so it joins the rim

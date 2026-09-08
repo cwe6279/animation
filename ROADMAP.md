@@ -108,3 +108,6 @@ driver with the same shape as the audio and vision pieces:
 - More faces: EVE ElevenLabs voice id; a second set of mouth art for the cat
   at a finer viseme granularity; minimum hold time for art mouths so fast
   phoneme runs don't flicker.
+
+- **Setup hotspot.** When the Pi has no network, bring up its own Wi-Fi access point with a captive
+  page so the control page's Wi-Fi tab can join the venue network without a keyboard.

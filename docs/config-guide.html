@@ -149,6 +149,7 @@
     <li><a href="#start">Starting it</a></li>
     <li><a href="#areas">Listening, vision, brain, speech</a></li>
     <li><a href="#local">Going local</a></li>
+    <li><a href="#panel">Control page</a></li>
     <li><a href="#faces">Character library</a></li>
     <li><a href="#new">Adding a character</a></li>
     <li><a href="#prompt">Prompt and tags</a></li>
@@ -279,6 +280,21 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     <tr><td>xtts, chattts, tacotron2</td><td class="num"></td><td class="num">1.3 to 4.4 GB</td><td class="num">0.6 to 3 s</td><td class="num">0.25 to 1.9</td><td>too slow on CPU</td></tr>
     <tr><td>espeak, flite</td><td class="num"></td><td class="num">40 MB</td><td class="num">under 60 ms</td><td class="num">0.01</td><td>robotic; last-resort fallback</td></tr>
   </table></div>
+</section>
+
+<section id="panel">
+  <div class="eyebrow">Control page <span class="file">http://&lt;box&gt;:8001 · --web-port · --no-web</span></div>
+  <h2>Tune and test it from a phone</h2>
+  <p>Every run serves a small page on port 8001, standard library only and off the audio and render paths, so a kiosk that starts at power-up can still be inspected and tuned from any device on the same network.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Tab</th><th>What is there</th></tr>
+    <tr><td>Status</td><td>Face, ears, brain, voice; live mic level; speaking, thinking or dormant; the last <code>[turn]</code> timing line; what was heard and said; vision counts and the latest scene note; recent events.</td></tr>
+    <tr><td>Tune</td><td>Live settings with their help text and the flag that sets each at startup: silence gate, barge-in with its threshold and boost, echo guard, idle timeout, engaged, debug overlay, vision interval and change filter. Applied at once, kept until exit.</td></tr>
+    <tr><td>Test setup</td><td>Mic level meter with the target range, speak a line through the speaker, send a line as a visitor, interrupt, a camera snapshot, and the calibration routine (room, speaker bleed, a person) with its verdict, saved like <code>--calibrate</code>.</td></tr>
+    <tr><td>Reference</td><td>Every <code>--flag</code> with its help, default and the value in use this run; the face.json fields of this face with what they do.</td></tr>
+    <tr><td>Wi-Fi</td><td>Network devices, a scan, and join a network through NetworkManager, as on Raspberry Pi OS. The box must be reachable first; a setup hotspot is on the roadmap.</td></tr>
+  </table></div>
+  <p><strong>Power-up on a Pi.</strong> <code>docs/talker.service</code> is a systemd unit that starts the character with the page at boot: copy it to <code>/etc/systemd/system/</code>, edit the user, path and flags, then <code>sudo systemctl enable --now talker</code>.</p>
 </section>
 
 <section id="faces">

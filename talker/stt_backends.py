@@ -51,6 +51,16 @@ class STTBackend:
         ep = getattr(self, "_ep", None)
         if ep is not None:
             ep.gate_boost = boost
+
+    def set_silence_ms(self, ms: int) -> None:
+        """Change the pause that ends an utterance, live (the web panel's silence gate)."""
+        ep = getattr(self, "_ep", None)
+        if ep is not None:
+            ep.silence_samples = int(ep.sample_rate * ms / 1000)
+        rec = getattr(self, "_rec", None)
+        if rec is not None and hasattr(rec, "SetEndpointerDelays"):
+            rec.SetEndpointerDelays(ms / 1000.0, ms / 1000.0 * 2, 30.0)
+        self.endpoint_delay_s = ms / 1000.0
     endpoint_delay_s = 0.0          # silence the endpointer waits for before deciding you stopped
     last_transcribe_s = 0.0         # time the last final transcription took (batch backends)
 

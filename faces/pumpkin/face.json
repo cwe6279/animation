@@ -43,8 +43,8 @@
   "mouth": {
     "anchor_cx": 400,
     "anchor_cy": 540,
-    "max_w": 300,
-    "min_w": 220,
+    "max_w": 340,
+    "min_w": 250,
     "color": [
       255,
       190,
@@ -56,7 +56,7 @@
       10
     ],
     "style": "grin",
-    "n_teeth": 3
+    "n_teeth": 4
   },
   "glow_style": "inner",
   "rim_color": [
@@ -71,5 +71,9 @@
       "shake",
       "wiggle"
     ]
-  }
+  },
+  "cut_depth": [
+    11,
+    2
+  ]
 }

@@ -72,6 +72,7 @@ class VoiceLoop:
         # so its own voice reaching the mic, or a cough, does not cut it off.
         self.barge_in_ms = barge_in_ms
         self.barge_in_boost = barge_in_boost
+        self.paused = False
         self._barge_since: Optional[float] = None
         self._gated = False
         from .audio_engine import EchoGuard
@@ -128,6 +129,9 @@ class VoiceLoop:
 
     def _process(self, pcm: bytes) -> None:
         self._last_audio_in = time.monotonic()
+        if self.paused:                   # the web panel's calibration owns the mic for a moment
+            self.stt.reset()
+            return
         self.tick()
         busy = self.speaker.is_busy or self._thinking
         now = self.clock()
@@ -486,11 +490,7 @@ def mic_tools(args) -> int:
 # ═══════════════════════════════════════════════════════
 # ENTRY POINT
 # ═══════════════════════════════════════════════════════
-def main(argv=None) -> int:
-    from .env_config import load_dotenv
-    load_dotenv()
-    from .session_log import start_session_log
-    log_path = start_session_log("voice")
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Talk to an animated face: mic -> STT -> Claude -> voice")
     p.add_argument("--profile", choices=["desktop", "pi"], default=None,
                    help="pi: cloud speech-to-text (elevenlabs), fullscreen, 30 fps — nothing heavy "
@@ -580,6 +580,18 @@ def main(argv=None) -> int:
                         "change; a still room is ~1%%, a person entering 10%%+). A refresh is forced every 90 s.")
     p.add_argument("--fixed-fps", action="store_true",
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
+    p.add_argument("--web-port", type=int, default=8001,
+                   help="Control page on this port (status, live tuning, setup tests, flag reference, Wi-Fi); default 8001")
+    p.add_argument("--no-web", action="store_true", help="Do not start the control page")
+    return p
+
+
+def main(argv=None) -> int:
+    from .env_config import load_dotenv
+    load_dotenv()
+    from .session_log import start_session_log
+    log_path = start_session_log("voice")
+    p = build_parser()
     args = p.parse_args(argv)
     if args.profile == "pi":
         apply_pi_profile(args)
@@ -735,6 +747,10 @@ def main(argv=None) -> int:
         print(f"[mode] {'dormant, listening for ' + names if not loop.engaged else 'engaged; after ' + str(int(args.idle_timeout)) + 's of quiet, wakes on ' + names}")
     app.on_submit = loop.on_user_text        # typed text goes through Claude too
 
+    panel = None
+    if not args.no_web:
+        panel = _start_panel(args, p, loop, app, audio, stt, chat, backend, watcher, m, face_dir)
+
     if stt is not None:
         try:
             audio.start_mic(on_frames=loop.process, rate=stt.sample_rate,
@@ -752,7 +768,98 @@ def main(argv=None) -> int:
     finally:
         if watcher is not None:
             watcher.stop()
+        if panel is not None:
+            panel.stop()
     return 0
+
+
+def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir):
+    """The control page: registers what it may read and change, then serves it."""
+    from .web_panel import WebPanel
+    panel = WebPanel(port=args.web_port)
+    panel.parser, panel.args, panel.manifest = parser, args, manifest
+    pipeline = getattr(app, "pipeline", None)
+    last = {"heard": "", "said": "", "turn": ""}
+
+    orig_event = loop.on_event
+
+    def on_event(kind, text):
+        orig_event(kind, text)
+        panel.record(kind, text)
+        if kind == "hearing":
+            last["heard"] = text
+        elif kind == "bot":
+            last["said"] = text
+        elif kind == "turn":
+            last["turn"] = text
+    loop.on_event = on_event
+
+    def status():
+        st = {"face": manifest.name, "stt": getattr(stt, "name", "text only") if stt else "text only",
+              "llm": f"{args.llm} {chat.model}", "tts": f"{backend.name} {getattr(backend, 'voice_name', '') or ''}".strip(),
+              "mic_rms": audio.get_state()[0], "speaking": bool(pipeline and pipeline.is_busy),
+              "thinking": bool(getattr(loop, "_thinking", False)), "engaged": loop.engaged,
+              "first_audio_ms": (pipeline.stats or {}).get("time_to_first_audio_ms") if pipeline else None,
+              "last_heard": last["heard"], "last_said": last["said"], "last_turn": last["turn"]}
+        if watcher is not None:
+            n = watcher.latest()
+            st["vision"] = {"described": watcher.stats.get("described", 0),
+                            "skipped": watcher.stats.get("skipped_unchanged", 0),
+                            "latest": (n.changes or n.notes) if n else ""}
+        return st
+    panel.status_fn = status
+
+    if stt is not None and hasattr(stt, "set_silence_ms"):
+        panel.tunable("silence_ms", lambda: int(round(stt.endpoint_delay_s * 1000)), stt.set_silence_ms,
+                      "Pause that ends your turn. Lower is snappier; below ~400 it starts cutting pauses mid-sentence.",
+                      kind="int", unit="ms", lo=150, hi=2000, flag="--silence-ms")
+    panel.tunable("barge_in", lambda: loop.barge_in, lambda v: setattr(loop, "barge_in", v),
+                  "Keep listening while the character talks and interrupt it when someone speaks. Needs a mic that cannot hear the speaker.",
+                  kind="bool", flag="--barge-in")
+    panel.tunable("barge_in_ms", lambda: loop.barge_in_ms, lambda v: setattr(loop, "barge_in_ms", v),
+                  "Continuous speech needed before a barge-in counts.", kind="int", unit="ms", lo=100, hi=2000, flag="--barge-in-ms")
+    panel.tunable("barge_in_boost", lambda: loop.barge_in_boost, lambda v: setattr(loop, "barge_in_boost", v),
+                  "How much louder than the usual onset threshold speech must be while the character talks. Raise if it interrupts itself.",
+                  kind="float", lo=1.0, hi=10.0, flag="--barge-in-boost")
+    panel.tunable("echo_threshold", lambda: loop.echo_threshold, lambda v: setattr(loop, "echo_threshold", v),
+                  "Mic/speaker loudness correlation above this is treated as the character's own voice, not a barge-in.",
+                  kind="float", lo=0.0, hi=1.0)
+    panel.tunable("idle_timeout", lambda: loop.idle_timeout, lambda v: setattr(loop, "idle_timeout", v),
+                  "Wake mode: seconds of quiet after its own last reply before it goes dormant.", kind="float", unit="s",
+                  lo=5, hi=3600, flag="--idle-timeout")
+    panel.tunable("engaged", lambda: loop.engaged,
+                  lambda v: loop.engage("panel") if v else loop.disengage("panel"),
+                  "Wake mode: on = answering; off = dormant until a wake word.", kind="bool")
+    panel.tunable("debug_overlay", lambda: app.debug, lambda v: setattr(app, "debug", v),
+                  "Viseme, emotion, fps and timing overlay on the face window.", kind="bool", flag="--debug")
+    if watcher is not None:
+        panel.tunable("vision_interval", lambda: watcher.interval, lambda v: setattr(watcher, "interval", v),
+                      "Seconds between camera bursts.", kind="float", unit="s", lo=2, hi=120, flag="--vision-interval")
+        panel.tunable("vision_change", lambda: watcher.change_threshold, lambda v: setattr(watcher, "change_threshold", v),
+                      "Mean pixel change needed before a burst is sent to the vision model (0.035 = 3.5%).",
+                      kind="float", lo=0.0, hi=0.5, flag="--vision-change")
+        src = getattr(watcher, "source", None)
+        if src is not None and hasattr(src, "burst"):
+            def snapshot():
+                frames = src.burst(1)
+                return frames[0] if frames else None
+            panel.snapshot = snapshot
+
+    if pipeline is not None:
+        panel.action("speak", lambda t: (pipeline.speak(t or "Testing one two three. Can you hear me from the door?"), "speaking")[1],
+                     "Say this through the speaker with the face (a [tag] works). Empty = the test phrase.", takes_text=True)
+        panel.action("interrupt", lambda t: (pipeline.interrupt(), "stopped")[1], "Stop speaking now.")
+    panel.action("say as visitor", lambda t: (loop.on_user_text(t), "sent")[1] if t.strip() else "type something first",
+                 "Send this line to the brain as if a visitor said it.", takes_text=True)
+    panel.action("go dormant", lambda t: (loop.disengage("panel"), "dormant")[1], "Wake mode: stop answering until a wake word.")
+
+    if pipeline is not None and stt is not None:
+        from .calibrate import run_calibration
+        panel.calibrator = lambda ask: run_calibration(audio, pipeline.speak, lambda: pipeline.is_busy,
+                                                       args.mic_device, args.output_device, ask=ask)
+        panel.pause = lambda on: setattr(loop, "paused", on)
+    panel.start()
+    return panel
 
 
 if __name__ == "__main__":

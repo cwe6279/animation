@@ -1,0 +1,32 @@
+# Talker on a Raspberry Pi: start the character at power-up, with the control page.
+#
+#   sudo cp docs/talker.service /etc/systemd/system/talker.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now talker
+#   journalctl -u talker -f            # the same log lines you see in a terminal
+#
+# Edit User, WorkingDirectory and the ExecStart flags for your box. The control
+# page is then at http://<pi>:8001 from any phone or laptop on the same network:
+# status, live tuning, the setup tests and calibration, the flag reference, Wi-Fi.
+# Keys come from .env in WorkingDirectory as usual. The graphical session must be
+# up for the face window; on Raspberry Pi OS with a desktop autologin, `graphical.target`
+# and the DISPLAY/XDG lines below are enough. For a fully headless box add
+# --no-audio --text-only for testing, or run a Wayland kiosk session.
+
+[Unit]
+Description=Talker animated character
+After=graphical.target network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/animation
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=SDL_VIDEODRIVER=x11
+ExecStart=/home/pi/animation/.venv/bin/python voice_loop.py --face pumpkin --profile pi --tts piper --mic-device gomic --output-device jabra --fullscreen
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

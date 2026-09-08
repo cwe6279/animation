@@ -299,6 +299,25 @@ The pieces are independent: `VoiceLoop` (voice_loop.py) only needs an STT object
 a function that returns an iterator of reply text, and something with
 `speak_stream` / `interrupt` / `is_busy`. Swap any of them.
 
+### The control page (on by default, port 8001)
+
+Every run serves a small page at `http://<box>:8001` (`--web-port`, `--no-web`), standard library
+only, off the audio and render paths. From a phone or laptop on the same network:
+
+- **Status**: face, ears, brain, voice, the live mic level, speaking / thinking / dormant, the last
+  `[turn]` timing line, what was heard and said, vision counts and the latest scene note.
+- **Tune**: the live settings with their help text and the flag that sets each at startup: the
+  silence gate, barge-in and its threshold and boost, the echo guard, idle timeout, engaged, the
+  debug overlay, the vision interval and change filter. Changes apply at once.
+- **Test setup**: mic level meter, speak a line through the speaker (tags work), send a line as a
+  visitor, interrupt, a camera snapshot, and the calibration routine (room, speaker bleed, a
+  person) with its verdict, saved to `calibration.json` like `--calibrate`.
+- **Reference**: every `--flag` with its help, default and the value in use this run, and the
+  face.json fields of this face with what they do.
+- **Wi-Fi**: the box's network devices, a scan, and join a network through NetworkManager (as on
+  Raspberry Pi OS), for kiosks with no keyboard. It needs the box to be reachable first, over
+  Ethernet or a known Wi-Fi; a captive setup hotspot is on the roadmap.
+
 ### Raspberry Pi
 
 The face and audio plumbing are light; the recognizer is the only stage a Pi
@@ -313,6 +332,10 @@ python voice_loop.py --face cat --profile pi --mic-device gomic --output-device 
 e.g. `--model claude-haiku-4-5` for a faster brain. Tested on a Pi 5 with
 4 GB or more; a Pi 4 works but everything local is about twice as slow.
 Cloud stages cost the same on a Pi as on a desktop.
+
+**Start at power-up.** `docs/talker.service` is a systemd unit that launches the character
+with the control page when the Pi boots; copy it to `/etc/systemd/system/`, edit the user, path
+and flags, then `sudo systemctl enable --now talker`. `journalctl -u talker -f` shows the log.
 
 ### Wake mode (kiosks: wait to be called by name)
 
