@@ -100,6 +100,7 @@ class VoiceLoop:
         self._lock = threading.Lock()
         self._thinking = False
         self._last_busy = 0.0
+        self.on_reply_start: Callable[[], None] = lambda: None   # e.g. hush the ambience
         self._partial = ""
         self.turns = 0
         # Recognition runs on its own thread: the mic callback must return in
@@ -325,6 +326,10 @@ class VoiceLoop:
 
     def _answer(self, text: str) -> None:
         self._ended = False
+        try:
+            self.on_reply_start()
+        except Exception as e:
+            print(f"[loop] on_reply_start: {e}")
         # A visual question: give the in-flight burst time to land first (capture ~0.5 s
         # + vision model ~2.3 s, minus what already elapsed while the visitor spoke).
         if self.vision is not None and self._vision_ticket is not None and self.VISUAL_RE.search(text):
@@ -783,6 +788,7 @@ def main(argv=None) -> int:
                               and not bool(getattr(stt, "speech_active", False)) and time.monotonic() - loop._last_busy > 3,
                               interval=cfg.get("interval", (30, 90)), quiet_for=cfg.get("quiet_for", 10))
             idle.start()
+            loop.on_reply_start = idle.hush          # fade the ambience the moment a reply begins
             print(f"[idle] sounds every {idle.interval[0]:.0f}-{idle.interval[1]:.0f} s when quiet: {', '.join(idle_bank.names)}")
 
     panel = None

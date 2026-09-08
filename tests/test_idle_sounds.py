@@ -4,14 +4,22 @@ import random
 from talker.idle_sounds import IdleSounds
 
 
+class Channel:
+    def __init__(self): self.busy, self.faded = True, None
+    def get_busy(self): return self.busy
+    def fadeout(self, ms): self.faded, self.busy = ms, False
+
+
 class Bank:
     def __init__(self, names):
         self.names = sorted(names)
         self.played = []
+        self.channels = []
 
     def play(self, name):
         self.played.append(name)
-        return True
+        ch = Channel(); self.channels.append(ch)
+        return ch
 
 
 def test_idle_sounds_wait_for_quiet_and_space_out():
@@ -36,6 +44,8 @@ def test_idle_sounds_wait_for_quiet_and_space_out():
     assert len(bank.played) == 2 and bank.played[0] != bank.played[1]
     quiet["v"] = False; t["now"] += 25; idle.tick()      # someone talks: silence again
     assert len(bank.played) == 2
+    assert bank.channels[-1].faded == 250                # and the long purr fades out at once
+    quiet["v"] = True; idle.hush()                       # a reply starting hushes it too
 
 
 def test_idle_sounds_disabled_without_files():

@@ -36,6 +36,7 @@ class IdleSounds:
         self.played = 0
         self.last_name: Optional[str] = None
         self._quiet_since: Optional[float] = None
+        self._channel = None                      # the sound now playing, to stop it when the room wakes
         self._next_at = self.clock() + self._gap()
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -51,6 +52,7 @@ class IdleSounds:
         now = self.clock()
         if not self.is_quiet():
             self._quiet_since = None
+            self.hush()
             return None
         if self._quiet_since is None:
             self._quiet_since = now
@@ -59,11 +61,20 @@ class IdleSounds:
         names = [n for n in self.bank.names if n != self.last_name] or self.bank.names
         name = self.rng.choice(names)
         self._next_at = now + self._gap()
-        if self.bank.play(name):
+        channel = self.bank.play(name)
+        if channel:
+            self._channel = channel
             self.played += 1
             self.last_name = name
             return name
         return None
+
+    def hush(self, fade_ms: int = 250) -> None:
+        """Fade out whatever ambience is playing: someone spoke, or the character is about to."""
+        ch = self._channel
+        if ch is not None and getattr(ch, "get_busy", lambda: False)():
+            ch.fadeout(fade_ms)
+        self._channel = None
 
     # a small thread so voice_loop needs no timer of its own
     def start(self) -> None:
@@ -81,3 +92,4 @@ class IdleSounds:
 
     def stop(self) -> None:
         self._stop.set()
+        self.hush(50)

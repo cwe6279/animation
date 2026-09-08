@@ -143,11 +143,12 @@ class SoundBank:
                 return path
         return None
 
-    def play(self, name: str) -> bool:
+    def play(self, name: str):
+        """Start the sound; returns the mixer channel (truthy) or None."""
         path = self._path(name)
         if path is None:
             print(f"[sfx] no sound named '{name}' in {self.dir}")
-            return False
+            return None
         import pygame
         if self._ready is None:
             try:
@@ -158,14 +159,14 @@ class SoundBank:
                 print(f"[sfx] mixer unavailable: {e}")
                 self._ready = False
         if not self._ready:
-            return False
+            return None
         snd = self._cache.get(path)
         if snd is None:
             snd = pygame.mixer.Sound(path)
             self._cache[path] = snd
-        snd.play()
+        channel = snd.play()
         print(f"[sfx] {os.path.basename(path)}")
-        return True
+        return channel
 
     def handler(self) -> Handler:
         return lambda a: (self.play(a.name), None)[1]
