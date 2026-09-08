@@ -1003,38 +1003,51 @@ class AssetFaceRenderer:
 
     def _draw_grin(self, surf, mc, cx, cy, w, open_h) -> None:
         """A carved smile: corners turned up, a curved band at rest that opens from the
-        middle while speaking, with a few goofy square teeth left uncut."""
+        middle while speaking. The teeth are part of the cut line: the top edge steps
+        down and back up around each tooth left uncut, the bottom edge steps up, so the
+        light, the inner wall and the rim all follow one outline, as on a real pumpkin."""
         k = self._k
         lift = int(w * 0.28)                          # how far the corners rise (a wide carved grin)
         top_c = cy - int(6 * k) - int(open_h * 0.45)  # centre of the top edge
         bot_c = cy + int(w * 0.19) + int(open_h * 0.6)  # centre of the bottom edge: a fat crescent at rest
         base = cy - lift
 
-        def edge_y(u: float, centre: int) -> int:     # quadratic from corner to centre
+        def edge_y(x: float, centre: int) -> int:     # quadratic from corner to centre
+            u = (x - cx) / (w / 2)
             return int(base + (centre - base) * (1.0 - u * u))
 
-        n = 24
-        top = [(cx + int(u * w / 2), edge_y(u, top_c)) for u in (-1 + 2 * i / n for i in range(n + 1))]
-        bot = [(cx + int(u * w / 2), edge_y(u, bot_c)) for u in (-1 + 2 * i / n for i in range(n + 1))]
-        pts = top + list(reversed(bot))
-        self._draw_shape(surf, pts, mc.color, layers=5, spread=12, shadow_corner=bot[2])
-
-        # goofy teeth: (edge, position across the mouth -0.5..0.5, width as a fraction of w)
+        # teeth: (edge, position across the mouth -0.5..0.5, width as a fraction of w)
         layout = [("top", -0.22, 0.14), ("bottom", 0.11, 0.10), ("top", 0.06, 0.07),
                   ("bottom", -0.13, 0.08)][:max(0, mc.n_teeth)]
-        for edge, fx, fw in layout:
-            u = fx * 2
-            x = cx + int(fx * w)
-            tw = max(4, int(fw * w))
-            ty, by = edge_y(u, top_c), edge_y(u, bot_c)
-            th = int(min((by - ty) * 0.55, (26 + open_h * 0.35) * k))
-            if th < 3:
-                continue
-            # the tooth is uncut shell: dark, overlapping the edge so it joins the rim
-            r = pygame.Rect(x - tw // 2, ty - 2 if edge == "top" else by - th, tw, th + 2)
-            pygame.draw.rect(surf, mc.dark_color, r)
-            if self.manifest.glow_style == "inner" and self.manifest.rim_color is not None:
-                pygame.draw.rect(surf, self.manifest.rim_color[:3], r, 1)
+
+        def edge_path(edge: str, centre: int, other: int) -> List[Tuple[int, int]]:
+            """Left to right along one edge, detouring around each tooth on it."""
+            sign = 1 if edge == "top" else -1         # teeth hang down from the top, rise from the bottom
+            spans = sorted((cx + (fx - fw / 2) * w, cx + (fx + fw / 2) * w)
+                           for e, fx, fw in layout if e == edge)
+            pts: List[Tuple[int, int]] = []
+            x = cx - w / 2
+            step = w / 40.0
+            for x0, x1 in spans:
+                while x < x0:
+                    pts.append((int(x), edge_y(x, centre)))
+                    x += step
+                mid = (x0 + x1) / 2
+                band = abs(edge_y(mid, other) - edge_y(mid, centre))
+                th = int(min(band * 0.55, (26 + open_h * 0.35) * k))
+                y0, y1 = edge_y(x0, centre), edge_y(x1, centre)
+                pts += [(int(x0), y0), (int(x0), y0 + sign * th), (int(x1), y1 + sign * th), (int(x1), y1)]
+                x = x1 + step / 2
+            while x <= cx + w / 2:
+                pts.append((int(x), edge_y(x, centre)))
+                x += step
+            pts.append((cx + w // 2, base))
+            return pts
+
+        top = edge_path("top", top_c, bot_c)
+        bot = edge_path("bottom", bot_c, top_c)
+        pts = top + list(reversed(bot))
+        self._draw_shape(surf, pts, mc.color, layers=5, spread=12, shadow_corner=bot[2])
 
     def _draw_toothed(self, surf, mc, cx, cy, w, open_h, oa) -> None:
         teeth_h = int(32 * self._k * oa)
