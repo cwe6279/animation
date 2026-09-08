@@ -170,3 +170,17 @@ def test_trivial_deltas_are_dropped():
     assert _trivial_change("no change") and _trivial_change("No change.") and _trivial_change("")
     assert not _trivial_change("A child came in holding a red balloon.")
     assert not _trivial_change("The visitor is now wearing a maroon cap.")
+
+
+def test_readable_text_is_reported_once_when_it_appears():
+    """New legible text is a notice on its own; the same text is not repeated next look."""
+    replies = iter([{"state": "one adult", "changes": "an adult came in", "people": 1, "text": ""},
+                    {"state": "one adult holding a sign", "changes": "no change", "people": 1, "text": "FREE CANDY"},
+                    {"state": "one adult holding a sign", "changes": "no change", "people": 1, "text": "FREE CANDY"}])
+    notes = []
+    w = SceneWatcher(FakeSource(), lambda f, prev: next(replies), on_note=notes.append, signature=None)
+    w.observe_once()
+    w.observe_once()
+    assert len(notes) == 2 and 'Readable text: "FREE CANDY"' in w.context()
+    w.observe_once()
+    assert len(notes) == 2 and w.context() == ""        # same text again: nothing new to say

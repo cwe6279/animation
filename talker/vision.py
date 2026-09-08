@@ -38,6 +38,7 @@ Previous state of the scene, from your last look: {previous}
 
 Reply with JSON only:
 {{"changes": "<what is DIFFERENT from the previous state, in one or two short plain sentences: people arriving or leaving, an object now held up or shown (name it, colour, any text on it), a costume or hat change, a clear wave. Nothing that was already true. Small movements, hand or head position, posture or expression shifts are NOT changes. If nothing meaningful changed, exactly: no change>",
+ "text": "<any legible text or numbers in the frames, quoted exactly as written: signs, labels, name tags, a page or screen held up, a shirt, a clock, a number on a door or jersey. Include text that was already there. Empty string if none is readable; never guess at unreadable text>",
  "state": "<one line, at most 25 words: current scene summary to compare against next time>",
  "people": <integer>,
  "emergency": <true|false>,
@@ -51,6 +52,8 @@ class SceneNote:
     time: float                      # time.monotonic() when the burst was taken
     notes: str                       # one-line current state (the watcher's baseline)
     changes: str = ""                # what changed since the previous note ("" = nothing)
+    text: str = ""                   # legible text/numbers in view, quoted as written ("" = none)
+    text_new: bool = False           # that text was not readable on the previous look
     people: int = 0
     emergency: bool = False
     emergency_reason: str = ""
@@ -347,7 +350,12 @@ class SceneWatcher:
         if _trivial_change(changes):
             changes = ""
         state = str(data.get("state") or data.get("notes") or "").strip() or previous
-        note = SceneNote(time=self.clock(), notes=state, changes=changes,
+        text = str(data.get("text") or "").strip().strip('"')
+        if text.lower() in ("none", "no text", "n/a", "null"):
+            text = ""
+        last = self.latest()
+        text_new = bool(text) and text != (last.text if last else "")
+        note = SceneNote(time=self.clock(), notes=state, changes=changes, text=text, text_new=text_new,
                          people=int(data.get("people") or 0), emergency=bool(data.get("emergency")),
                          emergency_reason=str(data.get("emergency_reason") or ""),
                          wall_time=time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -356,8 +364,8 @@ class SceneWatcher:
         with self._lock:
             self._notes.append(note)
             del self._notes[:-self.keep]
-        if note.changes or note.emergency or previous == "":
-            self.on_note(note)           # the brain only hears about real changes
+        if note.changes or note.text_new or note.emergency or previous == "":
+            self.on_note(note)           # the brain only hears about real changes (new text counts)
         return note                      # frames go out of scope here: nothing kept
 
     def _call_describe(self, frames, previous: str) -> dict:
@@ -401,6 +409,8 @@ class SceneWatcher:
             return ""
         first_look = len(self._notes) == 1
         body = note.changes or (note.notes if first_look else "")
+        if note.text and (note.text_new or first_look):
+            body = (body + " " if body else "") + f'Readable text: "{note.text}".'
         if not body and not note.emergency:
             return ""
         s = body
