@@ -146,6 +146,7 @@ class FaceManifest:
     wake_words: List[str] = field(default_factory=list)   # wake mode: names that start a conversation
     sounds: str = "sounds"              # folder of sound effects next to face.json ({{sfx name}})
     body: Dict = field(default_factory=dict)   # {"moves": ["nod", ...]}: what {{move name}} may ask for
+    idle_sounds: Dict = field(default_factory=dict)   # {"interval": [30, 90], "quiet_for": 10}; files in sounds/idle/
     sleep_words: List[str] = field(default_factory=list)  # wake mode: short phrases that end it at once
 
     _KNOWN_TOP = {
@@ -153,7 +154,7 @@ class FaceManifest:
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
         "glow_style", "core_color", "rim_color", "light_offset", "cut_depth", "wall_color", "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
-        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words", "sounds", "body",
+        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words", "sounds", "body", "idle_sounds",
     }
     _KNOWN_EYE = {"image", "cx", "cy", "scale", "opacity"}
     _KNOWN_MOUTH = {"anchor_cx", "anchor_cy", "max_w", "min_w", "scale", "offset_x", "offset_y",
@@ -217,6 +218,7 @@ class FaceManifest:
         m.sleep_words = [str(w) for w in (d.get("sleep_words") or [])]
         m.sounds = str(d.get("sounds", m.sounds))
         m.body = dict(d.get("body") or {})
+        m.idle_sounds = dict(d.get("idle_sounds") or {})
         m.character   = str(d.get("character", ""))
 
         for side in ("eye_left", "eye_right"):

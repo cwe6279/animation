@@ -768,9 +768,26 @@ def main(argv=None) -> int:
         print(f"[mode] {'dormant, listening for ' + names if not loop.engaged else 'engaged; after ' + str(int(args.idle_timeout)) + 's of quiet, wakes on ' + names}")
     app.on_submit = loop.on_user_text        # typed text goes through Claude too
 
+    # ambience: files in sounds/idle/ play at random while nothing is happening
+    idle = None
+    if face_dir:
+        from .idle_sounds import IdleSounds
+        idle_bank = SoundBank(os.path.join(face_dir, m.sounds, "idle"))
+        if not idle_bank.names:                  # no idle/ subfolder: the sound effects double as ambience
+            idle_bank = sounds
+        if idle_bank.names:
+            cfg = m.idle_sounds or {}
+            pipeline_ = getattr(app, "pipeline", None)
+            idle = IdleSounds(idle_bank,
+                              is_quiet=lambda: not (pipeline_ is not None and pipeline_.is_busy) and not loop._thinking
+                              and not bool(getattr(stt, "speech_active", False)) and time.monotonic() - loop._last_busy > 3,
+                              interval=cfg.get("interval", (30, 90)), quiet_for=cfg.get("quiet_for", 10))
+            idle.start()
+            print(f"[idle] sounds every {idle.interval[0]:.0f}-{idle.interval[1]:.0f} s when quiet: {', '.join(idle_bank.names)}")
+
     panel = None
     if not args.no_web:
-        panel = _start_panel(args, p, loop, app, audio, stt, chat, backend, watcher, m, face_dir)
+        panel = _start_panel(args, p, loop, app, audio, stt, chat, backend, watcher, m, face_dir, idle)
 
     if stt is not None:
         try:
@@ -791,10 +808,12 @@ def main(argv=None) -> int:
             watcher.stop()
         if panel is not None:
             panel.stop()
+        if idle is not None:
+            idle.stop()
     return 0
 
 
-def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir):
+def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir, idle=None):
     """The control page: registers what it may read and change, then serves it."""
     from .web_panel import WebPanel
     panel = WebPanel(port=args.web_port)
@@ -854,6 +873,17 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("engaged", lambda: loop.engaged,
                   lambda v: loop.engage("panel") if v else loop.disengage("panel"),
                   "Wake mode: on = answering; off = dormant until a wake word.", kind="bool")
+    if idle is not None:
+        def set_gap(lo=None, hi=None):
+            a, b = idle.interval
+            a, b = (float(lo) if lo is not None else a), (float(hi) if hi is not None else b)
+            idle.interval = (min(a, b), max(a, b))
+        panel.tunable("idle_gap_min", lambda: idle.interval[0], lambda v: set_gap(lo=v),
+                      "Ambient sounds: shortest wait between two, in seconds.", kind="float", unit="s", lo=2, hi=3600)
+        panel.tunable("idle_gap_max", lambda: idle.interval[1], lambda v: set_gap(hi=v),
+                      "Ambient sounds: longest wait between two, in seconds.", kind="float", unit="s", lo=2, hi=3600)
+        panel.tunable("idle_quiet_for", lambda: idle.quiet_for, lambda v: setattr(idle, "quiet_for", float(v)),
+                      "Ambient sounds: how long the room must have been quiet before one plays.", kind="float", unit="s", lo=0, hi=600)
     panel.tunable("debug_overlay", lambda: app.debug, lambda v: setattr(app, "debug", v),
                   "Viseme, emotion, fps and timing overlay on the face window.", kind="bool", flag="--debug")
     if watcher is not None:

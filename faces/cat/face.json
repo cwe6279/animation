@@ -99,5 +99,12 @@
       0.4
     ],
     "lid_tracking": 0.35
+  },
+  "idle_sounds": {
+    "interval": [
+      25,
+      70
+    ],
+    "quiet_for": 10
   }
 }
