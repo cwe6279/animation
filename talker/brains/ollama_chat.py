@@ -39,7 +39,7 @@ class OllamaChat:
     def __init__(self, model: Optional[str] = None, character: Optional[str] = None,
                  host: Optional[str] = None, max_history: int = 20, temperature: float = 0.8,
                  can_see: bool = False, wake_mode: bool = False, keep_alive: str = "30m",
-                 extra_rules: str = ""):
+                 extra_rules: str = "", num_ctx: int = 8192):
         self.host = (host or os.environ.get("OLLAMA_HOST") or DEFAULT_HOST).rstrip("/")
         self.model = model or os.environ.get("OLLAMA_MODEL")
         if not self.model:
@@ -51,6 +51,7 @@ class OllamaChat:
         self.max_history = max_history
         self.temperature = temperature
         self.keep_alive = keep_alive          # keep the model loaded between turns
+        self.num_ctx = num_ctx
         self.system = (load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
                        + (WAKE_RULES if wake_mode else "") + extra_rules)
         if character:
@@ -72,35 +73,49 @@ class OllamaChat:
     def warm_up(self) -> None:
         """Load the model into memory now so the first reply is not slow."""
         try:
-            body = json.dumps({"model": self.model, "keep_alive": self.keep_alive}).encode()
+            body = json.dumps({"model": self.model, "keep_alive": self.keep_alive,
+                               "options": {"num_ctx": self.num_ctx}}).encode()
             req = urllib.request.Request(f"{self.host}/api/generate", data=body,
                                          headers={"Content-Type": "application/json"})
             urllib.request.urlopen(req, timeout=300).read()
         except Exception:
             pass
 
+    def _open(self, payload: dict):
+        """POST /api/chat. Models without a thinking mode reject the `think` field:
+        retry once without it (thinking stays off either way)."""
+        for attempt in (0, 1):
+            body = json.dumps(payload).encode()
+            req = urllib.request.Request(f"{self.host}/api/chat", data=body,
+                                         headers={"Content-Type": "application/json"})
+            try:
+                return urllib.request.urlopen(req, timeout=120)
+            except urllib.error.HTTPError as e:
+                msg = e.read().decode(errors="replace")[:300]
+                if attempt == 0 and "think" in msg.lower() and "think" in payload:
+                    payload = {k: v for k, v in payload.items() if k != "think"}
+                    continue
+                raise RuntimeError(f"Ollama {e.code}: {msg}")
+            except urllib.error.URLError as e:
+                raise RuntimeError(f"Ollama not reachable at {self.host}: {e.reason}")
+
     def reply(self, user_text: str) -> Iterator[str]:
         self._push_user(user_text)
         self.messages = self.messages[-self.max_history:]
-        body = json.dumps({
+        payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": self.system}] + self.messages,
             "stream": True,
-            "think": False,                                   # no reasoning pass: fast first token
+            "think": False,                                   # thinking always off: fast first token
             "keep_alive": self.keep_alive,
-            "options": {"temperature": self.temperature, "num_predict": 256},
-        }).encode()
-        req = urllib.request.Request(f"{self.host}/api/chat", data=body,
-                                     headers={"Content-Type": "application/json"})
+            # a spoken conversation never needs a long window; a small one is faster to
+            # allocate and keeps the server's huge default from costing memory per turn
+            "options": {"temperature": self.temperature, "num_predict": 256, "num_ctx": self.num_ctx},
+        }
         parts: List[str] = []
         in_think = False
         try:
-            try:
-                resp = urllib.request.urlopen(req, timeout=120)
-            except urllib.error.HTTPError as e:
-                raise RuntimeError(f"Ollama {e.code}: {e.read().decode(errors='replace')[:200]}")
-            except urllib.error.URLError as e:
-                raise RuntimeError(f"Ollama not reachable at {self.host}: {e.reason}")
+            resp = self._open(payload)
             with resp:
                 for raw in resp:
                     if not raw.strip():
