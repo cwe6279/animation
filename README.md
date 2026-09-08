@@ -674,6 +674,33 @@ Tweak `face.json` without re-exporting PNGs:
 - **`blink`** — enable/disable eye blink animation
 - **`draw_nose`** — enable procedural triangle nose (set false if using nose.png or no nose)
 
+### Local voices (offline TTS), measured
+
+`tools/bench_tts_local.py` runs nine open-source engines on the same sentences, CPU only, 4 threads
+each (a Pi 5 has 4 cores; expect roughly 3-4x these desktop times there), and saves the WAVs to
+`logs/tts_bench/` so you can listen. It needs its own Python 3.11 environment because most of these
+do not support 3.14: `uv venv --python 3.11 .bench-venv`, then install `piper-tts kokoro-onnx
+onnxruntime soundfile coqui-tts[codec] ChatTTS` and the MeloTTS git package (both gitignored).
+Desktop results, Ryzen AI MAX 395, September 2026 (`ttfa` = time to first audio, `rtf` = synthesis
+time / audio time, lower is better):
+
+| engine | load s | RAM MB | ttfa short | ttfa medium | rtf medium | rtf long | verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| **piper** | 0.9 | 342 | 19 ms | 25 ms | 0.02 | 0.01 | fastest neural voice by far; clear, a little flat; streams per sentence |
+| **kokoro** | 0.4 | 776 | 225 ms | 767 ms | 0.11 | 0.12 | best quality that still fits a Pi; streams per sentence |
+| melo | 6.7 | 2468 | 305 ms | 962 ms | 0.13 | 0.19 | Kokoro-class cost, older sound, 2.5 GB RAM |
+| vits | 16.5 | 1246 | 208 ms | 896 ms | 0.09 | 0.09 | one LJSpeech voice, decent |
+| tacotron2 | 8.3 | 1261 | 622 ms | 4519 ms | 0.26 | 0.25 | 2018-era; babbles on longer text |
+| xtts | 150 | 4370 | 3234 ms | 12501 ms | 1.33 | 1.38 | voice cloning; slower than real time on CPU |
+| chattts | 2.6 | 1858 | 3071 ms | 14309 ms | 1.84 | 1.91 | very natural; twice slower than real time on CPU |
+| flite | 0.0 | 41 | 23 ms | 56 ms | 0.01 | 0.01 | Festival family; instant, robotic |
+| espeak | 0.0 | 42 | 7 ms | 12 ms | 0.00 | 0.00 | instant, robotic, 100+ languages |
+
+Reading it for the Pi: anything with an rtf above about 0.3 here will not keep up there, which rules
+out XTTS, ChatTTS and Tacotron2. Piper and Kokoro are the two real candidates: Piper when the first
+word must come instantly, Kokoro when the voice matters more and 0.7-1 s before the first sentence
+is acceptable. None of them performs the `[tags]` ElevenLabs v3 does; the tags still drive the eyes.
+
 ### What's Optional
 
 Everything except `face.json` is optional. Missing features fall back to procedural:

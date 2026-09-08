@@ -49,3 +49,7 @@ logs/
 
 # Per-machine mic/speaker calibration (voice_loop.py --calibrate)
 calibration.json
+
+# local TTS benchmark environment (tools/bench_tts_local.py)
+.bench-venv/
+.bench-models/
