@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pygame
+from pygame import gfxdraw
 
 from .phoneme_scheduler import Emotion, VISEME_PROPS, Viseme
 
@@ -86,6 +87,15 @@ class FaceManifest:
     face_outline:      Tuple = (140, 60, 0)
     glow_color:        Tuple = (255, 160, 0)
     glow_intensity:    float = 1.0      # 0=no glow, 1=normal, 2=intense
+    # "halo": soft light spills outward around each cut-out (classic projection look).
+    # "inner": crisp cut edges lit from inside, a hot core fading to the edge colour,
+    #          like a candle behind a carved pumpkin. core_color defaults to the shape
+    #          colour pushed toward white; rim_color draws a thin cut-edge line;
+    #          light_offset moves the hot spot down (0.15 = a little below centre).
+    glow_style:   str = "halo"
+    core_color:   Optional[Tuple] = None
+    rim_color:    Optional[Tuple] = None
+    light_offset: float = 0.15
 
     eye_left:  EyeConfig = field(default_factory=EyeConfig)
     eye_right: EyeConfig = field(default_factory=EyeConfig)
@@ -134,7 +144,7 @@ class FaceManifest:
     _KNOWN_TOP = {
         "name", "description", "canvas_w", "canvas_h", "fps", "bg_color", "face_base",
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
-        "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
+        "glow_style", "core_color", "rim_color", "light_offset", "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
         "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words",
     }
@@ -165,6 +175,13 @@ class FaceManifest:
         m.face_outline = tuple(d.get("face_outline", m.face_outline))
         m.glow_color  = tuple(d.get("glow_color", m.glow_color))
         m.glow_intensity = float(d.get("glow_intensity", m.glow_intensity))
+        m.glow_style  = str(d.get("glow_style", m.glow_style)).lower()
+        if m.glow_style not in ("halo", "inner"):
+            print(f"[assets] warning: glow_style {m.glow_style!r} unknown, using 'halo'")
+            m.glow_style = "halo"
+        m.core_color  = tuple(d["core_color"]) if d.get("core_color") else None
+        m.rim_color   = tuple(d["rim_color"]) if d.get("rim_color") else None
+        m.light_offset = float(d.get("light_offset", m.light_offset))
         m.eye_color   = tuple(d.get("eye_color", m.eye_color))
         m.blink       = bool(d.get("blink", m.blink))
         m.draw_eyes   = bool(d.get("draw_eyes", m.draw_eyes))
@@ -502,6 +519,48 @@ def _polygon_glow(pts: List[Tuple[int, int]], color, layers: int, spread: float
     return gs, (x0, y0)
 
 
+def _lit_polygon(pts: List[Tuple[int, int]], edge_color, core_color, rim_color=None,
+                 light_offset: float = 0.15, falloff: float = 1.6
+                 ) -> Tuple[pygame.Surface, Tuple[int, int]]:
+    """A cut-out lit from inside: a radial gradient from a hot core to the edge
+    colour, clipped to the polygon with an anti-aliased (crisp) edge. Returns the
+    sprite and its blit origin. Small surfaces, so cheap enough per frame."""
+    x0 = int(min(p[0] for p in pts)) - 1
+    y0 = int(min(p[1] for p in pts)) - 1
+    w = int(max(p[0] for p in pts)) - x0 + 2
+    h = int(max(p[1] for p in pts)) - y0 + 2
+    w, h = max(2, w), max(2, h)
+    lx = sum(p[0] for p in pts) / len(pts)
+    ly = sum(p[1] for p in pts) / len(pts) + h * light_offset
+    rmax = max(1.0, max(math.hypot(x - lx, y - ly) for x, y in pts))
+    yy, xx = np.mgrid[0:h, 0:w]
+    d = np.hypot(xx + x0 - lx, yy + y0 - ly) / rmax
+    t = np.clip(1.0 - d, 0.0, 1.0) ** falloff                    # 1 at the core
+    e = np.array(edge_color[:3], dtype=np.float32)
+    c = np.array(core_color[:3], dtype=np.float32)
+    rgb = (e + (c - e) * t[..., None]).astype(np.uint8)          # (h, w, 3)
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    px = pygame.surfarray.pixels3d(surf)
+    px[...] = rgb.transpose(1, 0, 2)
+    del px
+    pa = pygame.surfarray.pixels_alpha(surf)
+    pa[...] = 255
+    del pa
+    local = [(x - x0, y - y0) for x, y in pts]
+    mask = pygame.Surface((w, h), pygame.SRCALPHA)
+    gfxdraw.filled_polygon(mask, local, (255, 255, 255, 255))
+    gfxdraw.aapolygon(mask, local, (255, 255, 255, 255))
+    surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    if rim_color is not None:
+        pygame.draw.polygon(surf, rim_color[:3], local, 2)
+        gfxdraw.aapolygon(surf, local, rim_color[:3])
+    return surf, (x0, y0)
+
+
+def _toward_white(color, amount: float = 0.8) -> Tuple[int, int, int]:
+    return tuple(int(c + (255 - c) * amount) for c in color[:3])
+
+
 def _shadow_sprite(color, radius: int = 44) -> pygame.Surface:
     """Soft radial blob used as a drop shadow; position-independent, so cached."""
     size = radius * 2 + 2
@@ -678,6 +737,13 @@ class AssetFaceRenderer:
             return
         gs, pos = _polygon_glow(pts, self.manifest.glow_color, layers, spread)
         surf.blit(gs, pos)
+
+    def _draw_lit(self, surf, pts, color) -> None:
+        """glow_style 'inner': crisp cut-out lit from within (no halo, no shadow)."""
+        m = self.manifest
+        core = m.core_color or _toward_white(color, min(1.0, 0.55 + 0.25 * m.glow_intensity))
+        sprite, pos = _lit_polygon(pts, color, core, m.rim_color, m.light_offset)
+        surf.blit(sprite, pos)
 
     def _draw_drop_shadow(self, surf, corner) -> None:
         r = self._shadow.get_width() // 2
@@ -856,6 +922,9 @@ class AssetFaceRenderer:
             cos_a, sin_a = math.cos(rad), math.sin(rad)
             pts = [(int(cx + (x - cx) * cos_a - (y - cy) * sin_a),
                     int(cy + (x - cx) * sin_a + (y - cy) * cos_a)) for x, y in pts]
+        if m.glow_style == "inner":
+            self._draw_lit(surf, pts, m.eye_color)
+            return
         self._draw_shape_glow(surf, pts, layers=6, spread=14)
         pygame.draw.polygon(surf, m.eye_color, pts)
         self._draw_drop_shadow(surf, pts[1])
@@ -886,6 +955,9 @@ class AssetFaceRenderer:
         if oa < 0.05:   # closed: thin bar
             pts = [(cx - w // 2, cy - 7), (cx + w // 2, cy - 7),
                    (cx + w // 2, cy + 7), (cx - w // 2, cy + 7)]
+            if self.manifest.glow_style == "inner":
+                self._draw_lit(surf, pts, mc.color)
+                return
             self._draw_shape_glow(surf, pts, layers=4, spread=10)
             pygame.draw.polygon(surf, mc.color, pts)
             self._draw_drop_shadow(surf, (cx - w // 2, cy + 7))
@@ -906,6 +978,9 @@ class AssetFaceRenderer:
             top_pts.append((x, cy - open_h // 2 + tooth))
             bot_pts.append((x, cy + open_h // 2 - tooth))
         all_pts = top_pts + list(reversed(bot_pts))
+        if self.manifest.glow_style == "inner":
+            self._draw_lit(surf, all_pts, mc.color)
+            return
         self._draw_shape_glow(surf, all_pts, layers=5, spread=12)
         pygame.draw.polygon(surf, mc.color, all_pts)
         self._draw_drop_shadow(surf, bot_pts[0])
@@ -915,6 +990,9 @@ class AssetFaceRenderer:
         oh = max(10, open_h)
         pts = [(int(cx + ow // 2 * math.cos(a)), int(cy + oh // 2 * math.sin(a)))
                for a in (2 * math.pi * i / 24 for i in range(24))]
+        if self.manifest.glow_style == "inner":
+            self._draw_lit(surf, pts, mc.color)
+            return
         self._draw_shape_glow(surf, pts, layers=5, spread=12)
         pygame.draw.ellipse(surf, mc.color, (cx - ow // 2, cy - oh // 2, ow, oh))
         self._draw_drop_shadow(surf, (cx - ow // 3, cy + oh // 3))

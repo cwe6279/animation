@@ -101,3 +101,21 @@ def test_eye_lids_mask_hides_more_as_lids_close():
         mask = r._lid_mask(120, 60, upper, lower, 0.0, 0.0, False, (0.1, 0.9))
         visible.append(120 * 60 if mask is None else int(pygame.surfarray.pixels_alpha(mask).astype(int).sum() / 255))
     assert visible[0] > visible[1] > visible[2] > visible[3]
+
+
+def test_inner_glow_is_crisp_and_lit_from_within():
+    """glow_style 'inner': nothing drawn outside the polygon, brighter core than edge."""
+    import os as _os
+    _os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    pygame.display.init(); pygame.display.set_mode((1, 1), pygame.HIDDEN)
+    from talker.face_asset_loader import _lit_polygon
+    pts = [(60, 0), (0, 100), (120, 100)]
+    sprite, (x0, y0) = _lit_polygon(pts, (255, 160, 0), (255, 255, 230), None, 0.15)
+    assert (x0, y0) == (-1, -1)
+    alpha = pygame.surfarray.pixels_alpha(sprite)
+    assert alpha[2, 2] == 0                       # outside the triangle: transparent, no halo
+    assert alpha[60 - x0, 90 - y0] == 255         # inside: opaque
+    core = sprite.get_at((60 - x0, 75 - y0))
+    edge = sprite.get_at((8 - x0, 98 - y0))
+    assert sum(core[:3]) > sum(edge[:3]) + 100    # lit from within

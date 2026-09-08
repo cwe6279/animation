@@ -1,6 +1,6 @@
 {
   "name": "pumpkin",
-  "description": "Classic Jack-o-lantern. Fully procedural \u2014 no art files needed.",
+  "description": "Classic Jack-o-lantern, cut-outs lit from inside. Fully procedural \u2014 no art files needed.",
   "canvas_w": 800,
   "canvas_h": 800,
   "bg_color": [
@@ -57,5 +57,12 @@
     ],
     "style": "toothed",
     "n_teeth": 5
-  }
+  },
+  "glow_style": "inner",
+  "rim_color": [
+    255,
+    120,
+    20
+  ],
+  "light_offset": 0.15
 }

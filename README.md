@@ -668,6 +668,7 @@ Tweak `face.json` without re-exporting PNGs:
   detected one is off. The cat's original art is converted in `faces/cat/eye_unwrapped/`; she currently uses the dragon design recoloured green.
 - **`textured_eye`** — live eyes composed from parts in a folder (`{"dir": "eye", "size": 224, "gaze_radius": 0.35, "pupil": [min, base, max], "lid_tracking": 0.35}`): the pupil and iris move inside a fixed outline on saccades, the pupil dilates with emotion, the upper lid follows the gaze, blinks close fast and open slow. Parts: `iris.png` (polar strip), `pupilMap.png`, `lid-upper.png`, `lid-lower.png`, optional `sclera.png` and `highlight.png`. Any Adafruit Uncanny Eyes design folder works as-is
 - **`glow_color`** — halo color around procedural shapes
+- **`glow_style`** — `halo` (default) spills soft light outward around each shape; `inner` keeps the cut edges crisp and lights them from inside, a hot core fading to the shape colour like a candle behind a carved pumpkin. `core_color` sets the hot spot (default: the shape colour pushed toward white), `rim_color` draws a thin cut-edge line, `light_offset` moves the hot spot down (0.15). The `pumpkin` face uses `inner`
 - **`blink`** — enable/disable eye blink animation
 - **`draw_nose`** — enable procedural triangle nose (set false if using nose.png or no nose)
 
