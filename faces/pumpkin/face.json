@@ -1,8 +1,8 @@
 {
   "name": "pumpkin",
-  "description": "Classic Jack-o-lantern, cut-outs lit from inside. Fully procedural \u2014 no art files needed.",
-  "canvas_w": 800,
-  "canvas_h": 800,
+  "description": "Classic Jack-o-lantern, cut-outs lit from inside, carved grin from a sketch. 16:9 canvas so it fills a projector. Fully procedural \u2014 no art files needed.",
+  "canvas_w": 1280,
+  "canvas_h": 720,
   "bg_color": [
     0,
     0,
@@ -30,21 +30,21 @@
     0
   ],
   "eye_left": {
-    "cx": 280,
-    "cy": 320
+    "cx": 450,
+    "cy": 225
   },
   "eye_right": {
-    "cx": 520,
-    "cy": 320
+    "cx": 830,
+    "cy": 225
   },
   "blink": true,
   "draw_nose": false,
   "draw_stem": false,
   "mouth": {
-    "anchor_cx": 400,
-    "anchor_cy": 540,
-    "max_w": 340,
-    "min_w": 250,
+    "anchor_cx": 640,
+    "anchor_cy": 500,
+    "max_w": 440,
+    "min_w": 340,
     "color": [
       255,
       190,
