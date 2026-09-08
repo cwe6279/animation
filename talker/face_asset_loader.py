@@ -59,7 +59,7 @@ class MouthConfig:
     # Procedural mouth (used when no mouth images are provided)
     color:      Tuple = (255, 200, 0)
     dark_color: Tuple = (10, 10, 10)
-    style:      str = "toothed"     # "toothed" | "rounded"
+    style:      str = "toothed"     # "toothed" | "rounded" | "grin" (carved smile, corners up, goofy teeth)
     n_teeth:    int = 5
 
 
@@ -96,6 +96,11 @@ class FaceManifest:
     core_color:   Optional[Tuple] = None
     rim_color:    Optional[Tuple] = None
     light_offset: float = 0.15
+    # inner style only: the cut has depth. The lit shape is inset by cut_depth px and the
+    # inner wall of the shell shows along the other side in wall_color (pale, lit yellow),
+    # which reads as 3D. [0, 0] turns it off.
+    cut_depth:    Tuple = (8, 6)
+    wall_color:   Tuple = (255, 238, 170)
 
     eye_left:  EyeConfig = field(default_factory=EyeConfig)
     eye_right: EyeConfig = field(default_factory=EyeConfig)
@@ -144,7 +149,7 @@ class FaceManifest:
     _KNOWN_TOP = {
         "name", "description", "canvas_w", "canvas_h", "fps", "bg_color", "face_base",
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
-        "glow_style", "core_color", "rim_color", "light_offset", "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
+        "glow_style", "core_color", "rim_color", "light_offset", "cut_depth", "wall_color", "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
         "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words",
     }
@@ -182,6 +187,8 @@ class FaceManifest:
         m.core_color  = tuple(d["core_color"]) if d.get("core_color") else None
         m.rim_color   = tuple(d["rim_color"]) if d.get("rim_color") else None
         m.light_offset = float(d.get("light_offset", m.light_offset))
+        m.cut_depth   = tuple(int(x) for x in d.get("cut_depth", m.cut_depth))
+        m.wall_color  = tuple(d.get("wall_color", m.wall_color))
         m.eye_color   = tuple(d.get("eye_color", m.eye_color))
         m.blink       = bool(d.get("blink", m.blink))
         m.draw_eyes   = bool(d.get("draw_eyes", m.draw_eyes))
@@ -520,7 +527,8 @@ def _polygon_glow(pts: List[Tuple[int, int]], color, layers: int, spread: float
 
 
 def _lit_polygon(pts: List[Tuple[int, int]], edge_color, core_color, rim_color=None,
-                 light_offset: float = 0.15, falloff: float = 1.6
+                 light_offset: float = 0.15, falloff: float = 1.6,
+                 cut_depth: Tuple[int, int] = (0, 0), wall_color=None
                  ) -> Tuple[pygame.Surface, Tuple[int, int]]:
     """A cut-out lit from inside: a radial gradient from a hot core to the edge
     colour, clipped to the polygon with an anti-aliased (crisp) edge. Returns the
@@ -551,8 +559,20 @@ def _lit_polygon(pts: List[Tuple[int, int]], edge_color, core_color, rim_color=N
     gfxdraw.filled_polygon(mask, local, (255, 255, 255, 255))
     gfxdraw.aapolygon(mask, local, (255, 255, 255, 255))
     surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    dx, dy = cut_depth
+    if (dx or dy) and wall_color is not None:
+        # inner wall: the part of the opening not covered by the shape shifted by the
+        # cut depth. Flat pale colour, like light on the thickness of the shell.
+        wall = mask.copy()
+        inset = pygame.Surface((w, h), pygame.SRCALPHA)
+        shifted = [(x + dx, y + dy) for x, y in local]
+        gfxdraw.filled_polygon(inset, shifted, (255, 255, 255, 255))
+        gfxdraw.aapolygon(inset, shifted, (255, 255, 255, 255))
+        wall.blit(inset, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
+        wall.fill((*wall_color[:3], 255), special_flags=pygame.BLEND_RGBA_MULT)
+        surf.blit(wall, (0, 0))
     if rim_color is not None:
-        pygame.draw.polygon(surf, rim_color[:3], local, 2)
+        pygame.draw.polygon(surf, rim_color[:3], local, 1)
         gfxdraw.aapolygon(surf, local, rim_color[:3])
     return surf, (x0, y0)
 
@@ -589,6 +609,7 @@ class AssetFaceRenderer:
         m = self.manifest
 
         # Smoothed mouth state
+        self._k = assets.manifest.canvas_w / 800.0   # procedural shapes scale with the canvas
         self._open = 0.0
         self._width_t = 0.8
         self._rounded_blend = 0.0
@@ -742,8 +763,20 @@ class AssetFaceRenderer:
         """glow_style 'inner': crisp cut-out lit from within (no halo, no shadow)."""
         m = self.manifest
         core = m.core_color or _toward_white(color, min(1.0, 0.55 + 0.25 * m.glow_intensity))
-        sprite, pos = _lit_polygon(pts, color, core, m.rim_color, m.light_offset)
+        depth = (int(round(m.cut_depth[0] * self._k)), int(round(m.cut_depth[1] * self._k)))
+        sprite, pos = _lit_polygon(pts, color, core, m.rim_color, m.light_offset,
+                                   cut_depth=depth, wall_color=m.wall_color)
         surf.blit(sprite, pos)
+
+    def _draw_shape(self, surf, pts, color, layers=5, spread=12, shadow_corner=None) -> None:
+        """A procedural cut-out in the face's glow style."""
+        if self.manifest.glow_style == "inner":
+            self._draw_lit(surf, pts, color)
+            return
+        self._draw_shape_glow(surf, pts, layers=layers, spread=int(spread * self._k))
+        pygame.draw.polygon(surf, color, pts)
+        if shadow_corner is not None:
+            self._draw_drop_shadow(surf, shadow_corner)
 
     def _draw_drop_shadow(self, surf, corner) -> None:
         r = self._shadow.get_width() // 2
@@ -911,7 +944,7 @@ class AssetFaceRenderer:
         m = self.manifest
         cx += int(round(self._gaze[0]))
         cy += int(round(self._gaze[1]))
-        ew, eh = 110, 100
+        ew, eh = int(110 * self._k), int(100 * self._k)
         blink_squish = 1.0 - self._blink_t * 0.97
         pulse = 1.0 + m.eye_speech_pulse * self._open
         eh_now = max(3, int(eh * blink_squish * self._eye_squish * pulse))
@@ -922,12 +955,7 @@ class AssetFaceRenderer:
             cos_a, sin_a = math.cos(rad), math.sin(rad)
             pts = [(int(cx + (x - cx) * cos_a - (y - cy) * sin_a),
                     int(cy + (x - cx) * sin_a + (y - cy) * cos_a)) for x, y in pts]
-        if m.glow_style == "inner":
-            self._draw_lit(surf, pts, m.eye_color)
-            return
-        self._draw_shape_glow(surf, pts, layers=6, spread=14)
-        pygame.draw.polygon(surf, m.eye_color, pts)
-        self._draw_drop_shadow(surf, pts[1])
+        self._draw_shape(surf, pts, m.eye_color, layers=6, spread=14, shadow_corner=pts[1])
 
     # ── Nose ─────────────────────────────────────────────
     def _draw_nose(self, surf) -> None:
@@ -949,27 +977,63 @@ class AssetFaceRenderer:
         mc = self.manifest.mouth
         cx, cy = mc.anchor_cx, mc.anchor_cy
         oa = self._open
+        k = self._k
         w = int(mc.min_w + (mc.max_w - mc.min_w) * self._width_t)
-        open_h = int(90 * oa)
-
-        if oa < 0.05:   # closed: thin bar
-            pts = [(cx - w // 2, cy - 7), (cx + w // 2, cy - 7),
-                   (cx + w // 2, cy + 7), (cx - w // 2, cy + 7)]
-            if self.manifest.glow_style == "inner":
-                self._draw_lit(surf, pts, mc.color)
-                return
-            self._draw_shape_glow(surf, pts, layers=4, spread=10)
-            pygame.draw.polygon(surf, mc.color, pts)
-            self._draw_drop_shadow(surf, (cx - w // 2, cy + 7))
-            return
+        open_h = int(90 * k * oa)
 
         if mc.style == "rounded" or self._rounded_blend >= 0.5:
-            self._draw_oval(surf, mc, cx, cy, w, open_h)
-        else:
+            if oa >= 0.05:
+                self._draw_oval(surf, mc, cx, cy, w, open_h)
+                return
+        elif mc.style == "grin":            # has its own closed shape
+            self._draw_grin(surf, mc, cx, cy, w, open_h)
+            return
+        elif oa >= 0.05:
             self._draw_toothed(surf, mc, cx, cy, w, open_h, oa)
+            return
+
+        t = int(7 * k)                      # closed: thin bar
+        pts = [(cx - w // 2, cy - t), (cx + w // 2, cy - t),
+               (cx + w // 2, cy + t), (cx - w // 2, cy + t)]
+        self._draw_shape(surf, pts, mc.color, layers=4, spread=10, shadow_corner=(cx - w // 2, cy + t))
+
+    def _draw_grin(self, surf, mc, cx, cy, w, open_h) -> None:
+        """A carved smile: corners turned up, a curved band at rest that opens from the
+        middle while speaking, with a few goofy square teeth left uncut."""
+        k = self._k
+        lift = int(w * 0.17)                          # how far the corners rise
+        top_c = cy - int(6 * k) - int(open_h * 0.45)  # centre of the top edge
+        bot_c = cy + int(40 * k) + int(open_h * 0.6)  # centre of the bottom edge
+        base = cy - lift
+
+        def edge_y(u: float, centre: int) -> int:     # quadratic from corner to centre
+            return int(base + (centre - base) * (1.0 - u * u))
+
+        n = 24
+        top = [(cx + int(u * w / 2), edge_y(u, top_c)) for u in (-1 + 2 * i / n for i in range(n + 1))]
+        bot = [(cx + int(u * w / 2), edge_y(u, bot_c)) for u in (-1 + 2 * i / n for i in range(n + 1))]
+        pts = top + list(reversed(bot))
+        self._draw_shape(surf, pts, mc.color, layers=5, spread=12, shadow_corner=bot[2])
+
+        # goofy teeth: (edge, position across the mouth -0.5..0.5, width as a fraction of w)
+        layout = [("top", -0.19, 0.15), ("bottom", 0.15, 0.13), ("top", 0.34, 0.10),
+                  ("bottom", -0.35, 0.08)][:max(0, mc.n_teeth)]
+        for edge, fx, fw in layout:
+            u = fx * 2
+            x = cx + int(fx * w)
+            tw = max(4, int(fw * w))
+            ty, by = edge_y(u, top_c), edge_y(u, bot_c)
+            th = int(min((by - ty) * 0.66, (22 + open_h * 0.35) * k))
+            if th < 3:
+                continue
+            # the tooth is uncut shell: dark, overlapping the edge so it joins the rim
+            r = pygame.Rect(x - tw // 2, ty - 2 if edge == "top" else by - th, tw, th + 2)
+            pygame.draw.rect(surf, mc.dark_color, r)
+            if self.manifest.glow_style == "inner" and self.manifest.rim_color is not None:
+                pygame.draw.rect(surf, self.manifest.rim_color[:3], r, 1)
 
     def _draw_toothed(self, surf, mc, cx, cy, w, open_h, oa) -> None:
-        teeth_h = int(32 * oa)
+        teeth_h = int(32 * self._k * oa)
         n = max(1, mc.n_teeth)
         top_pts, bot_pts = [], []
         for i in range(n * 2 + 1):
@@ -978,12 +1042,7 @@ class AssetFaceRenderer:
             top_pts.append((x, cy - open_h // 2 + tooth))
             bot_pts.append((x, cy + open_h // 2 - tooth))
         all_pts = top_pts + list(reversed(bot_pts))
-        if self.manifest.glow_style == "inner":
-            self._draw_lit(surf, all_pts, mc.color)
-            return
-        self._draw_shape_glow(surf, all_pts, layers=5, spread=12)
-        pygame.draw.polygon(surf, mc.color, all_pts)
-        self._draw_drop_shadow(surf, bot_pts[0])
+        self._draw_shape(surf, all_pts, mc.color, layers=5, spread=12, shadow_corner=bot_pts[0])
 
     def _draw_oval(self, surf, mc, cx, cy, w, open_h) -> None:
         ow = max(20, int(w * 0.52))
@@ -993,6 +1052,6 @@ class AssetFaceRenderer:
         if self.manifest.glow_style == "inner":
             self._draw_lit(surf, pts, mc.color)
             return
-        self._draw_shape_glow(surf, pts, layers=5, spread=12)
+        self._draw_shape_glow(surf, pts, layers=5, spread=int(12 * self._k))
         pygame.draw.ellipse(surf, mc.color, (cx - ow // 2, cy - oh // 2, ow, oh))
         self._draw_drop_shadow(surf, (cx - ow // 3, cy + oh // 3))

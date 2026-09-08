@@ -26,7 +26,7 @@
   "glow_intensity": 1.0,
   "eye_color": [
     255,
-    200,
+    190,
     0
   ],
   "eye_left": {
@@ -43,11 +43,11 @@
   "mouth": {
     "anchor_cx": 400,
     "anchor_cy": 540,
-    "max_w": 260,
-    "min_w": 160,
+    "max_w": 300,
+    "min_w": 220,
     "color": [
       255,
-      200,
+      190,
       0
     ],
     "dark_color": [
@@ -55,8 +55,8 @@
       10,
       10
     ],
-    "style": "toothed",
-    "n_teeth": 5
+    "style": "grin",
+    "n_teeth": 3
   },
   "glow_style": "inner",
   "rim_color": [
