@@ -580,8 +580,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "change; a still room is ~1%%, a person entering 10%%+). A refresh is forced every 90 s.")
     p.add_argument("--fixed-fps", action="store_true",
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
-    p.add_argument("--web-port", type=int, default=8001,
-                   help="Control page on this port (status, live tuning, setup tests, flag reference, Wi-Fi); default 8001")
+    p.add_argument("--web-port", type=int, default=8020,
+                   help="Control page on this port (status, live tuning, setup tests, flag reference, Wi-Fi); default 8020, the next free port if taken")
     p.add_argument("--no-web", action="store_true", help="Do not start the control page")
     return p
 

@@ -299,9 +299,9 @@ The pieces are independent: `VoiceLoop` (voice_loop.py) only needs an STT object
 a function that returns an iterator of reply text, and something with
 `speak_stream` / `interrupt` / `is_busy`. Swap any of them.
 
-### The control page (on by default, port 8001)
+### The control page (on by default, port 8020)
 
-Every run serves a small page at `http://<box>:8001` (`--web-port`, `--no-web`), standard library
+Every run serves a small page at `http://<box>:8020` (`--web-port`, `--no-web`; the next free port if that one is taken), standard library
 only, off the audio and render paths. From a phone or laptop on the same network:
 
 - **Status**: face, ears, brain, voice, the live mic level, speaking / thinking / dormant, the last

@@ -1,7 +1,8 @@
 """
 web_panel.py — a small control page for the running character.
 
-On by default at http://<this box>:8001 (voice_loop.py --web-port, --no-web).
+On by default at http://<this box>:8020 (voice_loop.py --web-port, --no-web);
+if that port is taken it walks up to the next free one and prints the URL.
 Standard library only, one daemon thread, nothing on the audio or render path:
 the page polls /api/state twice a second and the loop never waits for it.
 
@@ -35,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Deque, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-DEFAULT_PORT = 8001
+DEFAULT_PORT = 8020
 
 
 @dataclass
@@ -276,10 +277,15 @@ class WebPanel:
                 except Exception as e:
                     self._json({"error": f"{type(e).__name__}: {e}"}, 500)
 
-        try:
-            self._server = ThreadingHTTPServer((self.host, self.port), Handler)
-        except OSError as e:
-            print(f"[web] panel not started on port {self.port}: {e}")
+        self._server = None
+        for port in ([self.port] if self.port == 0 else range(self.port, self.port + 10)):
+            try:
+                self._server = ThreadingHTTPServer((self.host, port), Handler)
+                break
+            except OSError as e:
+                print(f"[web] port {port} is taken ({e.strerror or e}); trying the next")
+        if self._server is None:
+            print(f"[web] panel not started: no free port near {self.port}")
             return None
         self._server.daemon_threads = True
         self.port = self._server.server_address[1]          # port 0 = pick a free one (tests)

@@ -6,7 +6,7 @@
 #   journalctl -u talker -f            # the same log lines you see in a terminal
 #
 # Edit User, WorkingDirectory and the ExecStart flags for your box. The control
-# page is then at http://<pi>:8001 from any phone or laptop on the same network:
+# page is then at http://<pi>:8020 from any phone or laptop on the same network:
 # status, live tuning, the setup tests and calibration, the flag reference, Wi-Fi.
 # Keys come from .env in WorkingDirectory as usual. The graphical session must be
 # up for the face window; on Raspberry Pi OS with a desktop autologin, `graphical.target`
