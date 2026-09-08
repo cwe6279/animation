@@ -148,6 +148,7 @@
     <li><a href="#hardware">Hardware</a></li>
     <li><a href="#start">Starting it</a></li>
     <li><a href="#areas">Listening, vision, brain, speech</a></li>
+    <li><a href="#local">Going local</a></li>
     <li><a href="#faces">Character library</a></li>
     <li><a href="#new">Adding a character</a></li>
     <li><a href="#prompt">Prompt and tags</a></li>
@@ -176,8 +177,8 @@
   <div class="flow">
     <div class="step"><span class="where">local</span>Microphone capture, 16 kHz mono</div>
     <div class="step"><span class="where">local or cloud</span>Speech to text <br><code>--stt</code></div>
-    <div class="step cloud"><span class="where">cloud</span>Brain, streamed <br><code>--llm</code></div>
-    <div class="step cloud"><span class="where">cloud</span>Voice, sentence by sentence <br><code>--tts</code></div>
+    <div class="step cloud"><span class="where">cloud or local</span>Brain, streamed <br><code>--llm</code></div>
+    <div class="step cloud"><span class="where">cloud or local</span>Voice, sentence by sentence <br><code>--tts</code></div>
     <div class="step"><span class="where">local</span>Lip sync from word timings</div>
     <div class="step"><span class="where">local</span>Face render, 30 or 60 fps</div>
     <div class="step cloud"><span class="where">optional, cloud</span>Scene notes from the camera <br><code>--camera</code></div>
@@ -235,9 +236,49 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     <tr><td><strong>Listening</strong><br>speech to text</td><td><code>whisper</code>: local faster-whisper base.en, about 0.8 s after you stop</td><td><code>elevenlabs</code> Scribe realtime, cloud, about 0.5 s, the Pi choice<br><code>vosk</code> local and light<br><code>openai</code> cloud batch</td><td><code>--stt</code> <code>--silence-ms</code> <code>--mic-device</code></td><td>Whisper and Vosk: nothing<br>Scribe: ELEVENLABS_API_KEY<br>OpenAI: OPENAI_API_KEY</td></tr>
     <tr><td><strong>Vision</strong><br>camera</td><td><strong>Off.</strong> No camera opens without <code>--camera</code></td><td>On: 3 frames a burst every 9 s, described by Claude Haiku 4.5 only when the picture changed; inner observations reach the brain as deltas</td><td><code>--camera</code> <code>--no-vision</code> <code>--vision-interval</code> <code>--vision-frames</code> <code>--vision-change</code> <code>--vision-model</code></td><td>ANTHROPIC_API_KEY, opencv-python-headless</td></tr>
     <tr><td><strong>Brain</strong><br>the LLM</td><td><code>claude</code> Haiku 4.5, about 0.7 s to first token</td><td><code>--model claude-opus-5</code> best writing, about 2 s more per reply<br><code>--thinking</code> for deeper answers<br><code>--llm ollama --model &lt;name&gt;</code> a local model through Ollama, no key, thinking forced off (<code>--list-models</code> shows what is pulled)<br><code>--llm openai</code> for comparison</td><td><code>--llm</code> <code>--model</code> <code>--effort</code> <code>--thinking</code> <code>--character</code> <code>--ollama-host</code></td><td>ANTHROPIC_API_KEY, workspace-scoped and prepaid<br>Ollama: nothing, a running server<br>OPENAI_API_KEY</td></tr>
-    <tr><td><strong>Speech</strong><br>text to speech</td><td><code>elevenlabs</code> v3 when the key is set: performs [tags], about 1 s to first audio; otherwise <code>edge</code>, free</td><td><code>--tts-model flash</code> about 0.25 s, tags stripped<br><code>fish</code> Fish Audio voices<br><code>edge</code> free</td><td><code>--tts</code> <code>--tts-model</code> <code>--voice</code> <code>--voice-speed</code> <code>--output-device</code></td><td>ElevenLabs: ELEVENLABS_API_KEY<br>Fish: FISH_AUDIO_API_KEY<br>edge: nothing</td></tr>
+    <tr><td><strong>Speech</strong><br>text to speech</td><td><code>elevenlabs</code> v3 when the key is set: performs [tags], about 1 s to first audio; otherwise <code>edge</code>, free</td><td><code>--tts-model flash</code> about 0.25 s, tags stripped<br><code>piper</code> local and offline, about 25 ms, tags stripped<br><code>fish</code> Fish Audio voices<br><code>edge</code> free</td><td><code>--tts</code> <code>--tts-model</code> <code>--voice</code> <code>--voice-speed</code> <code>--output-device</code></td><td>ElevenLabs: ELEVENLABS_API_KEY<br>Fish: FISH_AUDIO_API_KEY<br>edge: nothing</td></tr>
   </table></div>
   <p>Per face, <code>face.json</code> fixes the voice (<code>voices</code>), the ElevenLabs model (<code>tts_model</code>) and the wake words; the personality lives in <code>character.md</code>. <code>--profile pi</code> picks the cloud choices for a Raspberry Pi in one flag.</p>
+</section>
+
+<section id="local">
+  <div class="eyebrow">Latency <span class="file">tools/bench_e2e.py · tools/bench_tts_local.py</span></div>
+  <h2>Going local: where the milliseconds go</h2>
+  <p>Every stage can run on the box or in the cloud, and what a listener waits is the sum of the stages on the critical path. Pick per stage. Desktop numbers, September 2026; a Pi 5 runs the local rows three to four times slower and the cloud rows the same.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Stage</th><th>Cloud</th><th>Local</th><th>On the critical path</th></tr>
+    <tr><td>Listening</td><td>ElevenLabs Scribe realtime, about 0.5 s after you stop</td><td>faster-whisper base.en, about 0.2 s after the silence gate</td><td>The <code>--silence-ms</code> gate (600 ms) is the largest fixed cost of a turn. 400 is snappier; 300 starts cutting pauses.</td></tr>
+    <tr><td>Brain</td><td>Claude Haiku 4.5, about 650 ms to first token; Opus about 950</td><td>Ollama: qwen3:8b about 220 ms on a desktop GPU. Hybrid-attention families (Qwen 3.5/3.8, Gemma) cannot reuse the prompt cache, so every turn re-reads the prompt: about 700 ms with multi-second outliers.</td><td>The first <em>sentence</em> gates the voice, so a brain that opens short wins. Thinking is always off; it adds about a second.</td></tr>
+    <tr><td>Voice</td><td>ElevenLabs flash 250 to 400 ms; v3 about 1 s and performs the tags</td><td>Piper about 25 ms; Kokoro about 0.8 s for the first sentence, better voice</td><td>Piper is the only voice that adds nothing you can hear.</td></tr>
+    <tr><td>Vision</td><td>Claude Haiku, about 2.2 s per look</td><td>Gemma 4 31B through Ollama, about 10 s per look, sharing the GPU with the brain</td><td>Off the critical path either way. Keep it in the cloud.</td></tr>
+  </table></div>
+  <h3>Question in, voice out, measured</h3>
+  <p>Same four questions through real pairs, timed from the moment the transcript reaches the brain. Speech to text is left out: it is the same local Whisper in every pair.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Pair</th><th class="num">First token</th><th class="num">First audio</th><th class="num">Reply synthesized</th></tr>
+    <tr><td>Claude Haiku + ElevenLabs flash</td><td class="num">682 ms</td><td class="num">1098 ms</td><td class="num">1754 ms</td></tr>
+    <tr><td>Ollama qwen3:8b + Piper, all local</td><td class="num">231 ms</td><td class="num">840 ms</td><td class="num">1339 ms</td></tr>
+    <tr><td>Claude Haiku + Piper</td><td class="num">637 ms</td><td class="num">999 ms</td><td class="num">1434 ms</td></tr>
+    <tr><td>Ollama + ElevenLabs flash</td><td class="num">442 ms</td><td class="num">894 ms</td><td class="num">1164 ms</td></tr>
+  </table></div>
+  <h3>Recommended stacks</h3>
+  <ul>
+    <li><strong>Desktop, fastest with a good voice:</strong> Whisper + Claude Haiku + ElevenLabs flash, or <code>--tts piper</code> to drop the voice's network round trip. About 1.0 to 1.1 s from transcript to first audio.</li>
+    <li><strong>Desktop, everything local, no keys:</strong> Whisper + <code>--llm ollama --model qwen3:8b</code> + <code>--tts piper</code>. About 0.75 s to first audio, the fastest pair measured, with a plainer voice and a smaller brain. Choose a standard-attention model so the prompt cache holds.</li>
+    <li><strong>Desktop, best performance:</strong> Claude Haiku (Opus for the writing) + ElevenLabs v3. Tags are performed, eyes and voice agree, about 1.7 s to first audio.</li>
+    <li><strong>Pi 5 kiosk:</strong> <code>--profile pi</code> (Scribe realtime + Claude Haiku) with <code>--tts piper</code> for an instant offline voice, or ElevenLabs flash when the voice matters more. A local brain on the Pi is untested and would be several seconds per reply; leave it in the cloud.</li>
+  </ul>
+  <h3>Offline voices, measured</h3>
+  <p>Nine open-source engines on the same sentences, CPU only, 4 threads each. Piper and Kokoro are the two that fit a Pi; XTTS, ChatTTS and Tacotron 2 run slower than real time on CPU.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Engine</th><th class="num">Model</th><th class="num">RAM</th><th class="num">First audio, short</th><th class="num">rtf</th><th>Verdict</th></tr>
+    <tr><td>piper (hfc_female-medium)</td><td class="num">60 MB</td><td class="num">342 MB</td><td class="num">20 ms</td><td class="num">0.02</td><td>the default local voice: instant, clear, a little flat</td></tr>
+    <tr><td>piper (ryan-high, lessac-high)</td><td class="num">110 MB</td><td class="num">400 MB</td><td class="num">80 to 100 ms</td><td class="num">0.07</td><td>more natural, still cheap</td></tr>
+    <tr><td>kokoro</td><td class="num">330 MB</td><td class="num">776 MB</td><td class="num">225 ms</td><td class="num">0.12</td><td>best quality that fits a Pi</td></tr>
+    <tr><td>melo, vits</td><td class="num">100 to 200 MB</td><td class="num">1.2 to 2.5 GB</td><td class="num">200 to 300 ms</td><td class="num">0.09 to 0.13</td><td>no advantage over Kokoro</td></tr>
+    <tr><td>xtts, chattts, tacotron2</td><td class="num"></td><td class="num">1.3 to 4.4 GB</td><td class="num">0.6 to 3 s</td><td class="num">0.25 to 1.9</td><td>too slow on CPU</td></tr>
+    <tr><td>espeak, flite</td><td class="num"></td><td class="num">40 MB</td><td class="num">under 60 ms</td><td class="num">0.01</td><td>robotic; last-resort fallback</td></tr>
+  </table></div>
 </section>
 
 <section id="faces">

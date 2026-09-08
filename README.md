@@ -436,6 +436,82 @@ warm connection.
 | `elevenlabs` eleven_v3 (default) | ~0.8–0.9 s | yes | per character |
 | `elevenlabs --tts-model eleven_flash_v2_5` | ~0.25 s | no (stripped) | per character |
 | `edge` (free) | ~0.2–0.5 s | no (stripped) | per word |
+| `piper` (local, offline) | ~25 ms after the sentence | no (stripped) | per phoneme, from the model |
+
+### Going local: where the milliseconds go
+
+Every stage can run on the box or in the cloud. What a listener waits is the sum of the
+stages on the critical path, so pick per stage. Measured on the desktop above (September 2026);
+a Pi 5 runs the local rows 3-4x slower, the cloud rows the same.
+
+| stage | cloud option | local option | what it costs on the critical path |
+|---|---|---|---|
+| listening | ElevenLabs Scribe realtime, ~0.5 s after you stop | faster-whisper base.en, ~0.2 s after the silence gate (~0.8 s total) | the `--silence-ms` gate (600) is the largest fixed cost of the turn; 400 is snappier, 300 cuts pauses |
+| brain | Claude Haiku 4.5, ~650 ms to first token; Opus ~950 | Ollama: qwen3:8b ~220 ms on a desktop GPU; a 27-35B model 400-450 ms, and hybrid-attention families (Qwen 3.5/3.8, Gemma) cannot reuse the prompt cache so every turn re-reads the prompt (~700 ms, with multi-second outliers) | the first *sentence* gates the voice, so a brain that opens short wins; thinking is always off (adds ~1 s) |
+| voice | ElevenLabs flash ~250-400 ms, v3 ~1 s (performs [tags]) | Piper ~25 ms; Kokoro ~0.8 s for the first sentence (better voice) | Piper is the only voice that adds nothing you can hear |
+| vision (optional) | Claude Haiku, ~2.2 s per look, off the critical path | Gemma 4 31B via Ollama, ~10 s per look and it shares the GPU with the brain | keep it in the cloud; it runs between turns, never in front of a reply |
+
+**Recommended stacks**
+
+- **Desktop, fastest with a good voice:** Whisper + Claude Haiku + ElevenLabs flash, or `--tts piper` to
+  drop the voice's network round trip. About 1.0-1.1 s from transcript to first audio.
+- **Desktop, everything local, no keys:** Whisper + `--llm ollama --model qwen3:8b` + `--tts piper`.
+  About 0.75 s from transcript to first audio, the fastest pair measured, at the price of a plainer
+  voice and a smaller brain. Choose a standard-attention model so the prompt cache holds.
+- **Desktop, best performance:** Claude Haiku (or Opus for the writing) + ElevenLabs v3. The tags are
+  performed, the eyes and the voice agree, and you pay ~1.7 s to first audio.
+- **Pi 5 kiosk:** `--profile pi` (Scribe realtime + Claude Haiku) with `--tts piper` for an instant,
+  offline voice, or ElevenLabs flash when the voice matters more. A local brain on the Pi is
+  untested and would be several seconds per reply; leave the brain in the cloud.
+
+Measured with `tools/bench_e2e.py` (brain + voice pairs, below), `tools/bench_tts_local.py`
+(nine offline voices, below), `tools/bench_stt.py` and `tools/bench_llm.py` (above).
+
+### Local voices (offline TTS), measured
+
+`tools/bench_tts_local.py` runs nine open-source engines on the same sentences, CPU only, 4 threads
+each (a Pi 5 has 4 cores; expect roughly 3-4x these desktop times there), and saves the WAVs to
+`logs/tts_bench/` so you can listen. It needs its own Python 3.11 environment because most of these
+do not support 3.14: `uv venv --python 3.11 .bench-venv`, then install `piper-tts kokoro-onnx
+onnxruntime soundfile coqui-tts[codec] ChatTTS` and the MeloTTS git package (both gitignored).
+Desktop results, Ryzen AI MAX 395, September 2026 (`ttfa` = time to first audio, `rtf` = synthesis
+time / audio time, lower is better):
+
+| engine | load s | RAM MB | ttfa short | ttfa medium | rtf medium | rtf long | verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| **piper** | 0.9 | 342 | 19 ms | 25 ms | 0.02 | 0.01 | fastest neural voice by far; clear, a little flat; streams per sentence |
+| **kokoro** | 0.4 | 776 | 225 ms | 767 ms | 0.11 | 0.12 | best quality that still fits a Pi; streams per sentence |
+| melo | 6.7 | 2468 | 305 ms | 962 ms | 0.13 | 0.19 | Kokoro-class cost, older sound, 2.5 GB RAM |
+| vits | 16.5 | 1246 | 208 ms | 896 ms | 0.09 | 0.09 | one LJSpeech voice, decent |
+| tacotron2 | 8.3 | 1261 | 622 ms | 4519 ms | 0.26 | 0.25 | 2018-era; babbles on longer text |
+| xtts | 150 | 4370 | 3234 ms | 12501 ms | 1.33 | 1.38 | voice cloning; slower than real time on CPU |
+| chattts | 2.6 | 1858 | 3071 ms | 14309 ms | 1.84 | 1.91 | very natural; twice slower than real time on CPU |
+| flite | 0.0 | 41 | 23 ms | 56 ms | 0.01 | 0.01 | Festival family; instant, robotic |
+| espeak | 0.0 | 42 | 7 ms | 12 ms | 0.00 | 0.00 | instant, robotic, 100+ languages |
+
+Reading it for the Pi: anything with an rtf above about 0.3 here will not keep up there, which rules
+out XTTS, ChatTTS and Tacotron2. Piper and Kokoro are the two real candidates: Piper when the first
+word must come instantly, Kokoro when the voice matters more and 0.7-1 s before the first sentence
+is acceptable. None of them performs the `[tags]` ElevenLabs v3 does; the tags still drive the eyes.
+
+### Question in, voice out: local vs cloud, measured
+
+`tools/bench_e2e.py` runs the same questions through real brain + voice pairs and times what a
+listener waits from the moment the transcript reaches the brain (speech-to-text is the same local
+Whisper in every pair, so it is left out). Desktop, September 2026, medians over four questions:
+
+| pair | brain | voice | first token | first audio | reply synthesized |
+|---|---|---|---:|---:|---:|
+| cloud | claude-haiku-4-5 | ElevenLabs flash | 682 ms | 1098 ms | 1754 ms |
+| local | Ollama, 35B on a desktop GPU | Piper | 426 ms | 763 ms | 1002 ms |
+| cloud brain, local voice | claude-haiku-4-5 | Piper | 637 ms | 999 ms | 1434 ms |
+| local brain, cloud voice | Ollama | ElevenLabs flash | 442 ms | 894 ms | 1164 ms |
+
+What it says: the wait to first audio is mostly the brain writing its first sentence; the voice
+adds about 25 ms with Piper and 300-400 ms with ElevenLabs flash. On a Pi the brain stays in the
+cloud (a 35B model needs a desktop GPU), so the realistic Pi pairs are the two Claude rows: Piper
+takes roughly 100-300 ms off first audio and removes the network from the voice entirely, at the
+price of a plainer voice and no performed tags.
 
 ### Using it from Python
 
@@ -675,52 +751,6 @@ Tweak `face.json` without re-exporting PNGs:
 - **`mouth.style`** — `toothed` (zigzag), `rounded` (oval), or `grin`: a carved smile with the corners turned up that stays as a curved band at rest and opens from the middle while speaking, with up to four goofy square teeth (`n_teeth`). Procedural shapes scale with `canvas_w`, so a face can be set to the projector's resolution (e.g. 1080) for pixel-exact edges in fullscreen
 - **`blink`** — enable/disable eye blink animation
 - **`draw_nose`** — enable procedural triangle nose (set false if using nose.png or no nose)
-
-### Local voices (offline TTS), measured
-
-`tools/bench_tts_local.py` runs nine open-source engines on the same sentences, CPU only, 4 threads
-each (a Pi 5 has 4 cores; expect roughly 3-4x these desktop times there), and saves the WAVs to
-`logs/tts_bench/` so you can listen. It needs its own Python 3.11 environment because most of these
-do not support 3.14: `uv venv --python 3.11 .bench-venv`, then install `piper-tts kokoro-onnx
-onnxruntime soundfile coqui-tts[codec] ChatTTS` and the MeloTTS git package (both gitignored).
-Desktop results, Ryzen AI MAX 395, September 2026 (`ttfa` = time to first audio, `rtf` = synthesis
-time / audio time, lower is better):
-
-| engine | load s | RAM MB | ttfa short | ttfa medium | rtf medium | rtf long | verdict |
-|---|---:|---:|---:|---:|---:|---:|---|
-| **piper** | 0.9 | 342 | 19 ms | 25 ms | 0.02 | 0.01 | fastest neural voice by far; clear, a little flat; streams per sentence |
-| **kokoro** | 0.4 | 776 | 225 ms | 767 ms | 0.11 | 0.12 | best quality that still fits a Pi; streams per sentence |
-| melo | 6.7 | 2468 | 305 ms | 962 ms | 0.13 | 0.19 | Kokoro-class cost, older sound, 2.5 GB RAM |
-| vits | 16.5 | 1246 | 208 ms | 896 ms | 0.09 | 0.09 | one LJSpeech voice, decent |
-| tacotron2 | 8.3 | 1261 | 622 ms | 4519 ms | 0.26 | 0.25 | 2018-era; babbles on longer text |
-| xtts | 150 | 4370 | 3234 ms | 12501 ms | 1.33 | 1.38 | voice cloning; slower than real time on CPU |
-| chattts | 2.6 | 1858 | 3071 ms | 14309 ms | 1.84 | 1.91 | very natural; twice slower than real time on CPU |
-| flite | 0.0 | 41 | 23 ms | 56 ms | 0.01 | 0.01 | Festival family; instant, robotic |
-| espeak | 0.0 | 42 | 7 ms | 12 ms | 0.00 | 0.00 | instant, robotic, 100+ languages |
-
-Reading it for the Pi: anything with an rtf above about 0.3 here will not keep up there, which rules
-out XTTS, ChatTTS and Tacotron2. Piper and Kokoro are the two real candidates: Piper when the first
-word must come instantly, Kokoro when the voice matters more and 0.7-1 s before the first sentence
-is acceptable. None of them performs the `[tags]` ElevenLabs v3 does; the tags still drive the eyes.
-
-### Question in, voice out: local vs cloud, measured
-
-`tools/bench_e2e.py` runs the same questions through real brain + voice pairs and times what a
-listener waits from the moment the transcript reaches the brain (speech-to-text is the same local
-Whisper in every pair, so it is left out). Desktop, September 2026, medians over four questions:
-
-| pair | brain | voice | first token | first audio | reply synthesized |
-|---|---|---|---:|---:|---:|
-| cloud | claude-haiku-4-5 | ElevenLabs flash | 682 ms | 1098 ms | 1754 ms |
-| local | Ollama, 35B on a desktop GPU | Piper | 426 ms | 763 ms | 1002 ms |
-| cloud brain, local voice | claude-haiku-4-5 | Piper | 637 ms | 999 ms | 1434 ms |
-| local brain, cloud voice | Ollama | ElevenLabs flash | 442 ms | 894 ms | 1164 ms |
-
-What it says: the wait to first audio is mostly the brain writing its first sentence; the voice
-adds about 25 ms with Piper and 300-400 ms with ElevenLabs flash. On a Pi the brain stays in the
-cloud (a 35B model needs a desktop GPU), so the realistic Pi pairs are the two Claude rows: Piper
-takes roughly 100-300 ms off first audio and removes the network from the voice entirely, at the
-price of a plainer voice and no performed tags.
 
 ### What's Optional
 
