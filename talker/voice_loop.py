@@ -641,6 +641,17 @@ def main(argv=None) -> int:
     tts_model = args.tts_model or m.tts_model or ("eleven_v3" if args.tts == "elevenlabs" else None)
     character = args.character or m.character or None
     speed = args.voice_speed or m.voice_speed
+
+    # Actions the brain may write next to its speech ({{move nod}}, {{sfx creak}},
+    # {{tool ...}}); it is only told about the ones this face has.
+    from .actions import ActionDispatcher, SoundBank, ToolBox, action_rules
+    from .body import NullBody
+    sounds = SoundBank(os.path.join(face_dir, m.sounds) if face_dir else None)
+    body = NullBody((m.body or {}).get("moves", []))
+    tools = ToolBox()
+    extra_rules = action_rules(body.moves, sounds.names, tools.describe())
+    if extra_rules:
+        print(f"[voice] actions: moves={body.moves or '-'} sounds={sounds.names or '-'} tools={tools.names or '-'}")
     try:
         backend = make_backend(args.tts, voice=voice, model=tts_model, speed=speed)
     except Exception as e:
@@ -656,20 +667,27 @@ def main(argv=None) -> int:
                       else (m.wake_words or [m.name.replace("_", " ")]))
     if args.llm == "claude":
         chat = ClaudeChat(model=args.model or "claude-haiku-4-5", effort=args.effort, character=character,
-                          thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words))
+                          thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words),
+                          extra_rules=extra_rules)
     elif args.llm == "ollama":
         from .brains.ollama_chat import OllamaChat
         chat = OllamaChat(model=args.model, character=character, host=args.ollama_host,
-                          can_see=can_see, wake_mode=bool(wake_words))
+                          can_see=can_see, wake_mode=bool(wake_words), extra_rules=extra_rules)
         print(f"[voice] loading {chat.model} on {chat.host} ...")
         chat.warm_up()                       # load the weights now, not on the first question
     else:
         from .brains.openai_compat_chat import OpenAICompatChat
         chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see,
-                                       wake_mode=bool(wake_words))
+                                       wake_mode=bool(wake_words), extra_rules=extra_rules)
     print(f"[voice] brain: {args.llm} {chat.model}{' (told it can see)' if can_see else ''}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps)
+    actions = ActionDispatcher(on_result=lambda a, r: chat.add_context(f"the {a.name} tool answered: {r}"))
+    actions.register("move", body.handler())
+    actions.register("sfx", sounds.handler())
+    actions.register("tool", tools.handler())
+    if getattr(app, "pipeline", None) is not None:
+        app.pipeline.on_action = actions.dispatch
 
     stt = None
     if not text_only:

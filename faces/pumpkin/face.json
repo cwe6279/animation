@@ -64,5 +64,12 @@
     120,
     20
   ],
-  "light_offset": 0.15
+  "light_offset": 0.15,
+  "body": {
+    "moves": [
+      "nod",
+      "shake",
+      "wiggle"
+    ]
+  }
 }

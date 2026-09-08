@@ -69,13 +69,13 @@ class ClaudeChat:
     def __init__(self, model: str = "claude-opus-5", effort: str = "low",
                  character: Optional[str] = None, max_history: int = 20,
                  client: Optional[anthropic.Anthropic] = None, thinking: bool = True,
-                 can_see: bool = False, wake_mode: bool = False):
+                 can_see: bool = False, wake_mode: bool = False, extra_rules: str = ""):
         self.model = model
         self.effort = effort
         self.thinking = thinking     # False = no reasoning pass before answering (faster first token)
         self.max_history = max_history
         self.system = (load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
-                       + (WAKE_RULES if wake_mode else ""))
+                       + (WAKE_RULES if wake_mode else "") + extra_rules)
         if character:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []

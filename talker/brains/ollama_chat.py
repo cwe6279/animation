@@ -38,7 +38,8 @@ class OllamaChat:
 
     def __init__(self, model: Optional[str] = None, character: Optional[str] = None,
                  host: Optional[str] = None, max_history: int = 20, temperature: float = 0.8,
-                 can_see: bool = False, wake_mode: bool = False, keep_alive: str = "30m"):
+                 can_see: bool = False, wake_mode: bool = False, keep_alive: str = "30m",
+                 extra_rules: str = ""):
         self.host = (host or os.environ.get("OLLAMA_HOST") or DEFAULT_HOST).rstrip("/")
         self.model = model or os.environ.get("OLLAMA_MODEL")
         if not self.model:
@@ -51,7 +52,7 @@ class OllamaChat:
         self.temperature = temperature
         self.keep_alive = keep_alive          # keep the model loaded between turns
         self.system = (load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
-                       + (WAKE_RULES if wake_mode else ""))
+                       + (WAKE_RULES if wake_mode else "") + extra_rules)
         if character:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []

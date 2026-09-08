@@ -34,6 +34,7 @@ import time
 import traceback
 from typing import Callable, Iterable, List, Optional, Tuple
 
+from .actions import Action, parse_actions
 from .audio_engine import BaseAudioEngine
 from .phoneme_scheduler import (
     Emotion, EmotionEvent, ScheduleReader, SentenceSplitter,
@@ -57,6 +58,9 @@ class SpeechPipeline:
         self.backend = backend
         self.lead = lead_seconds
         self.on_error = on_error or (lambda msg: print(f"[speech] {msg}"))
+        # {{move nod}} / {{sfx creak}} / {{tool ...}} blocks in the text: stripped with the
+        # emotion tags and fired at the moment the words before them are spoken.
+        self.on_action: Optional[Callable[[Action], None]] = None
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -193,6 +197,8 @@ class SpeechPipeline:
         t_request = time.monotonic()
         clean_sentences: asyncio.Queue = asyncio.Queue()
         tags: List[Tuple[int, Emotion]] = []      # (session word index, emotion)
+        actions: List[Tuple[int, Action]] = []    # (session word index, action block)
+        action_handles: List[asyncio.TimerHandle] = []
         words_in_text = 0
         pending_words: List[WordBoundary] = []
         session_start: Optional[float] = None
@@ -209,6 +215,9 @@ class SpeechPipeline:
                     text_done = True
                     await clean_sentences.put(END_OF_TEXT)
                     return
+                s, sentence_actions = parse_actions(s)
+                for idx, act in sentence_actions:
+                    actions.append((words_in_text + idx, act))
                 clean, voiced, sentence_tags = parse_tags(s)
                 for idx, emo in sentence_tags:
                     tags.append((words_in_text + idx, emo))
@@ -227,6 +236,9 @@ class SpeechPipeline:
             visemes = word_to_viseme_events(wb.word, t0, t1)
             emotions = [EmotionEvent(t0, emo) for idx, emo in tags if idx == word_index]
             self.schedule.append(visemes, emotions)
+            for idx, act in actions:
+                if idx == word_index:
+                    action_handles.append(self._fire_at(t0 + self.lead, act))
             self.speech_end_time = max(self.speech_end_time, t1 + self.lead)
             word_index += 1
 
@@ -263,6 +275,9 @@ class SpeechPipeline:
                 trailing = [EmotionEvent(end_t, emo) for idx, emo in tags if idx >= word_index]
                 if trailing:
                     self.schedule.append((), trailing)
+                for idx, act in actions:
+                    if idx >= word_index:
+                        action_handles.append(self._fire_at(end_t, act))
             self.stats = {
                 "time_to_first_audio_ms": None if first_audio_at is None else round((first_audio_at - t_request) * 1000),
                 "words": word_index,
@@ -271,6 +286,23 @@ class SpeechPipeline:
             if first_audio_at is not None:
                 print(f"[speech] first audio {self.stats['time_to_first_audio_ms']} ms after request, "
                       f"{word_index} words, {self.stats['audio_seconds']} s audio")
+        except asyncio.CancelledError:
+            for h in action_handles:           # interrupted: actions for unspoken words never fire
+                h.cancel()
+            raise
         finally:
             if not stripper.done():
                 stripper.cancel()
+
+    def _fire_at(self, when: float, act: Action) -> asyncio.TimerHandle:
+        delay = max(0.0, when - self.audio.timeline_time())
+        return self._loop.call_later(delay, self._fire, act)
+
+    def _fire(self, act: Action) -> None:
+        try:
+            if self.on_action is None:
+                print(f"[action] {act.raw}")
+            else:
+                self.on_action(act)
+        except Exception as e:                 # an action must never break speech
+            print(f"[action] {act.raw}: {e}")
