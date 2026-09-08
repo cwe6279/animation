@@ -62,7 +62,7 @@ class VoiceLoop:
                  wake_words: Optional[List[str]] = None, idle_timeout: float = 60.0,
                  clock=time.monotonic, start_engaged: bool = True,
                  sleep_words: Optional[List[str]] = None,
-                 barge_in_ms: int = 500, barge_in_boost: float = 2.5):
+                 barge_in_ms: int = 700, barge_in_boost: float = 4.0):
         self.stt = stt
         self.llm_reply = llm_reply
         self.speaker = speaker
@@ -542,11 +542,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-thinking", action="store_true", help=argparse.SUPPRESS)   # kept for old scripts
     p.add_argument("--character", default=None, help='Persona, e.g. "EVE from WALL-E, terse and curious"')
     p.add_argument("--barge-in", action="store_true", help="Interrupt playback when you start talking")
-    p.add_argument("--barge-in-ms", type=int, default=500,
-                   help="Continuous speech needed before a barge-in interrupts (default 500 ms)")
+    p.add_argument("--barge-in-ms", type=int, default=700,
+                   help="Continuous speech needed before a barge-in interrupts (default 700 ms; a cough or a clatter is shorter)")
     p.add_argument("--barge-in-boost", type=float, default=None,
                    help="How much louder than usual speech must be, while the character talks, to count "
-                        "(multiplier on the onset threshold; default 2.5; raise if it still cuts itself off)")
+                        "(multiplier on the onset threshold; default 4; raise if it still cuts itself off, lower to 2.5 for a quiet room)")
     p.add_argument("--text-only", action="store_true", help="Type in the window instead of using the mic")
     p.add_argument("--debug", "-d", action="store_true")
     p.add_argument("--no-hud", action="store_true", help="Hide key hints and text box")
@@ -612,7 +612,7 @@ def main(argv=None) -> int:
         if used:
             print(f"[calibration] using {', '.join(used)} from calibration.json ({cal.get('time', '')})")
     if args.barge_in_boost is None:
-        args.barge_in_boost = 2.5
+        args.barge_in_boost = 4.0
 
     import pygame
     from .face_asset_loader import FaceAssetLoader, default_manifest
