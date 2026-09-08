@@ -203,7 +203,6 @@ class VoiceLoop:
             self.on_user_text(t.text.strip())
 
     # ── wake mode ───────────────────────────────────────
-    @staticmethod
     def _sustained(self) -> bool:
         """True when the mic stayed loud for most of the barge window. The endpointer's
         'active' flag lingers through its silence gate, so a single knock would otherwise
