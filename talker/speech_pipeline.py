@@ -121,18 +121,21 @@ class SpeechPipeline:
                     pass
                 return
             self._current = asyncio.ensure_future(self._run_session(sentences))
+            err: Optional[BaseException] = None
             try:
                 await self._current
             except asyncio.CancelledError:
                 pass
             except Exception as e:
-                self.last_error = str(e)
-                self.on_error(f"TTS failed: {e}")
-                traceback.print_exc()
+                err = e
             finally:
                 self._current = None
                 with self._lock:
                     self._active_sessions -= 1
+            if err is not None:                 # reported after the bookkeeping: is_busy is already False
+                self.last_error = str(err)
+                self.on_error(f"TTS failed: {err}")
+                traceback.print_exception(err)
 
     # ── public API ─────────────────────────────────────────────────
     @property
