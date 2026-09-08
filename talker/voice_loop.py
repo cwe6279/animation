@@ -23,6 +23,7 @@ or a mic that does not hear the speakers.
 from __future__ import annotations
 
 import argparse
+import os
 import queue
 import re
 import sys
@@ -360,7 +361,6 @@ def apply_pi_profile(args) -> None:
     you stop with no local CPU. Only fills in what the user did not set
     explicitly.
     """
-    import os
     if args.stt == "whisper":          # the parser default, i.e. not chosen by the user
         args.stt = "elevenlabs"
     if args.silence_ms is None:
@@ -404,8 +404,7 @@ def mic_tools(args) -> int:
     state = {"peak": 0.0, "last": "", "n": 0}
     recorder = None
     if args.record:
-        import os as _os
-        _os.makedirs(args.record, exist_ok=True)
+        os.makedirs(args.record, exist_ok=True)
         recorder = EnergyEndpointer(stt.sample_rate, silence_ms=args.silence_ms or 600)
         print(f"Recording utterances to {args.record}/ (WAV + transcripts.txt draft references)")
 
@@ -413,9 +412,9 @@ def mic_tools(args) -> int:
         import wave
         state["n"] += 1
         name = f"utt_{state['n']:03d}.wav"
-        with wave.open(_os.path.join(args.record, name), "wb") as w:
+        with wave.open(os.path.join(args.record, name), "wb") as w:
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(stt.sample_rate); w.writeframes(audio)
-        with open(_os.path.join(args.record, "transcripts.txt"), "a", encoding="utf-8") as f:
+        with open(os.path.join(args.record, "transcripts.txt"), "a", encoding="utf-8") as f:
             f.write(f"{name}\t{text}\n")
         print(f"[saved]   {name} ({len(audio)/2/stt.sample_rate:.1f}s)")
 
@@ -445,12 +444,11 @@ def mic_tools(args) -> int:
     audio.start_mic(on_frames=on_frames, rate=stt.sample_rate, device=args.mic_device, open_rate=args.mic_rate)
     pipeline = None
     if args.calibrate:
-        import os as _os
         from .calibrate import run_calibration
         from .phoneme_scheduler import ScheduleReader
         from .speech_pipeline import SpeechPipeline
         from .tts_backends import make_backend
-        tts = (args.tts or ("elevenlabs" if _os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
+        tts = (args.tts or ("elevenlabs" if os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
         pipeline = SpeechPipeline(audio, ScheduleReader(), make_backend(tts, voice=args.voice, model=args.tts_model))
         pipeline.start()
         try:
@@ -460,11 +458,10 @@ def mic_tools(args) -> int:
             audio.close()
         return 0
     if args.play:
-        import os as _os
         from .phoneme_scheduler import ScheduleReader
         from .speech_pipeline import SpeechPipeline
         from .tts_backends import make_backend
-        tts = (args.tts or ("elevenlabs" if _os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
+        tts = (args.tts or ("elevenlabs" if os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
         pipeline = SpeechPipeline(audio, ScheduleReader(), make_backend(tts, voice=args.voice, model=args.tts_model))
         pipeline.start()
         pipeline.speak(" ".join([args.play] * 3))
@@ -531,8 +528,11 @@ def main(argv=None) -> int:
     p.add_argument("--tts-model", default=None,
                    help="ElevenLabs model: v3 (default; performs [sigh]/[excited]-style tags, ~1 s to first audio) "
                         "or flash (~0.25 s, tags stripped). Full model ids also accepted.")
-    p.add_argument("--llm", default="claude", choices=["claude", "openai"],
-                   help="Which brain answers: claude (default) or openai (for comparison)")
+    p.add_argument("--llm", default="claude", choices=["claude", "openai", "ollama"],
+                   help="Which brain answers: claude (default), openai (for comparison), or ollama (local, no key)")
+    p.add_argument("--ollama-host", default=None,
+                   help="Ollama server URL for --llm ollama (default OLLAMA_HOST or http://localhost:11434)")
+    p.add_argument("--list-models", action="store_true", help="List the models on the Ollama server and exit")
     p.add_argument("--model", default=None,
                    help="Model id for the chosen --llm (defaults: claude-haiku-4-5 for speed; "
                         "--model claude-opus-5 for the best writing at ~2 s more per reply; openai: gpt-4o-mini)")
@@ -605,6 +605,19 @@ def main(argv=None) -> int:
     from .tts_backends import make_backend
     from .brains.claude_chat import ClaudeChat
 
+    if args.list_models:
+        from .brains.ollama_chat import list_models, DEFAULT_HOST
+        host = args.ollama_host or os.environ.get("OLLAMA_HOST") or DEFAULT_HOST
+        try:
+            names = list_models(host)
+        except Exception as e:
+            print(f"Ollama at {host} not reachable: {e}")
+            return 1
+        print(f"Models on {host}:")
+        for n in names:
+            print(f"  {n}")
+        print("Use one with: --llm ollama --model <name>")
+        return 0
     if args.list_cameras:
         from .vision import list_cameras
         cams = list_cameras()
@@ -623,7 +636,6 @@ def main(argv=None) -> int:
 
     # Face-level defaults for voice, model and persona (flags win)
     m = assets.manifest
-    import os
     args.tts = (args.tts or ("elevenlabs" if os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
     voice = args.voice or m.voices.get(args.tts)
     tts_model = args.tts_model or m.tts_model or ("eleven_v3" if args.tts == "elevenlabs" else None)
@@ -645,6 +657,12 @@ def main(argv=None) -> int:
     if args.llm == "claude":
         chat = ClaudeChat(model=args.model or "claude-haiku-4-5", effort=args.effort, character=character,
                           thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words))
+    elif args.llm == "ollama":
+        from .brains.ollama_chat import OllamaChat
+        chat = OllamaChat(model=args.model, character=character, host=args.ollama_host,
+                          can_see=can_see, wake_mode=bool(wake_words))
+        print(f"[voice] loading {chat.model} on {chat.host} ...")
+        chat.warm_up()                       # load the weights now, not on the first question
     else:
         from .brains.openai_compat_chat import OpenAICompatChat
         chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see,
