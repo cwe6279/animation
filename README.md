@@ -703,6 +703,25 @@ out XTTS, ChatTTS and Tacotron2. Piper and Kokoro are the two real candidates: P
 word must come instantly, Kokoro when the voice matters more and 0.7-1 s before the first sentence
 is acceptable. None of them performs the `[tags]` ElevenLabs v3 does; the tags still drive the eyes.
 
+### Question in, voice out: local vs cloud, measured
+
+`tools/bench_e2e.py` runs the same questions through real brain + voice pairs and times what a
+listener waits from the moment the transcript reaches the brain (speech-to-text is the same local
+Whisper in every pair, so it is left out). Desktop, September 2026, medians over four questions:
+
+| pair | brain | voice | first token | first audio | reply synthesized |
+|---|---|---|---:|---:|---:|
+| cloud | claude-haiku-4-5 | ElevenLabs flash | 682 ms | 1098 ms | 1754 ms |
+| local | Ollama, 35B on a desktop GPU | Piper | 426 ms | 763 ms | 1002 ms |
+| cloud brain, local voice | claude-haiku-4-5 | Piper | 637 ms | 999 ms | 1434 ms |
+| local brain, cloud voice | Ollama | ElevenLabs flash | 442 ms | 894 ms | 1164 ms |
+
+What it says: the wait to first audio is mostly the brain writing its first sentence; the voice
+adds about 25 ms with Piper and 300-400 ms with ElevenLabs flash. On a Pi the brain stays in the
+cloud (a 35B model needs a desktop GPU), so the realistic Pi pairs are the two Claude rows: Piper
+takes roughly 100-300 ms off first audio and removes the network from the voice entirely, at the
+price of a plainer voice and no performed tags.
+
 ### What's Optional
 
 Everything except `face.json` is optional. Missing features fall back to procedural:
