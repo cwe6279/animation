@@ -299,6 +299,15 @@ The pieces are independent: `VoiceLoop` (voice_loop.py) only needs an STT object
 a function that returns an iterator of reply text, and something with
 `speak_stream` / `interrupt` / `is_busy`. Swap any of them.
 
+### Projection
+
+`--fullscreen` (or F in the window) is exclusive fullscreen: the face scaled to the display by
+the GPU, black bars if the aspect differs, no cursor or overlay. `--borderless` projects as a
+frameless window the size of the desktop instead: no display mode switch, so no compositor
+flicker or frame flashes at start-up; the face is scaled in software, about 1 ms a frame on a
+desktop. Use `--borderless` when fullscreen shows artifacts. For pixel-exact edges either way,
+set `canvas_w`/`canvas_h` in face.json to the projector's resolution and scale the coordinates.
+
 ### The control page (on by default, port 8020)
 
 Every run serves a small page at `http://<box>:8020` (`--web-port`, `--no-web`; the next free port if that one is taken), standard library

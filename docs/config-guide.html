@@ -459,6 +459,7 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
   <div class="tablewrap"><table>
     <tr><th>Setting</th><th>Effect</th></tr>
     <tr><td><code>--fullscreen</code>, or <kbd>F</kbd></td><td>Face scaled to the display with black bars, cursor and overlay hidden. The face's coordinates never change.</td></tr>
+    <tr><td><code>--borderless</code></td><td>Projection as a frameless desktop-sized window instead of exclusive fullscreen: no display mode switch, no compositor flicker; the face is scaled in software, about 1 ms a frame. Use it when fullscreen shows artifacts.</td></tr>
     <tr><td><code>--no-hud</code>, or <kbd>H</kbd></td><td>Hide the key hints and text box in a window.</td></tr>
     <tr><td><code>--debug</code>, or <kbd>D</kbd></td><td>Overlay with viseme, emotion, open amount, fps, queued audio, time to first audio.</td></tr>
     <tr><td><code>fps</code> in face.json, <code>TALKER_FPS</code></td><td>Render rate. 30 halves the work on a Pi; lip sync timing comes from the audio clock, not the frame rate.</td></tr>

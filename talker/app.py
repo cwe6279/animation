@@ -136,10 +136,14 @@ class TalkerApp:
                  backend: Optional[TTSBackend] = None, debug: bool = False,
                  default_emotion: Optional[str] = None, auto_exit: bool = False,
                  lead_seconds: float = 0.04, show_hud: bool = True, fullscreen: bool = False,
-                 adaptive_fps: bool = True):
+                 adaptive_fps: bool = True, borderless: bool = False):
         self.debug = debug
+        self.borderless = borderless          # projection as a frameless desktop-sized window (no mode switch)
+        fullscreen = fullscreen or borderless
         self.show_hud = show_hud and not fullscreen
         self.fullscreen = fullscreen
+        self.canvas: Optional[pygame.Surface] = None     # borderless: the face is drawn here, then scaled
+        self._dest = None
         self._auto_exit = auto_exit
         self._auto_exit_at: Optional[float] = None
         self._default_emotion = parse_emotion(default_emotion)
@@ -180,6 +184,22 @@ class TalkerApp:
         scales the canvas to the display, keeping aspect with black bars, so
         the face fills the projector without changing any face coordinates.
         """
+        if self.fullscreen and self.borderless:
+            # A frameless window the size of the desktop, at 0,0: no display mode switch, no
+            # compositor flicker or frame flashes. The canvas is drawn off-screen and scaled
+            # into a letterboxed rect each frame (about 1 ms on a desktop).
+            os.environ["SDL_VIDEO_WINDOW_POS"] = "0,0"
+            os.environ.pop("SDL_VIDEO_CENTERED", None)
+            sizes = pygame.display.get_desktop_sizes()
+            dw, dh = sizes[0] if sizes else (self._w, self._h)
+            pygame.mouse.set_visible(False)
+            screen = pygame.display.set_mode((dw, dh), pygame.NOFRAME)
+            k = min(dw / self._w, dh / self._h)
+            w, h = int(self._w * k), int(self._h * k)
+            self._dest = pygame.Rect((dw - w) // 2, (dh - h) // 2, w, h)
+            self.canvas = pygame.Surface((self._w, self._h))
+            return screen
+        self.canvas = None
         if self.fullscreen:
             flags = pygame.FULLSCREEN | pygame.SCALED
             pygame.mouse.set_visible(False)
@@ -284,7 +304,12 @@ class TalkerApp:
                     emotion = self._default_emotion
 
                 self.renderer.update(viseme, dt, emotion)
-                self.renderer.draw(self.screen)
+                target = self.canvas if self.canvas is not None else self.screen
+                self.renderer.draw(target)
+                if self.canvas is not None:
+                    if self._dest.size != self.screen.get_size():
+                        self.screen.fill(self.renderer.manifest.bg_color)
+                    pygame.transform.smoothscale(self.canvas, self._dest.size, self.screen.subsurface(self._dest))
                 if self.debug:
                     self._draw_debug(rms, t, viseme)
                 if self.show_hud:
@@ -391,6 +416,9 @@ def main(argv=None) -> int:
     parser.add_argument("--no-hud", action="store_true", help="Hide key hints and text box")
     parser.add_argument("--fullscreen", action="store_true",
                         help="Projection mode: fullscreen, face scaled to the display, no overlay or cursor (F toggles)")
+    parser.add_argument("--borderless", action="store_true",
+                        help="Projection as a frameless desktop-sized window instead of exclusive fullscreen: "
+                             "no display mode switch, no compositor artifacts; the face is scaled in software")
     parser.add_argument("--face", type=str, default="pumpkin", help="Face name (folder under faces/)")
     parser.add_argument("--face-dir", type=str, default=None, help="Path to a face directory (overrides --face)")
     parser.add_argument("--emotion", type=str, default=None,
@@ -442,7 +470,7 @@ def main(argv=None) -> int:
     audio = build_audio(args.no_audio, args.sync_offset, args.output_device)
     app = TalkerApp(assets, audio, backend, debug=args.debug, default_emotion=args.emotion,
                     auto_exit=args.auto_exit, lead_seconds=args.lead, show_hud=not args.no_hud,
-                    fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps)
+                    fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps, borderless=args.borderless)
 
     if args.text:
         app.speak(args.text)

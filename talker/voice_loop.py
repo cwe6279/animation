@@ -552,6 +552,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-hud", action="store_true", help="Hide key hints and text box")
     p.add_argument("--fullscreen", action="store_true",
                    help="Projection mode: fullscreen, face scaled to the display, no overlay or cursor (F toggles)")
+    p.add_argument("--borderless", action="store_true",
+                   help="Projection as a frameless desktop-sized window instead of exclusive fullscreen: no display "
+                        "mode switch, no compositor artifacts; the face is scaled in software (about 1 ms a frame)")
     p.add_argument("--sync-offset", type=float, default=0.0)
     p.add_argument("--no-audio", action="store_true", help="No sound device (implies --text-only)")
     p.add_argument("--wake", action="store_true",
@@ -693,7 +696,7 @@ def main(argv=None) -> int:
                                        wake_mode=bool(wake_words), extra_rules=extra_rules)
     print(f"[voice] brain: {args.llm} {chat.model}{' (told it can see)' if can_see else ''}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
-                    fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps)
+                    fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps, borderless=args.borderless)
     actions = ActionDispatcher(on_result=lambda a, r: chat.add_context(f"the {a.name} tool answered: {r}"))
     actions.register("move", body.handler())
     actions.register("sfx", sounds.handler())
