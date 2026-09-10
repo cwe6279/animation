@@ -184,3 +184,26 @@ def test_readable_text_is_reported_once_when_it_appears():
     assert len(notes) == 2 and 'Readable text: "FREE CANDY"' in w.context()
     w.observe_once()
     assert len(notes) == 2 and w.context() == ""        # same text again: nothing new to say
+
+
+def test_look_now_forces_a_description_a_still_room_would_skip():
+    """A visual question must get a picture even when nothing moved."""
+    seen = []
+
+    def describe(frames, prev):
+        seen.append(prev)
+        return {"state": "one adult at a desk", "changes": "no change", "people": 1}
+
+    import numpy as np
+    still = np.zeros((4, 4), dtype=np.float32)                 # every burst looks identical
+    w = SceneWatcher(FakeSource(), describe, on_note=lambda n: None, signature=lambda jpg: still)
+    w.observe_once(force=True)                       # the first look, as at startup
+    assert len(seen) == 1 and w.context() == "one adult at a desk"
+    w.observe_once()                                 # a still room: skipped by the change gate
+    assert len(seen) == 1 and w.stats["skipped_unchanged"] == 1
+    w.start()
+    try:
+        assert w.look_now(timeout=5) == "one adult at a desk"   # forced, and it returns the state
+    finally:
+        w.stop()
+    assert len(seen) == 2

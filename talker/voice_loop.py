@@ -114,6 +114,7 @@ class VoiceLoop:
         # Optional vision.SceneWatcher: a burst is requested the moment the visitor
         # starts talking so the note is fresh when the transcript lands.
         self.vision = None
+        self.add_context: Callable[[str], None] = lambda text: None   # wired to the brain
         self._was_speaking = False
         self._vision_ticket: Optional[int] = None
 
@@ -349,8 +350,10 @@ class VoiceLoop:
             print(f"[loop] on_reply_start: {e}")
         # A visual question: give the in-flight burst time to land first (capture ~0.5 s
         # + vision model ~2.3 s, minus what already elapsed while the visitor spoke).
-        if self.vision is not None and self._vision_ticket is not None and self.VISUAL_RE.search(text):
-            self.vision.wait_for(self._vision_ticket, timeout=2.5)
+        if self.vision is not None and self.VISUAL_RE.search(text):
+            seen = self.vision.look_now(timeout=2.5)
+            if seen:
+                self.add_context(f"right now you can see: {seen}")
         self._vision_ticket = None
         t_end = time.monotonic()
         t_stop = self._speech_end_at or t_end       # typed text: no STT stage
@@ -785,6 +788,7 @@ def main(argv=None) -> int:
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
     loop.vision = watcher
+    loop.add_context = chat.add_context      # a visual question hands her the current scene
     print(f"[log] this session is being written to {log_path}")
     if wake_words:
         names = ", ".join(repr(w) for w in loop.wake_words)

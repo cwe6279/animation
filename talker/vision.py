@@ -260,6 +260,8 @@ class SceneWatcher:
         self._stop = threading.Event()
         self._wake = threading.Event()          # set by request() to observe now
         self._force = False
+        self._force_wanted = 0                  # forced looks asked for
+        self._force_done = 0                    # forced looks completed
         self._done = threading.Condition()
         self._observations = 0                  # completed observe_once() calls
         self._thread: Optional[threading.Thread] = None
@@ -284,7 +286,9 @@ class SceneWatcher:
     def _run(self) -> None:
         while not self._stop.is_set():
             t0 = time.monotonic()
-            force, self._force = self._force, False
+            with self._done:
+                wanted = self._force_wanted
+            force, self._force = (self._force or wanted > self._force_done), False
             self._wake.clear()
             try:
                 self.observe_once(force=force)
@@ -293,6 +297,8 @@ class SceneWatcher:
                 self.on_error(f"observation failed: {e}")
             with self._done:
                 self._observations += 1
+                if force:
+                    self._force_done = wanted
                 self._done.notify_all()
             elapsed = time.monotonic() - t0
             self._wake.wait(max(0.5, self.interval - elapsed)) if not self._stop.is_set() else None
@@ -319,6 +325,25 @@ class SceneWatcher:
                     return False
                 self._done.wait(remaining)
         return True
+
+    def look_now(self, timeout: float = 2.5) -> str:
+        """A visual question needs a picture. Force a description even when the change
+        gate would skip it (a still room never trips it) and return the current scene
+        state, not just the delta. The burst asked for when the visitor started talking
+        has usually finished by now, so this normally costs the vision call alone."""
+        with self._done:
+            self._force_wanted += 1
+            wanted = self._force_wanted
+        self._wake.set()
+        deadline = time.monotonic() + timeout
+        with self._done:
+            while self._force_done < wanted:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._done.wait(remaining)
+        note = self.latest()
+        return note.notes if note is not None else ""
 
     # ── one observation ──
     def observe_once(self, force: bool = False) -> Optional[SceneNote]:
