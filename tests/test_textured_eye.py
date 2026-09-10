@@ -119,3 +119,33 @@ def test_inner_glow_is_crisp_and_lit_from_within():
     core = sprite.get_at((60 - x0, 75 - y0))
     edge = sprite.get_at((8 - x0, 98 - y0))
     assert sum(core[:3]) > sum(edge[:3]) + 100    # lit from within
+
+
+def test_angry_lids_cover_the_inner_corners_and_sad_the_outer():
+    """The angry V comes down at the nose; sad and worried droop at the outer corners."""
+    import os as _os
+    _os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    pygame.display.init(); pygame.display.set_mode((1, 1), pygame.HIDDEN)
+    from talker.face_asset_loader import EMOTION_LIDS, AssetFaceRenderer, FaceAssetLoader, default_manifest
+    from talker.phoneme_scheduler import Emotion, tag_to_emotion
+
+    m = default_manifest("lids"); m.eye_lids = True
+    r = AssetFaceRenderer(FaceAssetLoader().build(m))
+
+    def visible(emotion, is_left):
+        u, lo, tl, arch, drop = EMOTION_LIDS[emotion]
+        mask = r._lid_mask(120, 60, u, lo, tl, arch, is_left, (0.1, 0.9), drop)
+        a = pygame.surfarray.pixels_alpha(mask).astype(int)
+        nose, outer = (a[-20:], a[:20]) if is_left else (a[:20], a[-20:])
+        return int(nose.sum()), int(outer.sum())
+
+    for is_left in (True, False):
+        nose, outer = visible(Emotion.ANGRY, is_left)
+        assert nose < outer, f"angry must cover the inner corner (left={is_left})"
+        nose, outer = visible(Emotion.SAD, is_left)
+        assert outer < nose, f"sad must droop at the outer corner (left={is_left})"
+
+    l, rr = visible(Emotion.ANGRY, True), visible(Emotion.ANGRY, False)    # mirrored, within rounding
+    assert all(abs(x - y) < 0.02 * max(x, y) for x, y in zip(l, rr)), (l, rr)
+    assert tag_to_emotion("worried") is Emotion.SAD

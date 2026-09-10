@@ -884,14 +884,15 @@ class AssetFaceRenderer:
         m.fill((255, 255, 255, 255))
         top, bottom = span[0] * h, span[1] * h
         core = max(1.0, bottom - top)
-        # x runs from the outer corner (0) to the inner corner (1) for the right eye;
-        # mirror for the left so "inner" always means toward the nose.
+        # x runs left to right across the image. The right eye's inner corner (toward the
+        # nose) is at x=0 and the left eye's at x=1, so `inner` is mirrored per side and
+        # always means "toward the nose".
         n = 24
         xs = [i / n for i in range(n + 1)]
         if upper > 0.01 or corner_drop > 0.01:
             pts = [(0, 0), (w, 0)]
             for x in reversed(xs):
-                inner = x if not is_left else 1.0 - x
+                inner = x if is_left else 1.0 - x
                 edge = (2 * x - 1) ** 2                          # 0 in the middle, 1 at the corners
                 cover = upper + tilt * (inner - 0.5) + corner_drop * edge
                 pts.append((int(x * w), int(top + max(0.0, cover) * core)))

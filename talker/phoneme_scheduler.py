@@ -165,6 +165,7 @@ for _emo, _words in {
                   "hesitant", "hesitates", "hesitantly", "disappointed", "mournful", "crying", "sobbing",
                   "sobs", "gloomy", "melancholy", "hurt", "apologetic", "wistful", "lonely",
                   "heartbroken", "weary", "defeated", "somber", "sombre", "sigh", "sighs", "sighing",
+                  "worried", "worriedly", "concerned", "uneasy", "apprehensive", "troubled",
                   "quietly", "softly"],
     Emotion.SURPRISE: ["surprise", "surprised", "awe", "amazed", "gasps", "gasp", "gasping", "shocked",
                        "astonished", "startled", "stunned", "wow", "curious", "intrigued", "alarmed",
