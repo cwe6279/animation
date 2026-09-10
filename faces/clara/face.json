@@ -1,0 +1,76 @@
+{
+  "name": "clara",
+  "description": "Clara, an executive assistant: EVE-style eyes with a matching mouth of the same light, no head or visor. 16:9 canvas. Art from generate_art.py.",
+  "canvas_w": 1280,
+  "canvas_h": 720,
+  "fps": 60,
+  "bg_color": [
+    0,
+    0,
+    0
+  ],
+  "glow_color": [
+    70,
+    170,
+    255
+  ],
+  "glow_intensity": 0.5,
+  "eye_color": [
+    70,
+    170,
+    255
+  ],
+  "eye_left": {
+    "image": "eye_left.png",
+    "cx": 540,
+    "cy": 300
+  },
+  "eye_right": {
+    "image": "eye_right.png",
+    "cx": 740,
+    "cy": 300
+  },
+  "eye_lids": true,
+  "blink": true,
+  "blink_interval": [
+    3.0,
+    7.0
+  ],
+  "blink_speed": 10.0,
+  "eye_speech_pulse": 0.06,
+  "gaze": {
+    "amount": 16,
+    "interval": [
+      2.5,
+      7.0
+    ],
+    "speed": 2.5,
+    "while_speaking": 0.25
+  },
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "anchor_cx": 640,
+    "anchor_cy": 452,
+    "opacity": 1.0
+  },
+  "mouth_images": {
+    "sil": "mouth_sil.png",
+    "pp": "mouth_pp.png",
+    "ee": "mouth_ee.png",
+    "ah": "mouth_ah.png",
+    "aa": "mouth_aa.png",
+    "oo": "mouth_oo.png"
+  },
+  "tts": "piper",
+  "voices": {
+    "piper": "en_US-hfc_female-medium",
+    "edge": "en-US-AriaNeural"
+  },
+  "wake_words": [
+    "clara",
+    "hey clara",
+    "klara",
+    "claira"
+  ]
+}

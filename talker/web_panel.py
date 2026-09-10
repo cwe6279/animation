@@ -100,6 +100,7 @@ FACE_FIELD_HELP = {
     "mouth_images": "viseme key to PNG; six images cover all twelve shapes.",
     "draw_nose": "Procedural triangle nose.", "nose": "Nose PNG placement.",
     "draw_stem": "Pumpkin stem.", "voices": "Default voice per backend: elevenlabs id, edge name, piper voice.",
+    "tts": "This face's own voice backend when --tts is not given: piper (local), elevenlabs, edge, fish.",
     "tts_model": "ElevenLabs model for this face (v3 performs tags, flash is faster).",
     "voice_speed": "Speaking rate multiplier.", "wake_words": "Names that start a conversation in wake mode.",
     "sleep_words": "Short phrases that end it at once.", "sounds": "Folder of sound effects for {{sfx name}}.",

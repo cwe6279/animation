@@ -435,7 +435,9 @@ def main(argv=None) -> int:
     parser.add_argument("--emotion", type=str, default=None,
                         help="Default emotion: neutral, happy, angry, annoyed, sad, surprise")
     parser.add_argument("--auto-exit", action="store_true", help="Exit after speech finishes (for scripts)")
-    parser.add_argument("--tts", type=str, default="edge", help="TTS backend: edge (default), elevenlabs, piper (local, offline) or fish")
+    parser.add_argument("--tts", type=str, default=None,
+                        help="TTS backend: edge (default), elevenlabs, piper (local, offline) or fish. "
+                             "Without it, the face's own \"tts\" in face.json, else edge")
     parser.add_argument("--voice", type=str, default=None,
                         help="Voice name/id for the backend (edge: en-US-GuyNeural, elevenlabs: voice id)")
     parser.add_argument("--tts-model", type=str, default=None,
@@ -471,8 +473,9 @@ def main(argv=None) -> int:
     backend = None
     if not (args.file or args.mic):
         m = assets.manifest
+        args.tts = (args.tts or m.tts or "edge").lower()
         try:
-            backend = make_backend(args.tts, voice=args.voice or m.voices.get(args.tts.lower()),
+            backend = make_backend(args.tts, voice=args.voice or m.voices.get(args.tts),
                                    model=args.tts_model or m.tts_model, speed=m.voice_speed)
         except Exception as e:
             print(f"[error] TTS backend '{args.tts}' unavailable: {e}")

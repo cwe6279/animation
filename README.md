@@ -767,6 +767,7 @@ Tweak `face.json` without re-exporting PNGs:
 - **`anchor_cx`, `anchor_cy`** — mouth position (also affects procedural fallback)
 - **`offset_x`, `offset_y`** — shift mouth art without changing the anchor
 - **`voices`** — default TTS voice per backend, e.g. `{"elevenlabs": "<voice id>", "edge": "en-US-AriaNeural"}`; `--voice` overrides
+- **`tts`** — this face's own voice backend when `--tts` is not given: `piper` (local, no key), `elevenlabs`, `edge`, `fish`. Clara uses `piper`
 - **`tts_model`** — ElevenLabs model for this face: `"v3"` (performs tags, ~1 s to first audio) or `"flash"` (~0.25 s, tags stripped); `--tts-model` overrides
 - **`character.md`** (a file next to face.json) — the personality: who the character is, traits, tone, boundaries. Concatenated with the shared `talker/brains/system_prompt.md` at runtime, so the shared file holds delivery rules and the face folder holds only personality. `--character` on the command line overrides it for one run
 - **`gaze`** / **`blink_interval`** / **`blink_speed`** / **`eye_speech_pulse`** — idle glances, blink timing, and eye pulse while speaking (image and procedural eyes)

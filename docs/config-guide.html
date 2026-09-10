@@ -340,6 +340,12 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
       <div class="meta">Persona: ancient gentle dragon who guards a library. Voice id still needed.</div>
     </div>
     <div class="face">
+      <div class="name" style="color: #46AAFF"><span class="dot"></span><span style="color: var(--ink)">clara</span></div>
+      <div class="meta">EVE's eyes with a matching mouth made of the same light, no head or visor. 16:9 canvas, so she fills a projector. Six mouth shapes, emotions as lid cuts.</div>
+      <div class="meta">Local <b>Piper</b> voice by default: no key, no network</div>
+      <div class="meta">Persona: an executive personal assistant, sharp, direct, resourceful</div>
+    </div>
+    <div class="face">
       <div class="name" style="color: #9A9AA8"><span class="dot"></span><span style="color: var(--ink)">brain</span></div>
       <div class="meta">Voice only: <b>draw_eyes false</b>, mouth opacity 0, black screen. Proof that the loop needs no face.</div>
       <div class="meta">Persona: Anne Uhmellmahaye, a brain in a jar who thinks she is your assistant. Own ElevenLabs voice.</div>
@@ -380,6 +386,7 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
     <tr><td><code>mouth_images</code></td><td>Map of viseme key to PNG. Six images cover all twelve mouth shapes.</td><td>sil, pp, aa, oo, ee, ah</td></tr>
     <tr><td><code>nose</code>, <code>draw_nose</code></td><td>Nose PNG, or a procedural triangle.</td><td>off</td></tr>
     <tr><td><code>voices</code></td><td>Default voice per backend: <code>{"elevenlabs": "&lt;id&gt;", "edge": "en-US-AriaNeural"}</code>.</td><td></td></tr>
+    <tr><td><code>tts</code></td><td>This face's own voice backend when <code>--tts</code> is not given: <code>piper</code> (local, no key), <code>elevenlabs</code>, <code>edge</code>, <code>fish</code>.</td><td>Clara: piper</td></tr>
     <tr><td><code>tts_model</code></td><td>ElevenLabs model for this face; default v3.</td><td>"eleven_v3"</td></tr>
     <tr><td><code>character.md</code> (file, not a JSON key)</td><td>Personality, appended to the shared prompt.</td><td>a few short paragraphs</td></tr>
   </table></div>

@@ -691,7 +691,8 @@ def main(argv=None) -> int:
 
     # Face-level defaults for voice, model and persona (flags win)
     m = assets.manifest
-    args.tts = (args.tts or ("elevenlabs" if os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
+    args.tts = (args.tts or m.tts or            # face.json "tts" picks this face's own backend
+                ("elevenlabs" if os.environ.get("ELEVENLABS_API_KEY") else "edge")).lower()
     voice = args.voice or m.voices.get(args.tts)
     tts_model = args.tts_model or m.tts_model or ("eleven_v3" if args.tts == "elevenlabs" else None)
     character = args.character or m.character or None
