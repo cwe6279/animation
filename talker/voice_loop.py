@@ -743,7 +743,13 @@ def main(argv=None) -> int:
                     fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps, borderless=args.borderless)
     actions = ActionDispatcher(on_result=lambda a, r: chat.add_context(f"the {a.name} tool answered: {r}"))
     actions.register("move", body.handler())
-    actions.register("sfx", sounds.handler())
+    _pipe = getattr(app, "pipeline", None)
+    if m.sfx_over_speech or _pipe is None:
+        actions.register("sfx", sounds.handler())
+    else:                       # default: hold the sound until she has finished the sentence
+        actions.register("sfx", sounds.handler(
+            hold_while=lambda: _pipe.is_busy,
+            ends_at=lambda: _pipe.speech_end_time - audio.timeline_time()))
     actions.register("tool", tools.handler())
     if getattr(app, "pipeline", None) is not None:
         app.pipeline.on_action = actions.dispatch
@@ -927,6 +933,9 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
                       "Seconds an expression holds after its tag. If no new tag arrives the face settles "
                       "back to neutral. 0 keeps the last mood indefinitely.",
                       kind="float", unit="s", lo=0, hi=3600)
+    panel.tunable("sfx_over_speech", lambda: manifest.sfx_over_speech,
+                  lambda v: None, "Whether a {{sfx}} sound plays over her voice at its word, or waits "
+                  "until she stops talking. Set in face.json; a restart applies a change.", kind="bool")
     panel.tunable("debug_overlay", lambda: app.debug, lambda v: setattr(app, "debug", v),
                   "Viseme, emotion, fps and timing overlay on the face window.", kind="bool", flag="--debug")
     if watcher is not None:

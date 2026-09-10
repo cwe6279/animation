@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -168,8 +169,24 @@ class SoundBank:
         print(f"[sfx] {os.path.basename(path)}")
         return channel
 
-    def handler(self) -> Handler:
-        return lambda a: (self.play(a.name), None)[1]
+    def handler(self, hold_while=None, ends_at=None) -> Handler:
+        """A sound effect waits for the character to stop talking, so it is heard instead
+        of muddying her voice. `hold_while()` says she is still speaking and `ends_at()`
+        how many seconds are left; pass neither to play immediately (the old overlap)."""
+        def run(a: Action) -> None:
+            if hold_while is None or not hold_while():
+                self.play(a.name)
+                return
+            delay = max(0.0, float(ends_at() if ends_at else 0.0)) + 0.15
+
+            def later():
+                if hold_while():          # she started another reply: let this one go
+                    print(f"[sfx] {a.name} dropped, still speaking")
+                    return
+                self.play(a.name)
+            print(f"[sfx] {a.name} held for {delay:.1f}s until she stops")
+            threading.Timer(delay, later).start()
+        return run
 
 
 @dataclass

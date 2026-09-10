@@ -61,3 +61,26 @@ def test_pipeline_fires_actions_when_their_words_are_spoken():
     assert 0.3 <= fired[0][1] - t_first <= 0.9      # "nod" sits before word 3 (0.4 s in)
     assert fired[1][1] >= fired[0][1]               # trailing block fires at the end
     assert "{{" not in " ".join(p.backend.seen)     # the voice never saw a block
+
+
+def test_sfx_waits_for_the_character_to_stop_talking():
+    """A sound effect written mid-sentence is heard after the sentence, not over it."""
+    from talker.actions import SoundBank
+    bank = SoundBank(None)
+    played, speaking = [], {"busy": True}
+    bank.play = lambda name: (played.append(name), True)[1]
+    handler = bank.handler(hold_while=lambda: speaking["busy"], ends_at=lambda: 0.05)
+
+    handler(Action("sfx", "meow", raw="{{sfx meow}}"))
+    assert played == []                                  # she is talking: held
+    speaking["busy"] = False
+    assert wait_until(lambda: played == ["meow"], timeout=2), played
+
+    speaking["busy"] = True                              # still talking when the timer fires: dropped
+    handler(Action("sfx", "purr", raw="{{sfx purr}}"))
+    time.sleep(0.4)
+    assert played == ["meow"]
+
+    quiet = bank.handler()                               # no hold: the old overlapping behaviour
+    quiet(Action("sfx", "hiss", raw="{{sfx hiss}}"))
+    assert played == ["meow", "hiss"]
