@@ -77,6 +77,7 @@ class VoiceLoop:
                                        # (a voice with its syllable gaps: ~0.5; a knock and its ring: ~0.2)
         self._loud: "collections.deque[tuple]" = collections.deque()   # (time, rms) over the barge window
         self.paused = False
+        self.waiting = False           # waiting mode (spacebar / control page): ignore the mic and wake words entirely
         self._barge_since: Optional[float] = None
         self._gated = False
         from .audio_engine import EchoGuard
@@ -134,8 +135,9 @@ class VoiceLoop:
 
     def _process(self, pcm: bytes) -> None:
         self._last_audio_in = time.monotonic()
-        if self.paused:                   # the web panel's calibration owns the mic for a moment
+        if self.paused or self.waiting:   # calibration owns the mic, or waiting mode: hear nothing
             self.stt.reset()
+            self._barge_since = None
             return
         self.tick()
         busy = self.speaker.is_busy or self._thinking
@@ -275,8 +277,23 @@ class VoiceLoop:
             self.disengage(f"quiet for {self.idle_timeout:.0f}s")
 
     # ── one turn ────────────────────────────────────────
+    def set_waiting(self, on: bool, reason: str = "") -> None:
+        """Waiting mode: stop talking, ignore the mic, wake words and typed text until
+        switched back. Nothing automatic leaves it. The engaged state is kept for later."""
+        on = bool(on)
+        if on == self.waiting:
+            return
+        self.waiting = on
+        if on:
+            self.speaker.interrupt()
+            self._thinking = False
+        self.on_event("mode", ("waiting" if on else "listening again") + (f" ({reason})" if reason else ""))
+
     def on_user_text(self, text: str) -> None:
         """Handle a finished user utterance (also used by --text-only)."""
+        if self.waiting:
+            self.on_event("ignored", f"waiting mode: {text}")
+            return
         if self.wake_words:
             if self.engaged and self.is_sleep_command(text):
                 self.on_event("you", text)
@@ -773,6 +790,11 @@ def main(argv=None) -> int:
         print(f"[mode] {'dormant, listening for ' + names if not loop.engaged else 'engaged; after ' + str(int(args.idle_timeout)) + 's of quiet, wakes on ' + names}")
     app.on_submit = loop.on_user_text        # typed text goes through Claude too
 
+    def toggle_waiting(on=None):
+        loop.set_waiting((not loop.waiting) if on is None else on, "spacebar" if on is None else "panel")
+        app.waiting = loop.waiting
+    app.on_wait_toggle = toggle_waiting
+
     # ambience: files in sounds/idle/ play at random while nothing is happening
     idle = None
     if face_dir:
@@ -784,7 +806,7 @@ def main(argv=None) -> int:
             cfg = m.idle_sounds or {}
             pipeline_ = getattr(app, "pipeline", None)
             idle = IdleSounds(idle_bank,
-                              is_quiet=lambda: not (pipeline_ is not None and pipeline_.is_busy) and not loop._thinking
+                              is_quiet=lambda: not loop.waiting and not (pipeline_ is not None and pipeline_.is_busy) and not loop._thinking
                               and not bool(getattr(stt, "speech_active", False)) and time.monotonic() - loop._last_busy > 3,
                               interval=cfg.get("interval", (30, 90)), quiet_for=cfg.get("quiet_for", 10))
             idle.start()
@@ -841,7 +863,8 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     loop.on_event = on_event
 
     def status():
-        st = {"face": manifest.name, "stt": getattr(stt, "name", "text only") if stt else "text only",
+        st = {"face": manifest.name, "waiting": loop.waiting,
+              "stt": getattr(stt, "name", "text only") if stt else "text only",
               "llm": f"{args.llm} {chat.model}", "tts": f"{backend.name} {getattr(backend, 'voice_name', '') or ''}".strip(),
               "mic_rms": audio.get_state()[0], "speaking": bool(pipeline and pipeline.is_busy),
               "thinking": bool(getattr(loop, "_thinking", False)), "engaged": loop.engaged,
@@ -876,6 +899,9 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("idle_timeout", lambda: loop.idle_timeout, lambda v: setattr(loop, "idle_timeout", v),
                   "Wake mode: seconds of quiet after its own last reply before it goes dormant.", kind="float", unit="s",
                   lo=5, hi=3600, flag="--idle-timeout")
+    panel.tunable("waiting", lambda: loop.waiting, lambda v: app.on_wait_toggle and (loop.set_waiting(v, "panel"), setattr(app, "waiting", loop.waiting)),
+                  "Waiting mode (the spacebar in the window does the same): stops talking, ignores the mic, wake words and typed text until switched off. For calls and meetings.",
+                  kind="bool")
     panel.tunable("engaged", lambda: loop.engaged,
                   lambda v: loop.engage("panel") if v else loop.disengage("panel"),
                   "Wake mode: on = answering; off = dormant until a wake word.", kind="bool")

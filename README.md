@@ -236,6 +236,7 @@ python speak.py --no-audio --auto-exit --text "Hello"
 - `Ctrl+C` — interrupt: stop speaking and flush queued audio
 - `Esc` — unfocus the text box, or quit
 - `D` — toggle debug overlay, `H` — toggle hints/text box, `F` — toggle fullscreen
+- `Space` — waiting mode on/off: stops talking, ignores the mic, wake words and typed text, dims the face; for a call or a meeting. Nothing automatic leaves it; the control page has the same switch
 
 ## Talking to it (the round trip)
 

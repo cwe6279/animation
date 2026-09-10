@@ -229,3 +229,19 @@ def test_barge_in_ignores_a_knock_but_not_sustained_loudness():
     for _ in range(30):                          # a person talking over it: loud frames throughout
         clk.t += 0.02; loop._process(loud)
     assert spk.interrupts == 1
+
+
+def test_waiting_mode_hears_nothing_and_stops_talking():
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    events = []
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, on_event=lambda k, s: events.append((k, s)))
+    spk.busy = True
+    loop.set_waiting(True, "spacebar")
+    assert spk.interrupts == 1 and ("mode", "waiting (spacebar)") in events
+    stt.queue = [Transcript("hello there", True)]
+    loop._process(b"\x00" * 320)                 # audio is dropped, the transcript never surfaces
+    assert stt.queue and not any(k == "hearing" for k, _ in events)
+    loop.on_user_text("hi")                      # typed text too
+    assert not spk.spoken and any(k == "ignored" for k, _ in events)
+    loop.set_waiting(False)
+    assert ("mode", "listening again") in events

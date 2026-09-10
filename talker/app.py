@@ -162,7 +162,7 @@ class TalkerApp:
         self.clock = pygame.time.Clock()
         self.font_sm = pygame.font.SysFont("monospace", 18)
         self._hud = [self.font_sm.render(t, True, (55, 55, 55))
-                     for t in ("Enter=type & speak", "D=debug  F=fullscreen  H=hide", "ESC=quit")]
+                     for t in ("Enter=type & speak", "Space=wait/resume", "D=debug  F=fullscreen  H=hide", "ESC=quit")]
         self.textbox = TextBox(self.font_sm, self._w, self._h)
 
         self.audio = audio
@@ -177,6 +177,9 @@ class TalkerApp:
         # Optional hook: typed text goes here instead of straight to speak()
         # (voice_loop.py routes it through the LLM).
         self.on_submit: Optional[Callable[[str], None]] = None
+        self.on_wait_toggle: Optional[Callable[[], None]] = None   # spacebar: waiting mode on/off
+        self.waiting = False                                       # dims the face while set
+        self._dim: Optional[pygame.Surface] = None
 
     def _open_display(self) -> pygame.Surface:
         """
@@ -306,6 +309,12 @@ class TalkerApp:
                 self.renderer.update(viseme, dt, emotion)
                 target = self.canvas if self.canvas is not None else self.screen
                 self.renderer.draw(target)
+                if self.waiting:                       # waiting mode: the face goes dim, visibly asleep
+                    if self._dim is None or self._dim.get_size() != target.get_size():
+                        self._dim = pygame.Surface(target.get_size())
+                        self._dim.fill((0, 0, 0))
+                        self._dim.set_alpha(170)
+                    target.blit(self._dim, (0, 0))
                 if self.canvas is not None:
                     if self._dest.size != self.screen.get_size():
                         self.screen.fill(self.renderer.manifest.bg_color)
@@ -349,6 +358,8 @@ class TalkerApp:
                     self.show_hud = not self.show_hud
                 elif event.key in (pygame.K_f, pygame.K_F11):
                     self.toggle_fullscreen()
+                elif event.key == pygame.K_SPACE and self.on_wait_toggle is not None:
+                    self.on_wait_toggle()
 
     def _draw_debug(self, rms: float, t: float, viseme: Viseme) -> None:
         r = self.renderer
