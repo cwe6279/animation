@@ -921,6 +921,12 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
                       "Ambient sounds: longest wait between two, in seconds.", kind="float", unit="s", lo=2, hi=3600)
         panel.tunable("idle_quiet_for", lambda: idle.quiet_for, lambda v: setattr(idle, "quiet_for", float(v)),
                       "Ambient sounds: how long the room must have been quiet before one plays.", kind="float", unit="s", lo=0, hi=600)
+    if getattr(app, "schedule", None) is not None:
+        panel.tunable("emotion_hold", lambda: app.schedule.emotion_hold,
+                      lambda v: setattr(app.schedule, "emotion_hold", float(v)),
+                      "Seconds an expression holds after its tag. If no new tag arrives the face settles "
+                      "back to neutral. 0 keeps the last mood indefinitely.",
+                      kind="float", unit="s", lo=0, hi=3600)
     panel.tunable("debug_overlay", lambda: app.debug, lambda v: setattr(app, "debug", v),
                   "Viseme, emotion, fps and timing overlay on the face window.", kind="bool", flag="--debug")
     if watcher is not None:

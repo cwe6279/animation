@@ -529,7 +529,12 @@ class ScheduleReader:
     """
 
     def __init__(self, visemes: Optional[List[VisemeEvent]] = None,
-                 emotions: Optional[List[EmotionEvent]] = None):
+                 emotions: Optional[List[EmotionEvent]] = None,
+                 emotion_hold: float = 45.0):
+        # An emotion holds until the next tag. If none arrives within emotion_hold
+        # seconds the face settles back to neutral rather than wearing the last mood
+        # of the last reply for the rest of the session. 0 disables the settling.
+        self.emotion_hold = emotion_hold
         self._lock = threading.Lock()
         self.visemes: List[VisemeEvent] = list(visemes or [])
         self.emotions: List[EmotionEvent] = list(emotions or [])
@@ -598,4 +603,8 @@ class ScheduleReader:
             while self._eidx < len(evs) - 1 and evs[self._eidx + 1].time <= t:
                 self._eidx += 1
             ev = evs[self._eidx]
-            return ev.emotion if t >= ev.time else Emotion.NEUTRAL
+            if t < ev.time:
+                return Emotion.NEUTRAL
+            if self.emotion_hold and t - ev.time > self.emotion_hold:
+                return Emotion.NEUTRAL          # nothing new for a while: settle back
+            return ev.emotion

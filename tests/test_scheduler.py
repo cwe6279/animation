@@ -129,3 +129,20 @@ def test_fit_word_times_spreads_words_across_a_known_duration():
     assert all(wt[i][2] <= wt[i + 1][1] + 1e-6 for i in range(len(wt) - 1))
     assert wt[-1][2] > 1.5                                   # fills most of the clip
     assert fit_word_times("", 2.0) == [] and fit_word_times("hi", 0) == []
+
+
+def test_emotion_settles_back_to_neutral_when_no_new_tag_arrives():
+    """An expression holds until the next tag, then relaxes rather than sticking forever."""
+    from talker.phoneme_scheduler import Emotion, EmotionEvent, ScheduleReader
+    s = ScheduleReader(emotion_hold=45.0)
+    s.append((), [EmotionEvent(10.0, Emotion.HAPPY)])
+    assert s.current_emotion(9.0) is Emotion.NEUTRAL         # before the tag
+    assert s.current_emotion(10.0) is Emotion.HAPPY
+    assert s.current_emotion(54.0) is Emotion.HAPPY          # still inside the window
+    assert s.current_emotion(56.0) is Emotion.NEUTRAL        # nothing new: settled back
+    s.append((), [EmotionEvent(56.0, Emotion.ANGRY)])        # a new tag restarts the hold
+    assert s.current_emotion(60.0) is Emotion.ANGRY
+    assert s.current_emotion(102.0) is Emotion.NEUTRAL
+    forever = ScheduleReader(emotion_hold=0)                 # 0 keeps the old behaviour
+    forever.append((), [EmotionEvent(1.0, Emotion.SAD)])
+    assert forever.current_emotion(9999.0) is Emotion.SAD
