@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # so the fibre detail of the original survives.
 TEMPLATE_EYE = os.path.join(os.path.dirname(HERE), "cat", "eye")
 EYE_N = 160                  # the pupil map and lid masks are square, this many pixels
-PUPIL_ASPECT = 1.06          # the pupil is round, but a wide almond around it reads as
+PUPIL_ASPECT = 1.12          # the pupil is round, but a wide almond around it reads as
                              # taller than wide; a touch of extra width cancels that
 # luminance of the template maps onto this ramp: near-black rim, brown-red body, a hot
 # amber core. One eye in the dark, and it should look like it is lit from behind.

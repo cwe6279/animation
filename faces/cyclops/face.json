@@ -54,10 +54,11 @@
   "mouth": {
     "opacity": 0.0
   },
-  "tts": "piper",
+  "tts": "elevenlabs",
   "voices": {
     "piper": "en_US-ryan-high",
-    "edge": "en-GB-RyanNeural"
+    "edge": "en-GB-RyanNeural",
+    "elevenlabs": "CE9m1PQE2E76CKUkNL7C"
   },
   "wake_words": [
     "cyclops",
@@ -65,5 +66,6 @@
     "hey cyclops",
     "psyclops",
     "siclops"
-  ]
+  ],
+  "tts_model": "v3"
 }
