@@ -81,8 +81,9 @@ ICE_RAMP = [(0.00, (6, 20, 44)), (0.35, (26, 96, 170)), (0.65, (110, 198, 242)),
 LID_UPPER_OPEN = 0.29        # half-height of the opening under the upper lid
 LID_LOWER_OPEN = 0.35        # ... and above the lower lid, which sits a little further out
 LID_WIDTH = 1.0              # half-width: the corners meet at the outline
-LID_TAPER = 0.72             # 0.5 is a blunt ellipse; higher tapers the corners to points
-LID_PEAK = 0.16              # how far the upper lid's highest point sits off centre
+LID_TAPER_UPPER = 0.82       # the upper lid carries the arch: higher is a deeper curve
+LID_TAPER_LOWER = 0.62       # the lower lid is flatter, as a real one is; lower is flatter
+LID_PEAK = 0.10              # how far the upper lid's highest point sits off centre
 LID_WAVER = 0.022            # a slight irregularity so the edge is not a drawn curve
 LID_SOFT = 0.55              # edge slope: lower is a softer, more diffuse lid edge
 LID_THRESHOLD = 0.55         # must match "lid_open" in face.json
@@ -112,8 +113,8 @@ def lid(upper: bool):
     """Grey mask: a pixel shows while its value is above the lid threshold.
 
     The opening is an almond, full through the middle and tapering to corners where the
-    two lids meet. The upper lid is the lower and heavier of the two and its peak sits
-    off centre, the edge carries a slight waver, and the field's gentle slope gives the
+    two lids meet. The upper lid carries the arch and its peak sits off centre while the
+    lower stays flatter, the edge carries a slight waver, and the field's gentle slope gives the
     renderer a soft edge to fade across instead of a hard line. A rising threshold
     sweeps the lid down over the eye, which is what a blink does.
     """
@@ -124,7 +125,8 @@ def lid(upper: bool):
     skew = t - (LID_PEAK if upper else -LID_PEAK * 0.4) * (1 - t * t)
     u = np.clip(skew / LID_WIDTH, -1, 1)
     open_to = LID_UPPER_OPEN if upper else LID_LOWER_OPEN
-    half = open_to * np.maximum(0.0, 1 - u * u) ** LID_TAPER
+    taper = LID_TAPER_UPPER if upper else LID_TAPER_LOWER
+    half = open_to * np.maximum(0.0, 1 - u * u) ** taper
     half = half * (1 + LID_WAVER * (np.sin(4.1 * t + (0.0 if upper else 2.3))
                                     + 0.6 * np.sin(9.7 * t + 1.1)))
     edge = 0.5 - half if upper else 0.5 + half
