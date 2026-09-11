@@ -79,10 +79,11 @@
     "lid_open": 0.55,
     "gaze_radius": 0.35,
     "pupil": [
-      0.14,
-      0.26,
-      0.48
+      0.12,
+      0.22,
+      0.44
     ],
-    "lid_tracking": 0.35
+    "lid_tracking": 0.35,
+    "iris_radius": 0.58
   }
 }

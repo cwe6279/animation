@@ -77,6 +77,11 @@ PUPIL_ASPECT = 1.06          # the pupil is round, but a wide almond around it r
 ICE_RAMP = [(0.00, (6, 20, 44)), (0.35, (26, 96, 170)), (0.65, (110, 198, 242)),
             (1.00, (234, 250, 255))]
 
+# Around the iris. The template's is black, which the renderer reads as "no sclera, let the
+# iris fill the eye"; a dark blue one lets iris_radius in face.json shrink the iris, and it
+# stays dark enough on a black screen to read as unlit rather than as a white eyeball.
+SCLERA = (13, 22, 42)
+
 # The lids. A real eye is not symmetric: the upper lid sits lower and its peak is
 # off-centre toward the nose, the lower lid is shallower, and neither edge is a crisp
 # line. These are the knobs; rerun this script after changing any of them.
@@ -138,6 +143,13 @@ def lid(upper: bool):
     return Image.fromarray((np.clip(v, 0, 1) * 255).astype("uint8"), "L")
 
 
+def sclera():
+    """The dark surround the iris sits in, so the iris can be smaller than the eye."""
+    import numpy as np
+    a = np.tile(np.array(SCLERA, dtype="uint8"), (EYE_N, EYE_N, 1))
+    return Image.fromarray(a, "RGB")
+
+
 def write_eye_parts():
     import shutil
     out = os.path.join(HERE, "eye")
@@ -146,7 +158,7 @@ def write_eye_parts():
     pupil_map().save(os.path.join(out, "pupilMap.png"))       # round, not the template's slit
     lid(True).save(os.path.join(out, "lid-upper.png"))        # rounder than the template's
     lid(False).save(os.path.join(out, "lid-lower.png"))
-    shutil.copy(os.path.join(TEMPLATE_EYE, "sclera.png"), os.path.join(out, "sclera.png"))
+    sclera().save(os.path.join(out, "sclera.png"))
     print(f"wrote an ice-blue iris, a round pupil map and the template's lids in {out}")
 
 

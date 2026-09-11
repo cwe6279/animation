@@ -133,7 +133,8 @@ class FaceManifest:
     # per frame from the parts in `dir` (relative to the face folder) instead of
     # eye_left/eye_right images; the left eye is the mirror of the right.
     #   {"dir": "eye", "size": 224, "lid_open": 0.55, "gaze_radius": 0.35,
-    #    "pupil": [0.12, 0.22, 0.40], "lid_tracking": 0.35}
+    #    "pupil": [0.12, 0.22, 0.40], "lid_tracking": 0.35, "iris_radius": 0.62}
+    # iris_radius shrinks the iris within the eye; it needs a sclera.png that is not black.
     textured_eye: Dict = field(default_factory=dict)
 
     # Defaults for the voice loop (CLI flags override). voices is keyed by TTS
@@ -476,9 +477,12 @@ class FaceAssetLoader:
             size = int(te.get("size", 224))
             lid_open = float(te.get("lid_open", 0.55))
             rim = float(te.get("rim", 1.0))
+            iris_radius = float(te.get("iris_radius", 0.62))   # smaller = less iris, more sclera
             try:
-                right = TexturedEye(TexturedEyeAssets(folder, size, mirror=False), lid_open=lid_open, rim=rim)
-                left = TexturedEye(TexturedEyeAssets(folder, size, mirror=True), lid_open=lid_open, rim=rim)
+                right = TexturedEye(TexturedEyeAssets(folder, size, mirror=False), lid_open=lid_open,
+                                    rim=rim, iris_radius=iris_radius)
+                left = TexturedEye(TexturedEyeAssets(folder, size, mirror=True), lid_open=lid_open,
+                                   rim=rim, iris_radius=iris_radius)
                 assets.textured = (right, left)
                 print(f"[assets]   textured eyes from {te['dir']}/ at {size}px")
             except Exception as e:
