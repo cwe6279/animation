@@ -1,0 +1,69 @@
+{
+  "name": "cyclops",
+  "description": "Polyphemus: one great brown-red eye in the dark, no mouth. The eye is Clara's recoloured, from the cat, from Adafruit's Uncanny Eyes. Art from generate_art.py.",
+  "canvas_w": 1280,
+  "canvas_h": 720,
+  "fps": 60,
+  "bg_color": [
+    0,
+    0,
+    0
+  ],
+  "glow_color": [
+    190,
+    70,
+    30
+  ],
+  "glow_intensity": 0.5,
+  "eye_color": [
+    190,
+    70,
+    30
+  ],
+  "eye_left": {
+    "cx": 640,
+    "cy": 356
+  },
+  "eye_right": {
+    "cx": 640,
+    "cy": 356,
+    "opacity": 0.0
+  },
+  "textured_eye": {
+    "dir": "eye",
+    "size": 380,
+    "lid_open": 0.55,
+    "gaze_radius": 0.3,
+    "pupil": [
+      0.12,
+      0.22,
+      0.44
+    ],
+    "lid_tracking": 0.35,
+    "iris_radius": 0.58
+  },
+  "blink": true,
+  "blink_interval": [
+    4.0,
+    9.0
+  ],
+  "blink_speed": 7.0,
+  "eye_speech_pulse": 0.05,
+  "draw_nose": false,
+  "draw_stem": false,
+  "mouth": {
+    "opacity": 0.0
+  },
+  "tts": "piper",
+  "voices": {
+    "piper": "en_US-ryan-high",
+    "edge": "en-GB-RyanNeural"
+  },
+  "wake_words": [
+    "cyclops",
+    "polyphemus",
+    "hey cyclops",
+    "psyclops",
+    "siclops"
+  ]
+}

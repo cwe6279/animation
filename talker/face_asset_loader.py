@@ -759,11 +759,16 @@ class AssetFaceRenderer:
         if not m.draw_eyes:
             pass                                   # a voice-only character
         elif self.assets.textured is not None:
-            self._draw_textured_eye(surf, m.eye_left, self.assets.textured[1], is_left=True)
-            self._draw_textured_eye(surf, m.eye_right, self.assets.textured[0], is_left=False)
+            # opacity 0 skips an eye entirely, which is how a one-eyed face is made
+            if m.eye_left.opacity > 0:
+                self._draw_textured_eye(surf, m.eye_left, self.assets.textured[1], is_left=True)
+            if m.eye_right.opacity > 0:
+                self._draw_textured_eye(surf, m.eye_right, self.assets.textured[0], is_left=False)
         else:
-            self._draw_eye_side(surf, m.eye_left, self.assets.eye_left, self.assets.eye_left_offset, True)
-            self._draw_eye_side(surf, m.eye_right, self.assets.eye_right, self.assets.eye_right_offset, False)
+            if m.eye_left.opacity > 0:
+                self._draw_eye_side(surf, m.eye_left, self.assets.eye_left, self.assets.eye_left_offset, True)
+            if m.eye_right.opacity > 0:
+                self._draw_eye_side(surf, m.eye_right, self.assets.eye_right, self.assets.eye_right_offset, False)
         self._draw_nose(surf)
         if self.assets.has_mouth_art():
             if self._mouth is not None:

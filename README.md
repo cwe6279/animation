@@ -868,8 +868,8 @@ Talker stands on other people's work.
   model (saccade timing, dilation, blinks that close fast and open slow) taken from
   `uncannyEyes.ino`. Any design folder from that project drops straight into a face's `eye/`
   directory. The goat and dragon faces use their designs as published; the cat's is their dragon
-  recoloured green, and Clara's is the cat's iris recoloured ice blue, with a round pupil and her own
-  almond lids.
+  recoloured green, Clara's is the cat's iris recoloured ice blue, with a round pupil and her own
+  almond lids, and the cyclops wears the same eye again in brown-red, alone and much larger.
   MIT licensed, by Phil Burgess and contributors.
 - **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** and **[Vosk](https://alphacephei.com/vosk/)**
   for local speech recognition, **[Piper](https://github.com/OHF-Voice/piper1-gpl)** and
