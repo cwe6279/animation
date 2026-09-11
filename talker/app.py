@@ -158,6 +158,7 @@ class TalkerApp:
 
         os.environ.setdefault("SDL_VIDEO_CENTERED", "1")
         self.screen = self._open_display()
+        self._place_window()
         pygame.display.set_caption(f"Talker — {m.name}")
         self.clock = pygame.time.Clock()
         self.font_sm = pygame.font.SysFont("monospace", 18)
@@ -215,6 +216,27 @@ class TalkerApp:
         self.fullscreen = not self.fullscreen
         self.show_hud = not self.fullscreen
         self.screen = self._open_display()
+        self._place_window()
+
+    def _place_window(self) -> None:
+        """Put the window where it belongs, by hand.
+
+        set_mode reuses the SDL window that already exists, and one does: a hidden 1x1
+        window is opened first so the art can be converted. The environment hints that
+        would centre a new window are read when that hidden one is created, not when it
+        is resized, so without this the real window keeps the hidden one's position and
+        lands partly or wholly off the screen.
+        """
+        if self.fullscreen and not self.borderless:
+            return                                  # exclusive fullscreen owns the display
+        try:
+            sizes = pygame.display.get_desktop_sizes()
+            dw, dh = sizes[0] if sizes else (0, 0)
+            w, h = self.screen.get_size()
+            pos = (0, 0) if self.borderless else (max(0, (dw - w) // 2), max(0, (dh - h) // 2))
+            pygame.Window.from_display_module().position = pos
+        except Exception as e:                      # older pygame, or a driver without it
+            print(f"[display] could not place the window: {e}")
 
     # ── speech entry points ───────────────────────────────
     def speak(self, text: str) -> None:

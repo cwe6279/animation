@@ -326,6 +326,45 @@ class AudioEngine(BaseAudioEngine):
         matches.sort(key=lambda m: ("hw:" in m[1], m[0]))
         return matches[0][0]
 
+    def resolve_devices(self, spec, kind: str) -> list:
+        """Every device whose name matches, best first. A fragment like "gomic" can match
+        both an audio-server node and the raw hardware behind it, and either one may turn
+        out to be unusable, so the caller tries them in turn."""
+        if spec is None or spec == "":
+            return [None]
+        if isinstance(spec, int) or (isinstance(spec, str) and spec.strip().isdigit()):
+            return [int(spec)]
+        devices = self.list_input_devices() if kind == "input" else self.list_output_devices()
+        needle = str(spec).lower()
+        matches = [(i, n) for i, n, _, _ in devices if needle in n.lower()]
+        if not matches:
+            names = ", ".join(n for _, n, _, _ in devices)
+            raise RuntimeError(f"no {kind} device matching {spec!r}; available: {names}")
+        matches.sort(key=lambda m: ("hw:" in m[1], m[0]))
+        return [i for i, _ in matches]
+
+    OPEN_TIMEOUT_S = 4.0
+
+    def _open_stream(self, **kw):
+        """PortAudio can block forever opening some devices rather than returning an
+        error: a PipeWire node whose rate the server will not accept does exactly that,
+        and it hangs the whole start-up. Open on a worker thread and give up on it."""
+        box: dict = {}
+
+        def work():
+            try:
+                box["stream"] = self._pa.open(**kw)
+            except Exception as e:                      # pragma: no cover - driver dependent
+                box["error"] = e
+        t = threading.Thread(target=work, name="pa-open", daemon=True)
+        t.start()
+        t.join(self.OPEN_TIMEOUT_S)
+        if t.is_alive():
+            raise TimeoutError(f"the driver did not respond within {self.OPEN_TIMEOUT_S:.0f} s")
+        if "error" in box:
+            raise box["error"]
+        return box["stream"]
+
     def list_input_devices(self) -> list:
         """[(index, name, default_rate, is_default), ...] for devices with input channels."""
         return self._list_devices("maxInputChannels", "get_default_input_device_info")
@@ -354,7 +393,9 @@ class AudioEngine(BaseAudioEngine):
         The device is opened at `open_rate` if given, else at `rate`, else at its
         native rate; whatever rate it opens at is resampled to `rate`.
         """
-        device = self.resolve_device(device, "input")
+        asked_for = device                    # keep the name the caller gave, for messages
+        wanted = self.resolve_devices(device, "input")
+        device = wanted[0]
         try:
             info = (self._pa.get_device_info_by_index(device) if device is not None
                     else self._pa.get_default_input_device_info())
@@ -388,20 +429,37 @@ class AudioEngine(BaseAudioEngine):
             return cb
 
         last_err = None
-        candidates = [open_rate] if open_rate else [want, native, 48000, 44100, 16000]
-        for open_rate in dict.fromkeys(candidates):
+        if wanted[0] is not None:             # last resort: the system default input
+            wanted = list(wanted) + [None]
+        for dev in wanted:                    # a name can match several; try each in turn
             try:
-                self._mic_stream = self._pa.open(
-                    format=pyaudio.paInt16, channels=1, rate=open_rate, input=True,
-                    input_device_index=device,
-                    frames_per_buffer=int(open_rate * 0.064), stream_callback=make_cb(open_rate))
-                self._mic_stream.start_stream()
-                note = "" if open_rate == want else f", resampled to {want} Hz"
-                print(f"[audio] mic open: {dev_name} @ {open_rate} Hz{note}")
-                return
+                dev_name = (self._pa.get_device_info_by_index(dev)["name"] if dev is not None
+                            else self._pa.get_default_input_device_info()["name"])
             except Exception as e:
                 last_err = e
-        raise RuntimeError(f"could not open input device {dev_name!r}: {last_err}")
+                continue
+            candidates = [open_rate] if open_rate else [want, native, 48000, 44100, 16000]
+            for rate_try in dict.fromkeys(candidates):
+                try:
+                    self._mic_stream = self._open_stream(
+                        format=pyaudio.paInt16, channels=1, rate=rate_try, input=True,
+                        input_device_index=dev,
+                        frames_per_buffer=int(rate_try * 0.064), stream_callback=make_cb(rate_try))
+                    self._mic_stream.start_stream()
+                    note = "" if rate_try == want else f", resampled to {want} Hz"
+                    fallback = ("" if dev is wanted[0] else
+                                f"  — NOT {asked_for!r}, which would not open")
+                    print(f"[audio] mic open: {dev_name} @ {rate_try} Hz{note}{fallback}")
+                    return
+                except TimeoutError as e:
+                    print(f"[audio] {dev_name} @ {rate_try} Hz: {e}; trying another")
+                    last_err = e
+                    break                      # this device is wedged; move to the next one
+                except Exception as e:
+                    last_err = e
+        names = ", ".join(n for _, n, _, _ in self.list_input_devices())
+        raise RuntimeError(f"could not open input device {dev_name!r}: {last_err}. "
+                           f"Available inputs: {names}")
 
     # -- teardown --------------------------------------------------------
     def close_output(self) -> None:
