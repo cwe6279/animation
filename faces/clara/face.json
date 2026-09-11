@@ -75,7 +75,7 @@
   ],
   "textured_eye": {
     "dir": "eye",
-    "size": 180,
+    "size": 190,
     "lid_open": 0.55,
     "gaze_radius": 0.35,
     "pupil": [

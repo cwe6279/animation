@@ -70,7 +70,12 @@ def glow_oval(cx, cy, rx, ry, tilt_deg=0.0):
 # the slit pupil replaced by a round one. Only the colour scale and the pupil change,
 # so the fibre detail of the original survives.
 TEMPLATE_EYE = os.path.join(os.path.dirname(HERE), "cat", "eye")
-EYE_N = 160                  # the round pupil map is square, this many pixels
+EYE_N = 160                  # the round pupil map and lid masks are square, this many pixels
+LID_OPENING = 0.32           # half-height of the open eye: raise it to show more iris
+LID_WIDTH = 1.0              # half-width: the corners meet at the outline
+LID_TAPER = 0.75             # 0.5 is a plain ellipse with blunt ends; higher tapers the
+                             # corners to almond points while keeping the middle full
+LID_THRESHOLD = 0.55         # must match "lid_open" in face.json
 
 # luminance of the template maps onto this ramp: dark rim, ice blue body, white core
 ICE_RAMP = [(0.00, (6, 20, 44)), (0.35, (26, 96, 170)), (0.65, (110, 198, 242)),
@@ -97,14 +102,34 @@ def pupil_map():
     return Image.fromarray((np.clip(r, 0, 1) * 255).astype("uint8"), "L")
 
 
+def lid(upper: bool):
+    """Grey mask: a pixel shows while its value is above the lid threshold.
+
+    The open eye is an almond: full through the middle, tapering to corners where the
+    two lids meet, rather than the cat's pointed feline shape. LID_OPENING is its
+    half-height, so raising it shows more iris, and LID_TAPER sets how sharply the
+    corners close. The field is built so its contour at LID_THRESHOLD is exactly that
+    outline, and a rising threshold sweeps the lid across it, which is what a blink does.
+    """
+    import numpy as np
+    g = (np.arange(EYE_N) + 0.5) / EYE_N
+    x, y = np.meshgrid(g, g, indexing="xy")
+    u = np.clip((2 * x - 1) / LID_WIDTH, -1, 1)
+    half = LID_OPENING * np.maximum(0.0, 1 - u * u) ** LID_TAPER    # almond half-height at x
+    edge = 0.5 - half if upper else 0.5 + half
+    v = (y - edge if upper else edge - y) + LID_THRESHOLD
+    return Image.fromarray((np.clip(v, 0, 1) * 255).astype("uint8"), "L")
+
+
 def write_eye_parts():
     import shutil
     out = os.path.join(HERE, "eye")
     os.makedirs(out, exist_ok=True)
     recolour_iris(os.path.join(TEMPLATE_EYE, "iris.png")).save(os.path.join(out, "iris.png"))
     pupil_map().save(os.path.join(out, "pupilMap.png"))       # round, not the template's slit
-    for part in ("lid-upper.png", "lid-lower.png", "sclera.png"):
-        shutil.copy(os.path.join(TEMPLATE_EYE, part), os.path.join(out, part))
+    lid(True).save(os.path.join(out, "lid-upper.png"))        # rounder than the template's
+    lid(False).save(os.path.join(out, "lid-lower.png"))
+    shutil.copy(os.path.join(TEMPLATE_EYE, "sclera.png"), os.path.join(out, "sclera.png"))
     print(f"wrote an ice-blue iris, a round pupil map and the template's lids in {out}")
 
 
