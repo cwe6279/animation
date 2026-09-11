@@ -859,6 +859,27 @@ service means one class in `talker/tts_backends.py` that yields `AudioChunk` and
 
 You only need 6 mouth PNGs — the renderer maps all 12 visemes to the closest available art.
 
+## Credits
+
+Talker stands on other people's work.
+
+- **[Adafruit Uncanny Eyes](https://github.com/adafruit/uncanny_eyes)** — the live eye design: a
+  polar iris strip, a distance field that shapes the pupil, and grey lid masks, with the motion
+  model (saccade timing, dilation, blinks that close fast and open slow) taken from
+  `uncannyEyes.ino`. Any design folder from that project drops straight into a face's `eye/`
+  directory. The goat and dragon faces use their designs as published; the cat's is their dragon
+  recoloured green, and Clara's is the cat's recoloured ice blue with a round pupil.
+  MIT licensed, by Phil Burgess and contributors.
+- **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** and **[Vosk](https://alphacephei.com/vosk/)**
+  for local speech recognition, **[Piper](https://github.com/OHF-Voice/piper1-gpl)** and
+  **[Kokoro](https://github.com/thewh1teagle/kokoro-onnx)** for local voices,
+  **[edge-tts](https://github.com/rany2/edge-tts)** for a free cloud voice,
+  **[Ollama](https://ollama.com)** for a local brain, and **[pygame-ce](https://pyga.me/)** for
+  the window and the audio clock.
+- **Sound effects**: [Pixabay](https://pixabay.com/sound-effects/) is a good source, free to use
+  and no attribution required. Drop the files into `faces/<name>/sounds/` and the file name
+  becomes the sound's name. None are committed to this repository.
+
 ## Troubleshooting
 
 **Mouth stuck on sil / not moving**

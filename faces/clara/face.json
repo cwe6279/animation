@@ -1,6 +1,6 @@
 {
   "name": "clara",
-  "description": "Clara, an executive assistant: EVE-style eyes with a matching mouth of the same light, no head or visor. 16:9 canvas. Art from generate_art.py.",
+  "description": "Clara, an executive assistant: live ice-blue eyes with a round moving pupil, a matching mouth of the same light, no head or visor. 16:9 canvas. Art from generate_art.py.",
   "canvas_w": 1280,
   "canvas_h": 720,
   "fps": 60,
@@ -22,12 +22,12 @@
   ],
   "eye_left": {
     "image": "eye_left.png",
-    "cx": 540,
+    "cx": 520,
     "cy": 300
   },
   "eye_right": {
     "image": "eye_right.png",
-    "cx": 740,
+    "cx": 760,
     "cy": 300
   },
   "eye_lids": true,
@@ -72,5 +72,17 @@
     "hey clara",
     "klara",
     "claira"
-  ]
+  ],
+  "textured_eye": {
+    "dir": "eye",
+    "size": 180,
+    "lid_open": 0.55,
+    "gaze_radius": 0.35,
+    "pupil": [
+      0.1,
+      0.2,
+      0.42
+    ],
+    "lid_tracking": 0.35
+  }
 }

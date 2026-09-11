@@ -25,7 +25,7 @@ MID = (60, 150, 255)
 CORE = (140, 210, 255)       # centre, brightest
 
 EYE_CY = 300                 # both eyes sit on this line
-EYE_L_CX, EYE_R_CX = 540, 740
+EYE_L_CX, EYE_R_CX = 520, 760
 EYE_RX, EYE_RY = 70, 34      # half width and half height of an eye
 EYE_TILT = 7                 # outer corners lifted, like EVE's
 
@@ -64,6 +64,50 @@ def glow_oval(cx, cy, rx, ry, tilt_deg=0.0):
     return img.resize((W, H), Image.LANCZOS)
 
 
+# ── live eye parts (talker/textured_eye.py) ──────────────────────────────────
+# Her eye is the cat's, which is Adafruit's Uncanny Eyes "dragon" design: the same
+# lids, sclera and iris texture, with the iris recoloured from green to ice blue and
+# the slit pupil replaced by a round one. Only the colour scale and the pupil change,
+# so the fibre detail of the original survives.
+TEMPLATE_EYE = os.path.join(os.path.dirname(HERE), "cat", "eye")
+EYE_N = 160                  # the round pupil map is square, this many pixels
+
+# luminance of the template maps onto this ramp: dark rim, ice blue body, white core
+ICE_RAMP = [(0.00, (6, 20, 44)), (0.35, (26, 96, 170)), (0.65, (110, 198, 242)),
+            (1.00, (234, 250, 255))]
+
+
+def recolour_iris(path):
+    """Same texture, new colour scale: map each pixel's brightness onto the ice ramp."""
+    import numpy as np
+    a = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32) / 255.0
+    lum = a @ np.array([0.299, 0.587, 0.114], dtype=np.float32)         # keep the detail
+    lum = (lum - lum.min()) / max(1e-6, float(lum.max() - lum.min()))   # use the full ramp
+    stops = np.array([s for s, _ in ICE_RAMP], dtype=np.float32)
+    cols = np.array([c for _, c in ICE_RAMP], dtype=np.float32)
+    out = np.stack([np.interp(lum, stops, cols[:, k]) for k in range(3)], axis=-1)
+    return Image.fromarray(np.clip(out, 0, 255).astype("uint8"), "RGB")
+
+
+def pupil_map():
+    """Round pupil: a plain radial distance field, dark at the centre."""
+    import numpy as np
+    g = (np.arange(EYE_N) + 0.5) / EYE_N * 2 - 1
+    r = np.hypot(*np.meshgrid(g, g, indexing="xy"))
+    return Image.fromarray((np.clip(r, 0, 1) * 255).astype("uint8"), "L")
+
+
+def write_eye_parts():
+    import shutil
+    out = os.path.join(HERE, "eye")
+    os.makedirs(out, exist_ok=True)
+    recolour_iris(os.path.join(TEMPLATE_EYE, "iris.png")).save(os.path.join(out, "iris.png"))
+    pupil_map().save(os.path.join(out, "pupilMap.png"))       # round, not the template's slit
+    for part in ("lid-upper.png", "lid-lower.png", "sclera.png"):
+        shutil.copy(os.path.join(TEMPLATE_EYE, part), os.path.join(out, part))
+    print(f"wrote an ice-blue iris, a round pupil map and the template's lids in {out}")
+
+
 if __name__ == "__main__":
     # Eyes are drawn on the canvas centre and placed by cx/cy in face.json, like EVE's.
     glow_oval(W // 2, H // 2, EYE_RX, EYE_RY, -EYE_TILT).save(os.path.join(HERE, "eye_left.png"))
@@ -72,3 +116,4 @@ if __name__ == "__main__":
     for key, (rx, ry) in MOUTHS.items():
         glow_oval(MOUTH_CX, MOUTH_CY, rx, ry).save(os.path.join(HERE, f"mouth_{key}.png"))
     print(f"wrote eye_left.png, eye_right.png and {len(MOUTHS)} mouth_*.png in {HERE}")
+    write_eye_parts()
