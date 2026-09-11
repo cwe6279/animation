@@ -25,11 +25,11 @@ MID = (60, 150, 255)
 CORE = (140, 210, 255)       # centre, brightest
 
 EYE_CY = 300                 # both eyes sit on this line
-EYE_L_CX, EYE_R_CX = 498, 782
+EYE_L_CX, EYE_R_CX = 478, 802
 EYE_RX, EYE_RY = 70, 34      # half width and half height of an eye
 EYE_TILT = 7                 # outer corners lifted, like EVE's
 
-MOUTH_CX, MOUTH_CY = 640, 452
+MOUTH_CX, MOUTH_CY = 640, 516
 
 # viseme key -> (half width, half height). Six images cover all twelve shapes.
 MOUTHS = {
@@ -70,7 +70,9 @@ def glow_oval(cx, cy, rx, ry, tilt_deg=0.0):
 # the slit pupil replaced by a round one. Only the colour scale and the pupil change,
 # so the fibre detail of the original survives.
 TEMPLATE_EYE = os.path.join(os.path.dirname(HERE), "cat", "eye")
-EYE_N = 160                  # the round pupil map and lid masks are square, this many pixels
+EYE_N = 160                  # the pupil map and lid masks are square, this many pixels
+PUPIL_ASPECT = 1.06          # the pupil is round, but a wide almond around it reads as
+                             # taller than wide; a touch of extra width cancels that
 # luminance of the template maps onto this ramp: dark rim, ice blue body, white core
 ICE_RAMP = [(0.00, (6, 20, 44)), (0.35, (26, 96, 170)), (0.65, (110, 198, 242)),
             (1.00, (234, 250, 255))]
@@ -102,10 +104,12 @@ def recolour_iris(path):
 
 
 def pupil_map():
-    """Round pupil: a plain radial distance field, dark at the centre."""
+    """Round pupil: a radial distance field, dark at the centre. PUPIL_ASPECT widens it
+    a little so it looks round inside the almond rather than measuring round."""
     import numpy as np
     g = (np.arange(EYE_N) + 0.5) / EYE_N * 2 - 1
-    r = np.hypot(*np.meshgrid(g, g, indexing="xy"))
+    x, y = np.meshgrid(g, g, indexing="xy")
+    r = np.hypot(x / PUPIL_ASPECT, y)
     return Image.fromarray((np.clip(r, 0, 1) * 255).astype("uint8"), "L")
 
 

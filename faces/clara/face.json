@@ -22,12 +22,12 @@
   ],
   "eye_left": {
     "image": "eye_left.png",
-    "cx": 498,
+    "cx": 478,
     "cy": 300
   },
   "eye_right": {
     "image": "eye_right.png",
-    "cx": 782,
+    "cx": 802,
     "cy": 300
   },
   "eye_lids": true,
@@ -51,7 +51,7 @@
   "draw_stem": false,
   "mouth": {
     "anchor_cx": 640,
-    "anchor_cy": 452,
+    "anchor_cy": 516,
     "opacity": 1.0
   },
   "mouth_images": {
