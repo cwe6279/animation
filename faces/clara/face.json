@@ -22,12 +22,12 @@
   ],
   "eye_left": {
     "image": "eye_left.png",
-    "cx": 520,
+    "cx": 498,
     "cy": 300
   },
   "eye_right": {
     "image": "eye_right.png",
-    "cx": 760,
+    "cx": 782,
     "cy": 300
   },
   "eye_lids": true,

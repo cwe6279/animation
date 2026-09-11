@@ -25,7 +25,7 @@ MID = (60, 150, 255)
 CORE = (140, 210, 255)       # centre, brightest
 
 EYE_CY = 300                 # both eyes sit on this line
-EYE_L_CX, EYE_R_CX = 520, 760
+EYE_L_CX, EYE_R_CX = 498, 782
 EYE_RX, EYE_RY = 70, 34      # half width and half height of an eye
 EYE_TILT = 7                 # outer corners lifted, like EVE's
 
