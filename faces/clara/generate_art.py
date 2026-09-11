@@ -71,15 +71,21 @@ def glow_oval(cx, cy, rx, ry, tilt_deg=0.0):
 # so the fibre detail of the original survives.
 TEMPLATE_EYE = os.path.join(os.path.dirname(HERE), "cat", "eye")
 EYE_N = 160                  # the round pupil map and lid masks are square, this many pixels
-LID_OPENING = 0.32           # half-height of the open eye: raise it to show more iris
-LID_WIDTH = 1.0              # half-width: the corners meet at the outline
-LID_TAPER = 0.75             # 0.5 is a plain ellipse with blunt ends; higher tapers the
-                             # corners to almond points while keeping the middle full
-LID_THRESHOLD = 0.55         # must match "lid_open" in face.json
-
 # luminance of the template maps onto this ramp: dark rim, ice blue body, white core
 ICE_RAMP = [(0.00, (6, 20, 44)), (0.35, (26, 96, 170)), (0.65, (110, 198, 242)),
             (1.00, (234, 250, 255))]
+
+# The lids. A real eye is not symmetric: the upper lid sits lower and its peak is
+# off-centre toward the nose, the lower lid is shallower, and neither edge is a crisp
+# line. These are the knobs; rerun this script after changing any of them.
+LID_UPPER_OPEN = 0.29        # half-height of the opening under the upper lid
+LID_LOWER_OPEN = 0.35        # ... and above the lower lid, which sits a little further out
+LID_WIDTH = 1.0              # half-width: the corners meet at the outline
+LID_TAPER = 0.72             # 0.5 is a blunt ellipse; higher tapers the corners to points
+LID_PEAK = 0.16              # how far the upper lid's highest point sits off centre
+LID_WAVER = 0.022            # a slight irregularity so the edge is not a drawn curve
+LID_SOFT = 0.55              # edge slope: lower is a softer, more diffuse lid edge
+LID_THRESHOLD = 0.55         # must match "lid_open" in face.json
 
 
 def recolour_iris(path):
@@ -105,19 +111,24 @@ def pupil_map():
 def lid(upper: bool):
     """Grey mask: a pixel shows while its value is above the lid threshold.
 
-    The open eye is an almond: full through the middle, tapering to corners where the
-    two lids meet, rather than the cat's pointed feline shape. LID_OPENING is its
-    half-height, so raising it shows more iris, and LID_TAPER sets how sharply the
-    corners close. The field is built so its contour at LID_THRESHOLD is exactly that
-    outline, and a rising threshold sweeps the lid across it, which is what a blink does.
+    The opening is an almond, full through the middle and tapering to corners where the
+    two lids meet. The upper lid is the lower and heavier of the two and its peak sits
+    off centre, the edge carries a slight waver, and the field's gentle slope gives the
+    renderer a soft edge to fade across instead of a hard line. A rising threshold
+    sweeps the lid down over the eye, which is what a blink does.
     """
     import numpy as np
     g = (np.arange(EYE_N) + 0.5) / EYE_N
     x, y = np.meshgrid(g, g, indexing="xy")
-    u = np.clip((2 * x - 1) / LID_WIDTH, -1, 1)
-    half = LID_OPENING * np.maximum(0.0, 1 - u * u) ** LID_TAPER    # almond half-height at x
+    t = 2 * x - 1                                              # -1 at one corner, +1 at the other
+    skew = t - (LID_PEAK if upper else -LID_PEAK * 0.4) * (1 - t * t)
+    u = np.clip(skew / LID_WIDTH, -1, 1)
+    open_to = LID_UPPER_OPEN if upper else LID_LOWER_OPEN
+    half = open_to * np.maximum(0.0, 1 - u * u) ** LID_TAPER
+    half = half * (1 + LID_WAVER * (np.sin(4.1 * t + (0.0 if upper else 2.3))
+                                    + 0.6 * np.sin(9.7 * t + 1.1)))
     edge = 0.5 - half if upper else 0.5 + half
-    v = (y - edge if upper else edge - y) + LID_THRESHOLD
+    v = (y - edge if upper else edge - y) * LID_SOFT + LID_THRESHOLD
     return Image.fromarray((np.clip(v, 0, 1) * 255).astype("uint8"), "L")
 
 
