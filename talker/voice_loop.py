@@ -660,9 +660,26 @@ def main(argv=None) -> int:
     cal = load_calibration()
     if cal:
         used = []
-        if args.mic_device is None and cal.get("mic_device"):
+        # A saved device may simply be unplugged today. That is a reason to fall back to
+        # the system default with a warning, not a reason to refuse to start: the file is
+        # a convenience, and nothing in it was typed on this run.
+        def still_there(name: str, kind: str) -> bool:
+            try:
+                from .audio_engine import AudioEngine
+                probe = AudioEngine()
+                try:
+                    probe.resolve_devices(name, kind)
+                    return True
+                finally:
+                    probe.close()
+            except Exception:
+                print(f"[calibration] {kind} device {name!r} from calibration.json is not here "
+                      f"any more; using the system default instead")
+                return False
+
+        if args.mic_device is None and cal.get("mic_device") and still_there(cal["mic_device"], "input"):
             args.mic_device = cal["mic_device"]; used.append(f"mic {cal['mic_device']}")
-        if args.output_device is None and cal.get("output_device"):
+        if args.output_device is None and cal.get("output_device") and still_there(cal["output_device"], "output"):
             args.output_device = cal["output_device"]; used.append(f"output {cal['output_device']}")
         if args.barge_in_boost is None and cal.get("barge_in_boost"):
             args.barge_in_boost = float(cal["barge_in_boost"]); used.append(f"barge-in boost {cal['barge_in_boost']}")
@@ -870,7 +887,8 @@ def main(argv=None) -> int:
             print(f"[error] mic unavailable: {e}")
             return 1
         print(f"[voice] listening ({stt.name}) — talk to the face. Esc quits."
-              + (f"  voice={voice}" if voice else "") + (f"  character={character!r}" if character else ""))
+              + (f"  voice={voice}" if voice else "")
+              + (f"  persona={len(character.split())} words" if character else ""))
     else:
         print("[voice] text-only: press Enter in the window, type, Enter to send to Claude.")
 
