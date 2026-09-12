@@ -628,6 +628,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     p.add_argument("--web-port", type=int, default=8020,
                    help="Control page on this port (status, live tuning, setup tests, flag reference, Wi-Fi); default 8020, the next free port if taken")
+    p.add_argument("--web-host", default="127.0.0.1",
+                   help="Interface for the control page; default 127.0.0.1, this machine only. "
+                        "0.0.0.0 opens it to the network, which a kiosk wants, but the page has no "
+                        "password and serves a camera snapshot and a Wi-Fi join endpoint")
     p.add_argument("--no-web", action="store_true", help="Do not start the control page")
     return p
 
@@ -855,7 +859,7 @@ def main(argv=None) -> int:
 def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir, idle=None):
     """The control page: registers what it may read and change, then serves it."""
     from .web_panel import WebPanel
-    panel = WebPanel(port=args.web_port)
+    panel = WebPanel(port=args.web_port, host=args.web_host)
     panel.parser, panel.args, panel.manifest = parser, args, manifest
     pipeline = getattr(app, "pipeline", None)
     last = {"heard": "", "said": "", "turn": ""}

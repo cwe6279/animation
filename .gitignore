@@ -20,9 +20,14 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Audio temp files
+# Audio temp files and any recorded voice, in whatever container
 *.wav
 *.mp3
+*.ogg
+*.flac
+*.m4a
+*.opus
+*.webm
 
 # Illustrator temp files
 *.ai
@@ -31,12 +36,17 @@ Thumbs.db
 # Tests
 .pytest_cache/
 
-# Secrets
+# Secrets. .env.example is the committed template; every other variant stays out,
+# including .env.local and a .env.pi written for a kiosk.
 .env
 **/.env
+.env.*
+!.env.example
 
-# Camera emergency captures (contain images of people)
+# Camera emergency captures (contain images of people, and notes describing them).
+# note.json is matched anywhere because --emergency-dir can point outside emergencies/.
 emergencies/
+**/note.json
 
 # Camera images and mic recordings: never commit pictures or voices of people
 *.jpg

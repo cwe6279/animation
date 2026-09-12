@@ -1,8 +1,12 @@
 """
 web_panel.py — a small control page for the running character.
 
-On by default at http://<this box>:8020 (voice_loop.py --web-port, --no-web);
+On by default at http://localhost:8020 (voice_loop.py --web-port, --web-host, --no-web);
 if that port is taken it walks up to the next free one and prints the URL.
+
+It binds to this machine only. There is no authentication, and the page serves a
+camera snapshot, a Wi-Fi scan and a Wi-Fi join endpoint, so --web-host 0.0.0.0
+hands all of that to anyone on the network. A kiosk needs it; a laptop does not.
 Standard library only, one daemon thread, nothing on the audio or render path:
 the page polls /api/state twice a second and the loop never waits for it.
 
@@ -187,7 +191,7 @@ class WifiControl:
 
 # ── the panel ─────────────────────────────────────────────────────────────────
 class WebPanel:
-    def __init__(self, port: int = DEFAULT_PORT, host: str = "0.0.0.0"):
+    def __init__(self, port: int = DEFAULT_PORT, host: str = "127.0.0.1"):
         self.port = port
         self.host = host
         self.tunables: Dict[str, Tunable] = {}
@@ -298,8 +302,11 @@ class WebPanel:
         self.port = self._server.server_address[1]          # port 0 = pick a free one (tests)
         self._thread = threading.Thread(target=self._server.serve_forever, name="web-panel", daemon=True)
         self._thread.start()
-        url = f"http://{lan_ip()}:{self.port}"
-        print(f"[web] control page at {url}  (also http://localhost:{self.port}; --no-web to disable)")
+        local_only = self.host in ("127.0.0.1", "localhost", "::1")
+        url = f"http://localhost:{self.port}" if local_only else f"http://{lan_ip()}:{self.port}"
+        where = ("this machine only; --web-host 0.0.0.0 opens it to the network" if local_only
+                 else "REACHABLE BY ANYONE ON THIS NETWORK, and it has no password")
+        print(f"[web] control page at {url}  ({where}; --no-web to disable)")
         return url
 
     def stop(self) -> None:

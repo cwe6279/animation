@@ -309,10 +309,13 @@ flicker or frame flashes at start-up; the face is scaled in software, about 1 ms
 desktop. Use `--borderless` when fullscreen shows artifacts. For pixel-exact edges either way,
 set `canvas_w`/`canvas_h` in face.json to the projector's resolution and scale the coordinates.
 
-### The control page (on by default, port 8020)
+### The control page (on by default, port 8020, this machine only)
 
-Every run serves a small page at `http://<box>:8020` (`--web-port`, `--no-web`; the next free port if that one is taken), standard library
-only, off the audio and render paths. From a phone or laptop on the same network:
+Every run serves a small page at `http://localhost:8020` (`--web-port`, `--no-web`; the next free port if that one is
+taken), standard library only, off the audio and render paths. It binds to this machine only.
+`--web-host 0.0.0.0` opens it to the network so you can use it from a phone, which is what a kiosk
+wants and what `docs/talker.service` does; be deliberate about it, because the page has no password
+and serves a camera snapshot and a Wi-Fi join endpoint. What it gives you:
 
 - **Status**: face, ears, brain, voice, the live mic level, speaking / thinking / dormant, the last
   `[turn]` timing line, what was heard and said, vision counts and the latest scene note.
@@ -414,8 +417,8 @@ backends in the real loop rather than in isolation.
 
 ### Choosing backends: measured results
 
-Measured 2026-09-06 on an AMD Ryzen AI MAX+ 395 (32 threads, 123 GB RAM,
-CPU only) on a home fibre connection. Rerun on your own hardware and voice
+Measured 2026-09-06 on a recent many-core AMD desktop, CPU only, on a fast
+connection. Rerun on your own hardware and voice
 with the two benchmark utilities:
 
 ```bash
@@ -480,9 +483,9 @@ a Pi 5 runs the local rows 3-4x slower, the cloud rows the same.
 | stage | cloud option | local option | what it costs on the critical path |
 |---|---|---|---|
 | listening | ElevenLabs Scribe realtime, ~0.5 s after you stop | faster-whisper base.en, ~0.2 s after the silence gate (~0.8 s total) | the `--silence-ms` gate (600) is the largest fixed cost of the turn; 400 is snappier, 300 cuts pauses |
-| brain | Claude Haiku 4.5, ~650 ms to first token; Opus ~950 | Ollama: qwen3:8b ~220 ms on a desktop GPU; a 27-35B model 400-450 ms, and hybrid-attention families (Qwen 3.5/3.8, Gemma) cannot reuse the prompt cache so every turn re-reads the prompt (~700 ms, with multi-second outliers) | the first *sentence* gates the voice, so a brain that opens short wins; thinking is always off (adds ~1 s) |
+| brain | Claude Haiku 4.5, ~650 ms to first token; Opus ~950 | Ollama: `qwen3:8b` ~220 ms on a desktop GPU, a 27B-class model 400-450 ms; hybrid-attention families (Qwen 3.5/3.8, Gemma) cannot reuse the prompt cache, so every turn re-reads the prompt (~700 ms, with multi-second outliers) | the first *sentence* gates the voice, so a brain that opens short wins; thinking is always off (adds ~1 s) |
 | voice | ElevenLabs flash ~250-400 ms, v3 ~1 s (performs [tags]) | Piper ~25 ms; Kokoro ~0.8 s for the first sentence (better voice) | Piper is the only voice that adds nothing you can hear |
-| vision (optional) | Claude Haiku, ~2.2 s per look, off the critical path | Gemma 4 31B via Ollama, ~10 s per look and it shares the GPU with the brain | keep it in the cloud; it runs between turns, never in front of a reply |
+| vision (optional) | Claude Haiku, ~2.2 s per look, off the critical path | `gemma4:31b` via Ollama, ~10 s per look and it shares the GPU with the brain | keep it in the cloud; it runs between turns, never in front of a reply |
 
 **Recommended stacks**
 
@@ -507,7 +510,7 @@ each (a Pi 5 has 4 cores; expect roughly 3-4x these desktop times there), and sa
 `logs/tts_bench/` so you can listen. It needs its own Python 3.11 environment because most of these
 do not support 3.14: `uv venv --python 3.11 .bench-venv`, then install `piper-tts kokoro-onnx
 onnxruntime soundfile coqui-tts[codec] ChatTTS` and the MeloTTS git package (both gitignored).
-Desktop results, Ryzen AI MAX 395, September 2026 (`ttfa` = time to first audio, `rtf` = synthesis
+Desktop results, many-core AMD desktop, September 2026 (`ttfa` = time to first audio, `rtf` = synthesis
 time / audio time, lower is better):
 
 | engine | load s | RAM MB | ttfa short | ttfa medium | rtf medium | rtf long | verdict |
@@ -536,13 +539,13 @@ Whisper in every pair, so it is left out). Desktop, September 2026, medians over
 | pair | brain | voice | first token | first audio | reply synthesized |
 |---|---|---|---:|---:|---:|
 | cloud | claude-haiku-4-5 | ElevenLabs flash | 682 ms | 1098 ms | 1754 ms |
-| local | Ollama, 35B on a desktop GPU | Piper | 426 ms | 763 ms | 1002 ms |
+| local | Ollama, a 27B-class model on a desktop GPU | Piper | 426 ms | 763 ms | 1002 ms |
 | cloud brain, local voice | claude-haiku-4-5 | Piper | 637 ms | 999 ms | 1434 ms |
 | local brain, cloud voice | Ollama | ElevenLabs flash | 442 ms | 894 ms | 1164 ms |
 
 What it says: the wait to first audio is mostly the brain writing its first sentence; the voice
 adds about 25 ms with Piper and 300-400 ms with ElevenLabs flash. On a Pi the brain stays in the
-cloud (a 35B model needs a desktop GPU), so the realistic Pi pairs are the two Claude rows: Piper
+cloud (a model that size needs a desktop GPU), so the realistic Pi pairs are the two Claude rows: Piper
 takes roughly 100-300 ms off first audio and removes the network from the voice entirely, at the
 price of a plainer voice and no performed tags.
 

@@ -250,16 +250,16 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
   <div class="tablewrap"><table>
     <tr><th>Stage</th><th>Cloud</th><th>Local</th><th>On the critical path</th></tr>
     <tr><td>Listening</td><td>ElevenLabs Scribe realtime, about 0.5 s after you stop</td><td>faster-whisper base.en, about 0.2 s after the silence gate</td><td>The <code>--silence-ms</code> gate (600 ms) is the largest fixed cost of a turn. 400 is snappier; 300 starts cutting pauses.</td></tr>
-    <tr><td>Brain</td><td>Claude Haiku 4.5, about 650 ms to first token; Opus about 950</td><td>Ollama: qwen3:8b about 220 ms on a desktop GPU. Hybrid-attention families (Qwen 3.5/3.8, Gemma) cannot reuse the prompt cache, so every turn re-reads the prompt: about 700 ms with multi-second outliers.</td><td>The first <em>sentence</em> gates the voice, so a brain that opens short wins. Thinking is always off; it adds about a second.</td></tr>
+    <tr><td>Brain</td><td>Claude Haiku 4.5, about 650 ms to first token; Opus about 950</td><td>Ollama: <code>qwen3:8b</code> about 220 ms on a desktop GPU. Hybrid-attention families (Qwen 3.5/3.8, Gemma) cannot reuse the prompt cache, so every turn re-reads the prompt: about 700 ms with multi-second outliers.</td><td>The first <em>sentence</em> gates the voice, so a brain that opens short wins. Thinking is always off; it adds about a second.</td></tr>
     <tr><td>Voice</td><td>ElevenLabs flash 250 to 400 ms; v3 about 1 s and performs the tags</td><td>Piper about 25 ms; Kokoro about 0.8 s for the first sentence, better voice</td><td>Piper is the only voice that adds nothing you can hear.</td></tr>
-    <tr><td>Vision</td><td>Claude Haiku, about 2.2 s per look</td><td>Gemma 4 31B through Ollama, about 10 s per look, sharing the GPU with the brain</td><td>Off the critical path either way. Keep it in the cloud.</td></tr>
+    <tr><td>Vision</td><td>Claude Haiku, about 2.2 s per look</td><td><code>gemma4:31b</code> through Ollama, about 10 s per look, sharing the GPU with the brain</td><td>Off the critical path either way. Keep it in the cloud.</td></tr>
   </table></div>
   <h3>Question in, voice out, measured</h3>
   <p>Same four questions through real pairs, timed from the moment the transcript reaches the brain. Speech to text is left out: it is the same local Whisper in every pair.</p>
   <div class="tablewrap"><table>
     <tr><th>Pair</th><th class="num">First token</th><th class="num">First audio</th><th class="num">Reply synthesized</th></tr>
     <tr><td>Claude Haiku + ElevenLabs flash</td><td class="num">682 ms</td><td class="num">1098 ms</td><td class="num">1754 ms</td></tr>
-    <tr><td>Ollama qwen3:8b + Piper, all local</td><td class="num">231 ms</td><td class="num">840 ms</td><td class="num">1339 ms</td></tr>
+    <tr><td>Ollama <code>qwen3:8b</code> + Piper, all local</td><td class="num">231 ms</td><td class="num">840 ms</td><td class="num">1339 ms</td></tr>
     <tr><td>Claude Haiku + Piper</td><td class="num">637 ms</td><td class="num">999 ms</td><td class="num">1434 ms</td></tr>
     <tr><td>Ollama + ElevenLabs flash</td><td class="num">442 ms</td><td class="num">894 ms</td><td class="num">1164 ms</td></tr>
   </table></div>
@@ -286,7 +286,7 @@ python speak.py --face skull --text "[whispers] Who dares enter?"</code></pre>
 <section id="panel">
   <div class="eyebrow">Control page <span class="file">http://&lt;box&gt;:8020 · --web-port · --no-web</span></div>
   <h2>Tune and test it from a phone</h2>
-  <p>Every run serves a small page on port 8020 (or the next free one), standard library only and off the audio and render paths, so a kiosk that starts at power-up can still be inspected and tuned from any device on the same network.</p>
+  <p>Every run serves a small page on port 8020 (or the next free one), standard library only and off the audio and render paths. It binds to this machine only; <code>--web-host 0.0.0.0</code> opens it to the network so a kiosk that starts at power-up can be inspected and tuned from a phone. Do that deliberately: the page has no password, and it serves a camera snapshot and a Wi-Fi join endpoint.</p>
   <div class="tablewrap"><table>
     <tr><th>Tab</th><th>What is there</th></tr>
     <tr><td>Status</td><td>Face, ears, brain, voice; live mic level; speaking, thinking or dormant; the last <code>[turn]</code> timing line; what was heard and said; vision counts and the latest scene note; recent events.</td></tr>
