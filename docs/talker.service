@@ -6,7 +6,9 @@
 #   journalctl -u talker -f            # the same log lines you see in a terminal
 #
 # Edit User, WorkingDirectory and the ExecStart flags for your box. The control
-# page is then at http://<pi>:8020 from any phone or laptop on the same network:
+# page is then at http://<pi-hostname>.local:8020 (or its IP) from any phone or laptop on
+# the same network. The hostname is the one you set in Raspberry Pi Imager, and it is the
+# address worth writing on the box, because it survives a DHCP change. Startup prints both:
 # status, live tuning, the setup tests and calibration, the flag reference, Wi-Fi.
 # That is what --web-host 0.0.0.0 below does. It has no password and serves a camera
 # snapshot and a Wi-Fi join endpoint, so only do it on a network you trust.

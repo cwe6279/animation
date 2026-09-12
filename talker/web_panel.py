@@ -124,6 +124,19 @@ def lan_ip() -> str:
         return "127.0.0.1"
 
 
+def mdns_name() -> Optional[str]:
+    """This machine's <hostname>.local, if Avahi/Bonjour is likely to resolve it.
+
+    On a kiosk the IP moves but the name does not, and phones and laptops resolve
+    .local out of the box, so this is the address worth writing on the box itself.
+    """
+    try:
+        host = socket.gethostname().split(".")[0]
+    except Exception:
+        return None
+    return f"{host}.local" if host and host != "localhost" else None
+
+
 def describe_parser(parser, args) -> List[Dict[str, Any]]:
     """Every --flag with its help text and the value in use this run."""
     rows = []
@@ -307,6 +320,9 @@ class WebPanel:
         where = ("this machine only; --web-host 0.0.0.0 opens it to the network" if local_only
                  else "REACHABLE BY ANYONE ON THIS NETWORK, and it has no password")
         print(f"[web] control page at {url}  ({where}; --no-web to disable)")
+        name = None if local_only else mdns_name()
+        if name:                  # the address that survives a DHCP change; write it on the box
+            print(f"[web]   also http://{name}:{self.port} from any phone or laptop on this network")
         return url
 
     def stop(self) -> None:

@@ -333,6 +333,15 @@ and serves a camera snapshot and a Wi-Fi join endpoint. What it gives you:
 
 ### Raspberry Pi
 
+**Getting it on Wi-Fi the first time.** Use Raspberry Pi Imager and open its advanced options
+(the gear) before writing the card: set the Wi-Fi name, password and country, and set a hostname.
+The Pi joins the network on first boot with no keyboard or monitor, and the control page is then at
+`http://<hostname>.local:8020` from any phone on the same network, which is what
+`docs/talker.service` exposes. Changing networks later is the control page's Wi-Fi tab. If the card
+was flashed without Wi-Fi details, plug in Ethernet once, or a keyboard and monitor, to get there;
+a self-hosted setup hotspot for that case is on the roadmap.
+
+
 The face and audio plumbing are light; the recognizer is the only stage a Pi
 cannot run fast. One flag picks the right set:
 
