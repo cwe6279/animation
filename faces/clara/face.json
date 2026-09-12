@@ -87,5 +87,19 @@
     ],
     "lid_tracking": 0.35,
     "iris_radius": 0.58
-  }
+  },
+  "memory": true,
+  "errands": true,
+  "dictation_words": [
+    "take this down",
+    "take dictation",
+    "dictation mode",
+    "let me dictate"
+  ],
+  "dictation_end_words": [
+    "that's all",
+    "end dictation",
+    "done dictating",
+    "that is all"
+  ]
 }

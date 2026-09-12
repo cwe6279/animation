@@ -163,7 +163,7 @@ class TalkerApp:
         self.clock = pygame.time.Clock()
         self.font_sm = pygame.font.SysFont("monospace", 18)
         self._hud = [self.font_sm.render(t, True, (55, 55, 55))
-                     for t in ("Enter=type & speak", "Space=wait/resume", "D=debug  F=fullscreen  H=hide", "ESC=quit")]
+                     for t in ("Enter=type & speak", "Space=wait/resume  Tab=dictation", "D=debug  F=fullscreen  H=hide", "ESC=quit")]
         self.textbox = TextBox(self.font_sm, self._w, self._h)
 
         self.audio = audio
@@ -179,6 +179,7 @@ class TalkerApp:
         # (voice_loop.py routes it through the LLM).
         self.on_submit: Optional[Callable[[str], None]] = None
         self.on_wait_toggle: Optional[Callable[[], None]] = None   # spacebar: waiting mode on/off
+        self.on_dictation_toggle: Optional[Callable[[], None]] = None   # Tab: dictation on/off
         self.waiting = False                                       # dims the face while set
         self._dim: Optional[pygame.Surface] = None
 
@@ -382,6 +383,8 @@ class TalkerApp:
                     self.toggle_fullscreen()
                 elif event.key == pygame.K_SPACE and self.on_wait_toggle is not None:
                     self.on_wait_toggle()
+                elif event.key == pygame.K_TAB and self.on_dictation_toggle is not None:
+                    self.on_dictation_toggle()
 
     def _draw_debug(self, rms: float, t: float, viseme: Viseme) -> None:
         r = self.renderer

@@ -65,17 +65,39 @@ class OllamaChat:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []
         self.last_usage = None
-        self._pending_context: Optional[str] = None
+        self._pending_context: List[str] = []
 
     # same context hooks as the other brains
     def add_context(self, text: str) -> None:
-        self._pending_context = text.strip() or None
+        text = text.strip()
+        if text and text not in self._pending_context:
+            self._pending_context.append(text)
 
     def _push_user(self, user_text: str) -> None:
         if self._pending_context:
-            self.messages.append({"role": "user", "content": f"(You notice: {self._pending_context})"})
-            self._pending_context = None
+            self.messages.append({"role": "user",
+                                  "content": "(You notice: " + "\n".join(self._pending_context) + ")"})
+            self._pending_context = []
         self.messages.append({"role": "user", "content": user_text})
+
+    def _drop_failed_turn(self) -> None:
+        self.messages.pop()
+        if self.messages and self.messages[-1]["role"] == "user" \
+                and self.messages[-1]["content"].startswith("(You notice: "):
+            self.messages.pop()
+
+    def summarise(self, instruction: str, max_tokens: int = 300) -> str:
+        """One extra answer about the conversation so far; history is left untouched."""
+        if not self.messages:
+            return ""
+        payload = {"model": self.model, "stream": False, "think": False, "keep_alive": self.keep_alive,
+                   "messages": [{"role": "system", "content": self.system}] + self.messages
+                               + [{"role": "user", "content": instruction}],
+                   "options": {"temperature": 0.3, "num_predict": max_tokens, "num_ctx": self.num_ctx}}
+        with self._open(payload) as resp:
+            data = json.load(resp)
+        text = (data.get("message") or {}).get("content", "")
+        return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
 
     def warm_up(self) -> None:
         """Load the model into memory now so the first reply is not slow."""
@@ -153,4 +175,4 @@ class OllamaChat:
             if full:
                 self.messages.append({"role": "assistant", "content": full})
             else:
-                self.messages.pop()
+                self._drop_failed_turn()

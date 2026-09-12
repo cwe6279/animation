@@ -117,6 +117,19 @@ class VoiceLoop:
         self.add_context: Callable[[str], None] = lambda text: None   # wired to the brain
         self._was_speaking = False
         self._vision_ticket: Optional[int] = None
+        self._last_heard = 0.0         # last time a partial transcript arrived (someone is talking)
+        # Dictation: keep transcribing phrase by phrase but hold the reply until the
+        # speaker has been quiet for `dictation_pause_s`; then answer everything at once.
+        self.dictating = False
+        self.dictation_pause_s = 4.0
+        self.dictation_words: List[str] = []       # short utterances that switch it on
+        self.dictation_end_words: List[str] = []   # ... and off (the buffer is answered)
+        self._dictation: List[str] = []
+        self._dictation_last = 0.0
+        self.on_dictation: Callable[[bool], None] = lambda on: None    # e.g. say "listening"
+        # Session end: the brain writes itself a note (see memory_notes.py).
+        self.on_session_end: Callable[[str], None] = lambda reason: None
+        self._session_turns = 0
 
     # ── mic path ────────────────────────────────────────
     def process(self, pcm: bytes) -> None:
@@ -199,10 +212,12 @@ class VoiceLoop:
         if not t.final:
             if t.text != self._partial:
                 self._partial = t.text
+                self._last_heard = time.monotonic()
                 self.on_event("hearing", t.text)
             return
         self._partial = ""
         if t.text.strip():
+            self._last_heard = time.monotonic()
             self._speech_end_at = (time.monotonic() - getattr(self.stt, "endpoint_delay_s", 0.0)
                                    - getattr(self.stt, "last_transcribe_s", 0.0))
             self.on_user_text(t.text.strip())
@@ -265,10 +280,25 @@ class VoiceLoop:
             self.engaged = False
             self.on_event("mode", f"dormant, listening for {', '.join(repr(w) for w in self.wake_words)}"
                                   f"{(' (' + reason + ')') if reason else ''}")
+            self.end_session(reason)
+
+    def end_session(self, reason: str = "") -> None:
+        """The conversation is over (dormant, goodbye, window closed): give the memory a
+        chance to write its summary. Fires once per stretch of conversation."""
+        turns, self._session_turns = self._session_turns, 0
+        if turns < 2:
+            return
+        try:
+            self.on_session_end(reason)
+        except Exception as e:
+            print(f"[loop] session end: {e}")
 
     def tick(self) -> None:
         """Idle timeout check; called per audio chunk. Silence is counted from the end of the
         character's own speech, so a long reply never eats into the timeout."""
+        if (self.dictating and self._dictation and not self._partial
+                and self.clock() - self._dictation_last >= self.dictation_pause_s):
+            self._flush_dictation("pause")
         if not (self.engaged and self.wake_words):
             return
         if self.speaker.is_busy or self._thinking:
@@ -312,13 +342,87 @@ class VoiceLoop:
                 text = rest if rest else f"{self.wake_words[-1].title()}?"     # shortest = the name
             else:
                 self._last_activity = self.clock()
+        if self._is_phrase(text, self.dictation_end_words) and self.dictating:
+            self.set_dictation(False, "end word")
+            return
+        if self._is_phrase(text, self.dictation_words) and not self.dictating:
+            self.set_dictation(True, "spoken")
+            return
+        if self.dictating:
+            self._dictation.append(text)
+            self._dictation_last = self.clock()
+            self.on_event("dictation", " ".join(self._dictation))
+            return
+        self._start_turn(text)
+
+    def _start_turn(self, text: str) -> None:
         with self._lock:
             if self._thinking:
                 return
             self._thinking = True
         self.turns += 1
+        self._session_turns += 1
         self.on_event("you", text)
         threading.Thread(target=self._answer, args=(text,), daemon=True, name="llm-turn").start()
+
+    # ── dictation ───────────────────────────────────────
+    def _is_phrase(self, text: str, phrases: List[str]) -> bool:
+        """A short utterance that is one of the phrases (the sleep-word rule)."""
+        if not phrases:
+            return False
+        words = self._norm(text)
+        if not words or len(words) > 5:
+            return False
+        joined = " ".join(words)
+        return any(joined == p or joined.startswith(p + " ") or joined.endswith(" " + p)
+                   for p in phrases)
+
+    def set_dictation(self, on: bool, reason: str = "") -> None:
+        """Dictation on: phrases are collected and answered together after a long pause.
+        Off: whatever was collected is answered now."""
+        on = bool(on)
+        if on == self.dictating:
+            return
+        self.dictating = on
+        self.on_event("mode", ("dictation: answering after each "
+                               f"{self.dictation_pause_s:.0f} s pause" if on else "dictation off")
+                      + (f" ({reason})" if reason else ""))
+        try:
+            self.on_dictation(on)
+        except Exception as e:
+            print(f"[loop] on_dictation: {e}")
+        if not on and self._dictation:
+            self._flush_dictation(reason or "off")
+
+    def _flush_dictation(self, why: str) -> None:
+        text = " ".join(self._dictation).strip()
+        self._dictation = []
+        if text:
+            self._start_turn(text)
+
+    # ── a turn nobody asked for ─────────────────────────
+    def announce(self, event_text: str) -> bool:
+        """Tell the brain something happened and let it speak up, but only when the room is
+        quiet: not while it talks or thinks, not while someone is mid-sentence, not within
+        a couple of seconds of either. Returns False to say: try again later."""
+        if self.waiting or self.paused or not self.engaged or self.dictating:
+            return False
+        if self.speaker.is_busy or self._thinking or self._partial:
+            return False
+        now = time.monotonic()
+        if now - self._last_heard < 2.0 or self.clock() - self._last_busy < 2.0:
+            return False
+        with self._lock:
+            if self._thinking:
+                return False
+            self._thinking = True
+        self.turns += 1
+        self._session_turns += 1
+        self._speech_end_at = 0.0                    # no utterance to time this against
+        self.on_event("event", event_text)
+        threading.Thread(target=self._answer, args=(f"(Event: {event_text})",),
+                         daemon=True, name="llm-turn").start()
+        return True
 
     def _strip_end_marker(self, chunks: Iterator[str]) -> Iterator[str]:
         """Remove [end] from the stream (it may straddle chunks) and disengage if seen."""
@@ -643,6 +747,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "0.0.0.0 opens it to the network, which a kiosk wants, but the page has no "
                         "password and serves a camera snapshot and a Wi-Fi join endpoint")
     p.add_argument("--no-web", action="store_true", help="Do not start the control page")
+    p.add_argument("--agent-url", default=None,
+                   help="Backend agent that {{task ...}} errands go to (tools/agent_relay.py on the machine "
+                        "with your agent harness), e.g. http://agentbox:8030; default AGENT_RELAY_URL from "
+                        ".env. Only a face with \"errands\": true uses it")
+    p.add_argument("--errand-poll", type=float, default=5.0,
+                   help="Seconds between polls of the backend agent for finished tasks (default 5)")
+    p.add_argument("--dictation-pause", type=float, default=4.0,
+                   help="Dictation mode: seconds of quiet before everything you dictated is answered as one "
+                        "turn (default 4). Tab in the window or a face's dictation_words switch it on")
     return p
 
 
@@ -734,6 +847,15 @@ def main(argv=None) -> int:
     pygame.font.init()
     pygame.display.set_mode((1, 1), pygame.HIDDEN)
     face_dir = resolve_face_dir(args.face, args.face_dir)
+    # An assistant's memory (notes.md, tasks.md next to face.json) reaches character.md
+    # through {notes} and {tasks}, filled while the face loads: register them first.
+    notebook = ledger = None
+    if face_dir:
+        from .memory_notes import Notebook, TaskLedger
+        from .launch_facts import register
+        notebook, ledger = Notebook(face_dir), TaskLedger(face_dir)
+        register("notes", notebook.recent)
+        register("tasks", ledger.render)
     assets = FaceAssetLoader().load(face_dir) if face_dir else FaceAssetLoader().build(default_manifest(args.face))
 
     # Face-level defaults for voice, model and persona (flags win)
@@ -752,9 +874,21 @@ def main(argv=None) -> int:
     sounds = SoundBank(os.path.join(face_dir, m.sounds) if face_dir else None)
     body = NullBody((m.body or {}).get("moves", []))
     tools = ToolBox()
-    extra_rules = action_rules(body.moves, sounds.names, tools.describe())
+    # An assistant: notes she writes herself, and errands for a backend agent (errands.py).
+    from .brains.claude_chat import assistant_rules
+    memory_on = bool(m.memory) and notebook is not None
+    agent_url = (args.agent_url or os.environ.get("AGENT_RELAY_URL") or "").strip()
+    errands_on = bool(m.errands)
+    if errands_on and not agent_url:
+        print("[errands] face.json asks for a backend agent but AGENT_RELAY_URL is not set in .env "
+              "and --agent-url was not given: errands off")
+        errands_on = False
+    if errands_on:
+        tools.add("tasks", "the task ledger with each task's state", lambda _a: ledger.render())
+    extra_rules = action_rules(body.moves, sounds.names, tools.describe()) + assistant_rules(memory_on, errands_on)
     if extra_rules:
-        print(f"[voice] actions: moves={body.moves or '-'} sounds={sounds.names or '-'} tools={tools.names or '-'}")
+        print(f"[voice] actions: moves={body.moves or '-'} sounds={sounds.names or '-'} tools={tools.names or '-'}"
+              + (" note" if memory_on else "") + (" task" if errands_on else ""))
     try:
         backend = make_backend(args.tts, voice=voice, model=tts_model, speed=speed)
     except Exception as e:
@@ -802,6 +936,40 @@ def main(argv=None) -> int:
             hold_while=lambda: _pipe.is_busy,
             ends_at=lambda: _pipe.speech_end_time - audio.timeline_time()))
     actions.register("tool", tools.handler())
+    if memory_on:
+        def note_handler(a):                       # a file append: microseconds, safe on the speech thread
+            line = notebook.note(f"{a.name} {a.args}".strip())
+            if line:
+                print(f"[note] {line}")
+        actions.register("note", note_handler)
+    runner = None
+    last_you = {"text": ""}
+    if errands_on:
+        from .errands import ErrandRunner
+
+        def on_started(e):
+            ledger.set_state(e.id, "in progress")
+
+        def on_done(e):
+            ledger.set_state(e.id, "done", summary=e.summary or e.result[:300])
+            runner.say_later(f'Task {e.id} "{e.task}" finished. Result: {e.summary or e.result[:600]}')
+
+        def on_fail(e):
+            ledger.set_state(e.id, "failed", summary=e.summary or "failed")
+            runner.say_later(f'Task {e.id} "{e.task}" failed: {e.summary or "no reason given"}')
+
+        runner = ErrandRunner(agent_url, poll_s=args.errand_poll, on_started=on_started,
+                              on_done=on_done, on_fail=on_fail, sender=m.name)
+
+        def task_handler(a):                       # enqueue only; the poller thread does the HTTP
+            task = f"{a.name} {a.args}".strip()
+            if not task:
+                return None
+            e = runner.submit(task, context=f"the person had just said: {last_you['text']}" if last_you["text"] else "")
+            ledger.add(e.id, e.task)
+            print(f"[task] {e.id} queued: {e.task}")
+            return None
+        actions.register("task", task_handler)
     if getattr(app, "pipeline", None) is not None:
         app.pipeline.on_action = actions.dispatch
 
@@ -846,6 +1014,46 @@ def main(argv=None) -> int:
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
     loop.vision = watcher
     loop.add_context = chat.add_context      # a visual question hands her the current scene
+    loop.dictation_pause_s = args.dictation_pause
+    loop.dictation_words = list(m.dictation_words)
+    loop.dictation_end_words = list(m.dictation_end_words)
+    if getattr(app, "pipeline", None) is not None:
+        loop.on_dictation = lambda on: app.pipeline.speak("Listening.") if on else None
+    note_threads: List[threading.Thread] = []
+    if runner is not None or memory_on:
+        prev_event = loop.on_event
+
+        def remember_you(kind, text):
+            if kind == "you":
+                last_you["text"] = text
+            prev_event(kind, text)
+        loop.on_event = remember_you
+    if runner is not None:
+        runner.deliver = loop.announce       # a finished task is told when the room is quiet
+        runner.start()
+        loop.errands = runner
+        print(f"[errands] on: {agent_url}, polled every {args.errand_poll:.0f}s; "
+              f"{len(ledger.open_items())} open in tasks.md")
+    if memory_on:
+        def session_end(reason):
+            def work():
+                try:
+                    text = chat.summarise(
+                        "The conversation is ending. For your own notes, in at most three plain sentences: "
+                        "what happened, any decision or fact worth remembering, and anything left to follow "
+                        "up. No greetings, no tags, no markdown.")
+                except Exception as e:
+                    print(f"[memory] session summary failed: {e}")
+                    return
+                if text:
+                    notebook.session_summary(text)
+                    print(f"[memory] session summary written ({reason})")
+            t = threading.Thread(target=work, daemon=True, name="session-note")
+            note_threads.append(t)
+            t.start()
+        loop.on_session_end = session_end
+        print(f"[memory] on: {notebook.path} ({len(notebook.recent(100000).split(chr(10)))} lines), "
+              f"{ledger.path} ({len(ledger.items)} tasks)")
     print(f"[log] this session is being written to {log_path}")
     if wake_words:
         names = ", ".join(repr(w) for w in loop.wake_words)
@@ -856,6 +1064,7 @@ def main(argv=None) -> int:
         loop.set_waiting((not loop.waiting) if on is None else on, "spacebar" if on is None else "panel")
         app.waiting = loop.waiting
     app.on_wait_toggle = toggle_waiting
+    app.on_dictation_toggle = lambda: loop.set_dictation(not loop.dictating, "Tab")
 
     # ambience: files in sounds/idle/ play at random while nothing is happening
     idle = None
@@ -877,7 +1086,8 @@ def main(argv=None) -> int:
 
     panel = None
     if not args.no_web:
-        panel = _start_panel(args, p, loop, app, audio, stt, chat, backend, watcher, m, face_dir, idle)
+        panel = _start_panel(args, p, loop, app, audio, stt, chat, backend, watcher, m, face_dir, idle,
+                             runner=runner, notebook=notebook if memory_on else None)
 
     if stt is not None:
         try:
@@ -895,16 +1105,22 @@ def main(argv=None) -> int:
     try:
         app.run()
     finally:
+        loop.end_session("window closed")        # the memory's session note, if there was a session
         if watcher is not None:
             watcher.stop()
+        if runner is not None:
+            runner.stop()
         if panel is not None:
             panel.stop()
         if idle is not None:
             idle.stop()
+        for t in note_threads:                   # give the summary up to 10 s, then leave anyway
+            t.join(timeout=10)
     return 0
 
 
-def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir, idle=None):
+def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir, idle=None,
+                 runner=None, notebook=None):
     """The control page: registers what it may read and change, then serves it."""
     from .web_panel import WebPanel
     panel = WebPanel(port=args.web_port, host=args.web_host)
@@ -938,6 +1154,11 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
             st["vision"] = {"described": watcher.stats.get("described", 0),
                             "skipped": watcher.stats.get("skipped_unchanged", 0),
                             "latest": (n.changes or n.notes) if n else ""}
+        st["dictation"] = loop.dictating
+        if runner is not None:
+            st["errands"] = {"backend": runner.url, "reachable": runner.reachable,
+                             "open": len(runner.pending()), "done": runner.stats["done"],
+                             "failed": runner.stats["failed"], "latest": runner.last_summary}
         return st
     panel.status_fn = status
 
@@ -978,6 +1199,18 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("engaged", lambda: loop.engaged,
                   lambda v: loop.engage("panel") if v else loop.disengage("panel"),
                   "Wake mode: on = answering; off = dormant until a wake word.", kind="bool")
+    panel.tunable("dictation", lambda: loop.dictating, lambda v: loop.set_dictation(v, "panel"),
+                  "Dictation mode (Tab in the window does the same): keeps transcribing but only answers "
+                  "after dictation_pause_s of quiet, so you can dictate a paragraph or think aloud. "
+                  "Switching it off answers what was dictated.", kind="bool")
+    panel.tunable("dictation_pause_s", lambda: loop.dictation_pause_s,
+                  lambda v: setattr(loop, "dictation_pause_s", float(v)),
+                  "Dictation mode: seconds of quiet before everything dictated is answered as one turn.",
+                  kind="float", unit="s", lo=1, hi=60, flag="--dictation-pause")
+    if runner is not None:
+        panel.tunable("errand_poll_s", lambda: runner.poll_s, lambda v: setattr(runner, "poll_s", float(v)),
+                      "Seconds between polls of the backend agent for finished tasks.",
+                      kind="float", unit="s", lo=1, hi=120, flag="--errand-poll")
     if idle is not None:
         def set_gap(lo=None, hi=None):
             a, b = idle.interval
@@ -1020,6 +1253,13 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.action("say as visitor", lambda t: (loop.on_user_text(t), "sent")[1] if t.strip() else "type something first",
                  "Send this line to the brain as if a visitor said it.", takes_text=True)
     panel.action("go dormant", lambda t: (loop.disengage("panel"), "dormant")[1], "Wake mode: stop answering until a wake word.")
+    if runner is not None:
+        panel.action("task", lambda t: f"queued {runner.submit(t).id}" if t.strip() else "type the task first",
+                     "Hand this to the backend agent now, as if the character had written {{task ...}}. "
+                     "The result is announced when the room is quiet.", takes_text=True)
+    if notebook is not None:
+        panel.action("note", lambda t: ("noted: " + notebook.note(t)) if t.strip() else "type the note first",
+                     "Append a line to the character's notes.md.", takes_text=True)
 
     if pipeline is not None and stt is not None:
         from .calibrate import run_calibration

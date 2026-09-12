@@ -36,10 +36,9 @@ class OpenAICompatChat:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []
         self.last_usage = None
-        # Scene context: pushed by the vision watcher only when the scene changed.
-        # It is inserted into the conversation as its own context entry ahead of
-        # the next thing the visitor says; quiet turns add nothing.
-        self._pending_context: Optional[str] = None
+        # Context notes wait here and go in as one entry ahead of the next thing
+        # the visitor says; quiet turns add nothing. All of them are kept, in order.
+        self._pending_context: List[str] = []
         if client is None:
             if not api_key:
                 raise RuntimeError(f"{name} needs an API key in the environment")
@@ -52,15 +51,33 @@ class OpenAICompatChat:
                    character=character, name="openai", **kw)
 
     def add_context(self, text: str) -> None:
-        """Queue a context note (e.g. a scene change). Only the latest one is kept."""
-        self._pending_context = text.strip() or None
+        """Queue a context note for the next turn."""
+        text = text.strip()
+        if text and text not in self._pending_context:
+            self._pending_context.append(text)
 
     def _push_user(self, user_text: str) -> None:
         if self._pending_context:
             self.messages.append({"role": "user",
-                                  "content": f"(You notice: {self._pending_context})"})
-            self._pending_context = None
+                                  "content": "(You notice: " + "\n".join(self._pending_context) + ")"})
+            self._pending_context = []
         self.messages.append({"role": "user", "content": user_text})
+
+    def _drop_failed_turn(self) -> None:
+        self.messages.pop()
+        if self.messages and self.messages[-1]["role"] == "user" \
+                and self.messages[-1]["content"].startswith("(You notice: "):
+            self.messages.pop()
+
+    def summarise(self, instruction: str, max_tokens: int = 300) -> str:
+        """One extra answer about the conversation so far; history is left untouched."""
+        if not self.messages:
+            return ""
+        r = self.client.chat.completions.create(
+            model=self.model, max_tokens=max_tokens, temperature=0.3,
+            messages=[{"role": "system", "content": self.system}] + self.messages
+                     + [{"role": "user", "content": instruction}])
+        return (r.choices[0].message.content or "").strip()
 
     def reply(self, user_text: str) -> Iterator[str]:
         self._push_user(user_text)
@@ -86,4 +103,4 @@ class OpenAICompatChat:
             if full:
                 self.messages.append({"role": "assistant", "content": full})
             else:
-                self.messages.pop()
+                self._drop_failed_turn()

@@ -152,6 +152,12 @@ class FaceManifest:
     facts: Dict = field(default_factory=dict)   # extra {placeholders} for character.md (see launch_facts.py)
     idle_sounds: Dict = field(default_factory=dict)   # {"interval": [30, 90], "quiet_for": 10}; files in sounds/idle/
     sleep_words: List[str] = field(default_factory=list)  # wake mode: short phrases that end it at once
+    # An assistant (see memory_notes.py, errands.py): a working memory in notes.md and
+    # tasks.md next to face.json, and a backend agent (AGENT_RELAY_URL) to hand work to.
+    memory:  bool = False
+    errands: bool = False
+    dictation_words: List[str] = field(default_factory=list)      # "take this down": answer only after a long pause
+    dictation_end_words: List[str] = field(default_factory=list)  # "that's all": answer what was dictated now
 
     _KNOWN_TOP = {
         "name", "description", "canvas_w", "canvas_h", "fps", "bg_color", "face_base",
@@ -159,6 +165,7 @@ class FaceManifest:
         "glow_style", "core_color", "rim_color", "light_offset", "cut_depth", "wall_color", "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
         "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words", "sounds", "body", "idle_sounds", "facts", "sfx_over_speech",
+        "memory", "errands", "dictation_words", "dictation_end_words",
     }
     _KNOWN_EYE = {"image", "cx", "cy", "scale", "opacity"}
     _KNOWN_MOUTH = {"anchor_cx", "anchor_cy", "max_w", "min_w", "scale", "offset_x", "offset_y",
@@ -226,6 +233,10 @@ class FaceManifest:
         m.idle_sounds = dict(d.get("idle_sounds") or {})
         m.facts = dict(d.get("facts") or {})
         m.sfx_over_speech = bool(d.get("sfx_over_speech", m.sfx_over_speech))
+        m.memory      = bool(d.get("memory", m.memory))
+        m.errands     = bool(d.get("errands", m.errands))
+        m.dictation_words = [str(w).lower() for w in (d.get("dictation_words") or [])]
+        m.dictation_end_words = [str(w).lower() for w in (d.get("dictation_end_words") or [])]
         m.character   = str(d.get("character", ""))
 
         for side in ("eye_left", "eye_right"):

@@ -52,6 +52,39 @@ VISION_RULES = (
 )
 
 
+def assistant_rules(memory: bool = False, errands: bool = False) -> str:
+    """The system-prompt addition for an assistant with a working memory (notes.md,
+    tasks.md) and/or a backend agent to hand work to. '' when it has neither."""
+    if not (memory or errands):
+        return ""
+    lines = [
+        "\n\nA line in parentheses that begins 'You notice:' or 'Event:' comes from the system, never "
+        "from the person you are talking to: an observation, a tool's answer, or news that something "
+        "finished. Never read it out or say 'I notice'; act on it in your own words."
+    ]
+    if memory:
+        lines.append(
+            "You have a working memory in two files you read at launch: your notes and your task ledger, "
+            "both in your brief below. Write a note with {{note <one line>}} anywhere in a reply; it is "
+            "appended to your notes with the time, and you will read it again next time you start. Note "
+            "what is worth keeping across sessions: decisions, names, preferences, follow-ups, where you "
+            "left off. Tell the person in a few words that you noted it. When a session ends you are "
+            "asked for a short summary; keep it factual."
+        )
+    if errands:
+        lines.append(
+            "You can hand work to a separate agent on another machine that researches, reads, writes and "
+            "runs code for minutes at a time: {{task <what to do, one clear sentence with everything it "
+            "needs>}}. Use it only for work that genuinely takes longer than a reply, never for something "
+            "you can answer now. The block is silent, so the same reply must also say, in words, that you "
+            "have handed it off, like 'On it. I'll tell you when it's back.' When it finishes you get an "
+            "Event with a short summary: tell the person the conclusion in your own words. The ledger in "
+            "your brief shows each task's state; {{tool tasks}} reads it live when someone asks what is "
+            "open, and like every block it is never spoken and never offered as something to do."
+        )
+    return "\n".join(lines)
+
+
 def make_client() -> anthropic.Anthropic:
     """
     Anthropic client. Organization-wide API keys must name a workspace; set
@@ -80,22 +113,44 @@ class ClaudeChat:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []
         self.last_usage = None
-        # Scene context: pushed by the vision watcher only when the scene changed.
-        # It is inserted into the conversation as its own context entry ahead of
-        # the next thing the visitor says; quiet turns add nothing.
-        self._pending_context: Optional[str] = None
+        # Context notes (a scene change, a tool's answer, a finished task) wait here
+        # and go into the conversation as one entry ahead of the next thing the
+        # visitor says; quiet turns add nothing. All of them are kept, in order.
+        self._pending_context: List[str] = []
         self.client = client or make_client()
 
     def add_context(self, text: str) -> None:
-        """Queue a context note (e.g. a scene change). Only the latest one is kept."""
-        self._pending_context = text.strip() or None
+        """Queue a context note for the next turn."""
+        text = text.strip()
+        if text and text not in self._pending_context:
+            self._pending_context.append(text)
 
     def _push_user(self, user_text: str) -> None:
         if self._pending_context:
             self.messages.append({"role": "user",
-                                  "content": f"(You notice: {self._pending_context})"})
-            self._pending_context = None
+                                  "content": "(You notice: " + "\n".join(self._pending_context) + ")"})
+            self._pending_context = []
         self.messages.append({"role": "user", "content": user_text})
+
+    def _drop_failed_turn(self) -> None:
+        """A turn that produced nothing: remove its user line and any notice pushed with it."""
+        self.messages.pop()
+        if self.messages and self.messages[-1]["role"] == "user" \
+                and self.messages[-1]["content"].startswith("(You notice: "):
+            self.messages.pop()
+
+    def summarise(self, instruction: str, max_tokens: int = 300) -> str:
+        """One extra answer about the conversation so far (for the session note).
+        Leaves the history untouched."""
+        msgs = self.messages + [{"role": "user", "content": instruction}]
+        if not self.messages:
+            return ""
+        extra = {}
+        if not self.model.startswith("claude-haiku"):
+            extra["thinking"] = {"type": "disabled"}
+        with self.client.beta.messages.stream(model=self.model, max_tokens=max_tokens, **extra,
+                                              system=self.system, messages=msgs) as stream:
+            return "".join(stream.text_stream).strip()
 
     def reply(self, user_text: str) -> Iterator[str]:
         self._push_user(user_text)
@@ -128,4 +183,4 @@ class ClaudeChat:
             if full:
                 self.messages.append({"role": "assistant", "content": full})
             else:
-                self.messages.pop()      # failed turn: don't leave a dangling user message
+                self._drop_failed_turn()

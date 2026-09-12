@@ -63,3 +63,7 @@ calibration.json
 # local TTS benchmark environment (tools/bench_tts_local.py)
 .bench-venv/
 .bench-models/
+
+# An assistant's working memory (talker/memory_notes.py): your notes and tasks, not the project's
+faces/*/notes.md
+faces/*/tasks.md

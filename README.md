@@ -402,6 +402,39 @@ a sleep word works while the character is still talking.
 Sounds are not words: Whisper runs behind a voice-activity filter and a confidence cut-off, and
 clips under 0.35 s are dropped, so coughs, chair scrapes and music no longer become sentences.
 
+### An assistant: memory, errands and dictation (Clara)
+
+A prop answers and forgets. An assistant has to remember, hand work off, and let you finish
+a thought. Three face.json switches, all on for `clara` and off for everyone else:
+
+**Memory** (`"memory": true`) is two markdown files next to `face.json`, gitignored because
+they hold your business, not the project's: `notes.md` and `tasks.md`. She writes a note
+with an action block in her reply, `{{note the board moved to Thursday}}`, which the loop
+appends with the time; she never touches the filesystem herself. When a session ends
+(a goodbye, going dormant, or the window closing) she is asked for a three-sentence
+summary, written under the day's heading. At launch the tail of both files is filled into
+`character.md` through the `{notes}` and `{tasks}` placeholders (see `launch_facts.py`),
+which is how she knows where she left off. Both files are yours to edit.
+
+**Errands** (`"errands": true` plus `AGENT_RELAY_URL` in `.env`) hand long work to an agent
+on another machine. She writes `{{task find the three cheapest 4K projectors under 300}}`
+and says so; `talker/errands.py` posts it from a background thread and polls every
+`--errand-poll` seconds (5), so her reply is never delayed. The ledger shows the task as
+`[in progress]`; when it comes back `[done]` with the summary, she reports the conclusion
+the next time the room is quiet, as a turn nobody asked for, and can read the ledger live
+with `{{tool tasks}}`. The backend is any service that answers three small JSON endpoints;
+`tools/agent_relay.py` is one, wrapping any command-line harness (`claude -p` by default),
+with `RELAY_ROUNDS=2` for a second pass that critiques and improves the first. How to adapt
+your own harness: [tools/AGENT_RELAY.md](tools/AGENT_RELAY.md).
+
+**Dictation** holds her reply until you have really stopped. Normally the endpointer ends
+your turn 600 ms after you pause, which is right for conversation and wrong for dictating
+a paragraph. Say one of the face's `dictation_words` ("take this down"), press `Tab` in the
+window, or flip `dictation` on the control page: she keeps transcribing phrase by phrase,
+shows it as it lands, and only answers after `--dictation-pause` seconds of quiet (4),
+to everything at once. "That's all" (`dictation_end_words`) answers now and switches it off.
+A sleep word still stops her, and nothing is announced while you dictate.
+
 ### Vision (optional, off unless `--camera` is given)
 
 ```bash

@@ -97,3 +97,35 @@ def test_vision_rule_only_when_the_brain_can_see():
     seeing = ClaudeChat(client=FakeClient(["x"]), can_see=True)
     assert "You can see" not in blind.system
     assert "You can see" in seeing.system and "You notice" in seeing.system
+
+
+def test_context_notes_queue_up_and_a_failed_turn_drops_its_notice():
+    from talker.brains.claude_chat import assistant_rules
+    client = FakeClient(["fine."])
+    chat = ClaudeChat(character="x", client=client, extra_rules=assistant_rules(memory=True, errands=True))
+    assert "{{note" in chat.system and "{{task" in chat.system and "Event:" in chat.system
+    chat.add_context("the door opened")
+    chat.add_context("the tasks tool answered: - [done] 3f2a")
+    chat.add_context("the door opened")                      # a repeat is not queued twice
+    "".join(chat.reply("what's new?"))
+    assert chat.messages[0] == {"role": "user", "content": "(You notice: the door opened\nthe tasks tool answered: - [done] 3f2a)"}
+    assert chat.messages[1]["content"] == "what's new?"
+    assert chat._pending_context == []
+    # a turn that yields nothing removes both its user line and the notice pushed with it
+    client.chunks = []
+    chat.add_context("later")
+    "".join(chat.reply("again"))
+    assert [m["content"] for m in chat.messages][-1] == "fine."
+    assert not any("later" in m["content"] for m in chat.messages)
+
+
+def test_summarise_leaves_history_alone():
+    client = FakeClient(["We planned the offsite."])
+    chat = ClaudeChat(character="x", client=client)
+    assert chat.summarise("sum up") == ""                    # nothing to summarise yet
+    "".join(chat.reply("hello"))
+    before = list(chat.messages)
+    client.chunks = ["We planned the offsite."]
+    assert chat.summarise("sum up") == "We planned the offsite."
+    assert chat.messages == before
+    assert client.calls[-1]["messages"][-1] == {"role": "user", "content": "sum up"}
