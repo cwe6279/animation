@@ -102,7 +102,7 @@ Rearrange until the speaker number is well below your own speaking level, then s
 `--barge-in-boost` so the threshold sits between them.
 
 **Barge-in checklist.** Run with `--barge-in --debug`. A barge-in needs half a second of
-continuous speech (`--barge-in-ms`, 700 ms) that is louder than the onset threshold times
+continuous speech (`--barge-in-ms`, 400 ms) that is louder than the onset threshold times
 `--barge-in-boost` (4) while the character talks, and that does not follow the rhythm of
 what the speaker is playing: an echo guard compares the mic's loudness pattern with the
 outgoing audio and rejects matches (`[echo]` lines in the log). A USB speakerphone's own mic

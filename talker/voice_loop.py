@@ -63,7 +63,7 @@ class VoiceLoop:
                  wake_words: Optional[List[str]] = None, idle_timeout: float = 60.0,
                  clock=time.monotonic, start_engaged: bool = True,
                  sleep_words: Optional[List[str]] = None,
-                 barge_in_ms: int = 700, barge_in_boost: float = 4.0):
+                 barge_in_ms: int = 400, barge_in_boost: float = 4.0):
         self.stt = stt
         self.llm_reply = llm_reply
         self.speaker = speaker
@@ -585,8 +585,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-thinking", action="store_true", help=argparse.SUPPRESS)   # kept for old scripts
     p.add_argument("--character", default=None, help='Persona, e.g. "EVE from WALL-E, terse and curious"')
     p.add_argument("--barge-in", action="store_true", help="Interrupt playback when you start talking")
-    p.add_argument("--barge-in-ms", type=int, default=700,
-                   help="Continuous speech needed before a barge-in interrupts (default 700 ms; a cough or a clatter is shorter)")
+    p.add_argument("--barge-in-ms", type=int, default=400,
+                   help="Continuous speech needed before a barge-in interrupts (default 400 ms, which is about two syllables; a cough or a clatter is shorter than that, and the loudness check catches the rest)")
     p.add_argument("--barge-in-boost", type=float, default=None,
                    help="How much louder than usual speech must be, while the character talks, to count "
                         "(multiplier on the onset threshold; default 4; raise if it still cuts itself off, lower to 2.5 for a quiet room)")
