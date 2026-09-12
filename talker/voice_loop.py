@@ -628,6 +628,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     p.add_argument("--web-port", type=int, default=8020,
                    help="Control page on this port (status, live tuning, setup tests, flag reference, Wi-Fi); default 8020, the next free port if taken")
+    p.add_argument("--mic-highpass", type=float, default=90.0,
+                   help="High-pass the microphone at this many Hz before anything measures the "
+                        "level: cuts hum, air conditioning, traffic and desk thumps, which carry no "
+                        "words but do move the speech gate. 0 disables it (default 90)")
+    p.add_argument("--mic-lowpass", type=float, default=7500.0,
+                   help="Low-pass the microphone at this many Hz before it is resampled down for "
+                        "the recognizer. This is anti-aliasing: without it, noise above half the "
+                        "recognizer's rate folds back into the speech band. 0 disables it (default 7500)")
     p.add_argument("--web-host", default="127.0.0.1",
                    help="Interface for the control page; default 127.0.0.1, this machine only. "
                         "0.0.0.0 opens it to the network, which a kiosk wants, but the page has no "
@@ -721,6 +729,8 @@ def main(argv=None) -> int:
         print(f"[error] TTS backend '{args.tts}' unavailable: {e}")
         return 1
     audio = build_audio(args.no_audio, args.sync_offset, args.output_device)
+    audio.mic_high_pass = max(0.0, args.mic_highpass)
+    audio.mic_low_pass = max(0.0, args.mic_lowpass)
     text_only = args.text_only or args.no_audio
 
     can_see = args.camera is not None and not args.no_vision
@@ -908,6 +918,16 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("barge_in_duty", lambda: loop.barge_in_duty, lambda v: setattr(loop, "barge_in_duty", v),
                   "Share of the barge-in window the mic must be loud. A voice is about 0.5, a knock about 0.2. Raise if bangs get through, lower if your voice does not.",
                   kind="float", lo=0.1, hi=1.0)
+    panel.tunable("mic_highpass", lambda: audio.mic_high_pass,
+                  lambda v: setattr(audio, "mic_high_pass", float(v)),
+                  "High-pass on the microphone, in Hz. Cuts hum, air conditioning and desk thumps "
+                  "before the speech gate sees them. Raise it in a noisy room; 0 turns it off.",
+                  kind="float", unit="Hz", lo=0, hi=400, flag="--mic-highpass")
+    panel.tunable("mic_lowpass", lambda: audio.mic_low_pass,
+                  lambda v: setattr(audio, "mic_low_pass", float(v)),
+                  "Low-pass before the microphone is resampled down, in Hz. Anti-aliasing; only "
+                  "does anything when the device runs faster than the recognizer. 0 turns it off.",
+                  kind="float", unit="Hz", lo=0, hi=20000, flag="--mic-lowpass")
     panel.tunable("echo_threshold", lambda: loop.echo_threshold, lambda v: setattr(loop, "echo_threshold", v),
                   "Mic/speaker loudness correlation above this is treated as the character's own voice, not a barge-in.",
                   kind="float", lo=0.0, hi=1.0)

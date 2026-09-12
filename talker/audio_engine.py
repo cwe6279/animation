@@ -77,6 +77,13 @@ def _rms_int16(data: bytes) -> float:
 class BaseAudioEngine:
     sample_rate: int = 24000
 
+    # Microphone filtering, in Hz; 0 disables either stage. See talker/audio_filters.py.
+    # The high-pass takes out room rumble before anything measures the level; the
+    # low-pass is the anti-aliasing stage used when the device runs faster than the
+    # recognizer wants. Both can be changed while the loop is running.
+    mic_high_pass: float = 90.0
+    mic_low_pass: float = 7500.0
+
     # -- timeline ------------------------------------------------------
     def enqueue_pcm(self, pcm: bytes, input_rate: Optional[int] = None) -> float: ...
     def timeline_time(self) -> float: ...
@@ -408,17 +415,34 @@ class AudioEngine(BaseAudioEngine):
         errors: list = []
 
         def make_cb(open_rate):
+            # Two filter stages, each where it is cheapest and where it belongs.
+            # The low-pass has to run before the decimation below, or everything
+            # above half the target rate folds back into the speech band. The
+            # high-pass runs after, at the lower rate, and takes out the room
+            # rumble that would otherwise move the speech gate. Both are retuned
+            # live from the engine's attributes, which the control page writes.
+            from .audio_filters import MicFilter
+            pre = MicFilter(open_rate, low_pass=self.mic_low_pass) if open_rate != want else None
+            post = MicFilter(want, high_pass=self.mic_high_pass)
+
             def cb(in_data, frame_count, time_info, status):
+                data = in_data
+                if pre is not None:
+                    pre.configure(low_pass=self.mic_low_pass)
+                    data = pre.process_bytes(data)
+                if open_rate != want:
+                    s = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                    n_out = int(round(s.size * want / open_rate))
+                    data = np.interp(np.linspace(0.0, 1.0, n_out, endpoint=False),
+                                     np.linspace(0.0, 1.0, s.size, endpoint=False), s
+                                     ).astype(np.int16).tobytes()
+                post.configure(high_pass=self.mic_high_pass)
+                data = post.process_bytes(data)
+                # the level the gate and the meters read is the filtered one, so it
+                # reflects what the recognizer actually hears
                 with self._lock:
-                    self._mic_rms = _rms_int16(in_data)
+                    self._mic_rms = _rms_int16(data)
                 if on_frames is not None:
-                    data = in_data
-                    if open_rate != want:
-                        s = np.frombuffer(in_data, dtype=np.int16).astype(np.float32)
-                        n_out = int(round(s.size * want / open_rate))
-                        data = np.interp(np.linspace(0.0, 1.0, n_out, endpoint=False),
-                                         np.linspace(0.0, 1.0, s.size, endpoint=False), s
-                                         ).astype(np.int16).tobytes()
                     try:
                         on_frames(data)
                     except Exception as e:      # never let a consumer kill the stream
