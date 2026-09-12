@@ -628,6 +628,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Disable the adaptive frame rate (default: step down to 45/30/20/15 fps under load, recover later)")
     p.add_argument("--web-port", type=int, default=8020,
                    help="Control page on this port (status, live tuning, setup tests, flag reference, Wi-Fi); default 8020, the next free port if taken")
+    p.add_argument("--setup", action="store_true",
+                   help="Guided first-run setup: checks packages and ffmpeg, validates your API keys against the services, picks and tests the speaker, microphone and camera, measures the room, and prints the command to run")
     p.add_argument("--mic-highpass", type=float, default=90.0,
                    help="High-pass the microphone at this many Hz before anything measures the "
                         "level: cuts hum, air conditioning, traffic and desk thumps, which carry no "
@@ -666,6 +668,16 @@ def main(argv=None) -> int:
             args.barge_in_boost = float(cal["barge_in_boost"]); used.append(f"barge-in boost {cal['barge_in_boost']}")
         if used:
             print(f"[calibration] using {', '.join(used)} from calibration.json ({cal.get('time', '')})")
+        # The file records more than the three values above. Say the awkward parts out
+        # loud rather than leaving them to be read out of a JSON file nobody opens.
+        if args.barge_in and cal.get("barge_in_ok") is False:
+            print(f"[calibration] warning: --barge-in was measured as unworkable here. "
+                  f"{cal.get('verdict', '')}")
+        if cal.get("mic_gain") == "raise":
+            print("[calibration] warning: the microphone measured too quiet. Raise its gain in the "
+                  "system sound settings, or speech will be missed.")
+        elif cal.get("mic_gain") == "lower":
+            print("[calibration] warning: the microphone measured hot enough to clip. Lower its gain.")
     if args.barge_in_boost is None:
         args.barge_in_boost = 4.0
 
@@ -695,6 +707,9 @@ def main(argv=None) -> int:
         for c in cams:
             print(f"  [{c['index']}] {c['name']}  ({c['path']})")
         return 0
+    if args.setup:
+        from .setup_wizard import run_setup
+        return run_setup(args)
     if args.list_devices or args.mic_test or args.calibrate:
         return mic_tools(args)
 
@@ -738,20 +753,25 @@ def main(argv=None) -> int:
     if args.wake or args.wake_word:
         wake_words = ([w for w in args.wake_word.split(",")] if args.wake_word
                       else (m.wake_words or [m.name.replace("_", " ")]))
-    if args.llm == "claude":
-        chat = ClaudeChat(model=args.model or "claude-haiku-4-5", effort=args.effort, character=character,
-                          thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words),
-                          extra_rules=extra_rules)
-    elif args.llm == "ollama":
-        from .brains.ollama_chat import OllamaChat
-        chat = OllamaChat(model=args.model, character=character, host=args.ollama_host,
-                          can_see=can_see, wake_mode=bool(wake_words), extra_rules=extra_rules)
-        print(f"[voice] loading {chat.model} on {chat.host} ...")
-        chat.warm_up()                       # load the weights now, not on the first question
-    else:
-        from .brains.openai_compat_chat import OpenAICompatChat
-        chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see,
-                                       wake_mode=bool(wake_words), extra_rules=extra_rules)
+    try:
+        if args.llm == "claude":
+            chat = ClaudeChat(model=args.model or "claude-haiku-4-5", effort=args.effort, character=character,
+                              thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words),
+                              extra_rules=extra_rules)
+        elif args.llm == "ollama":
+            from .brains.ollama_chat import OllamaChat
+            chat = OllamaChat(model=args.model, character=character, host=args.ollama_host,
+                              can_see=can_see, wake_mode=bool(wake_words), extra_rules=extra_rules)
+            print(f"[voice] loading {chat.model} on {chat.host} ...")
+            chat.warm_up()                   # load the weights now, not on the first question
+        else:
+            from .brains.openai_compat_chat import OpenAICompatChat
+            chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see,
+                                           wake_mode=bool(wake_words), extra_rules=extra_rules)
+    except Exception as e:                   # a wrong model name or a missing key, said plainly
+        print(f"[error] brain '{args.llm}' unavailable: {e}")
+        print("        python voice_loop.py --setup checks your keys and the models you have")
+        return 1
     print(f"[voice] brain: {args.llm} {chat.model}{' (told it can see)' if can_see else ''}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps, borderless=args.borderless)

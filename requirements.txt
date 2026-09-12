@@ -24,8 +24,11 @@ piper-tts[alignment]>=1.3.0
 
 # Voice round trip (voice_loop.py): mic -> STT -> Claude -> face
 anthropic>=1.0
+# faster-whisper is the DEFAULT recognizer (--stt whisper), so it is not optional:
+# without it a fresh clone fails at startup. The model downloads to ~/.cache/talker
+# on first use. vosk is the lighter alternative (--stt vosk), weaker in noise.
+faster-whisper>=1.0
 vosk>=0.3.45            # local streaming speech-to-text (small model auto-downloads, ~40 MB)
-# faster-whisper>=1.0   # optional, more accurate STT (--stt whisper), slower per turn
 
 # Optional: OpenAI as the brain or as speech-to-text, for comparison (--llm openai, --stt openai)
 openai>=1.0

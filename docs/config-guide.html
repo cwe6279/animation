@@ -146,6 +146,7 @@
   <ol>
     <li><a href="#pipeline">What runs where</a></li>
     <li><a href="#hardware">Hardware</a></li>
+    <li><a href="#setup">First run</a></li>
     <li><a href="#start">Starting it</a></li>
     <li><a href="#areas">Listening, vision, brain, speech</a></li>
     <li><a href="#local">Going local</a></li>
@@ -201,6 +202,22 @@
   <p><strong>Calibrating a new setup, the recommended first step.</strong> <code>python voice_loop.py --calibrate --mic-device gomic --output-device jabra</code> measures the room, plays the character through the speaker and measures the bleed into the mic, then asks you to talk from the visitor spot. It says whether barge-in is viable, recommends <code>--barge-in-boost</code>, flags mic gain that is too low or too hot, and saves the results to <code>calibration.json</code> on that machine. From then on the loop uses those devices and that boost as defaults whenever the flags are not given.</p>
   <p><strong>Measuring speaker bleed by hand.</strong> <code>python voice_loop.py --mic-test --mic-device gomic --output-device jabra --play "Testing one two three"</code> plays the character's voice three times through the speaker while printing the mic level. Lines tagged <em>speaker</em> are what the mic hears from the speaker; lines tagged <em>mic</em> are the room and you. Rearrange until the speaker number sits well below your own speaking level, then set <code>--barge-in-boost</code> so the threshold lands between them.</p>
   <p><strong>Barge-in check.</strong> Run with <code>--barge-in --debug</code>. A barge-in needs 0.7 s of continuous speech (<code>--barge-in-ms</code>) louder than the usual onset threshold times <code>--barge-in-boost</code> (4) while the character talks, and that does not follow the rhythm of what the speaker is playing: an echo guard compares the mic's loudness pattern with the outgoing audio and rejects matches (<code>[echo]</code> lines in the log). A USB speakerphone's own mic, such as the Jabra's, cancels its speaker in hardware and is worth trying when mic and speaker cannot be separated. If <code>[barge-in]</code> lines still appear while it speaks and nobody is talking, raise the boost to 6, move or angle the mic, lower the volume, or go back to half-duplex.</p>
+</section>
+
+<section id="setup">
+  <div class="eyebrow">First run <span class="file">voice_loop.py --setup</span></div>
+  <h2>One command to get a new machine ready</h2>
+  <p>Everything below was already possible one flag at a time. <code>python voice_loop.py --setup</code> adds the order, and checks up front the things that otherwise fail late.</p>
+  <ol>
+    <li><strong>Packages and ffmpeg.</strong> What is missing, and the command that installs it.</li>
+    <li><strong>API keys.</strong> Each one is tried against the service, not merely checked for being present. An ElevenLabs key scoped to speech only is reported as working rather than as broken, because that is what it is.</li>
+    <li><strong>Speaker.</strong> Pick it from the list, hear a test line, confirm.</li>
+    <li><strong>Microphone.</strong> Pick it, watch the level while you talk from the visitor spot, and get told if the gain is too low or hot enough to clip.</li>
+    <li><strong>Camera</strong>, if the character will use one: pick it and grab a frame.</li>
+    <li><strong>The room</strong>, optionally, via the same three measurements as <code>--calibrate</code>.</li>
+    <li><strong>A summary</strong> and the exact command to run, with the chosen devices filled in and saved to <code>calibration.json</code>.</li>
+  </ol>
+  <div class="tweak"><strong>Why the key check earns its place:</strong> without it, a missing or uncredited Anthropic key is not noticed until the character first tries to answer, and the only symptom is it saying "Sorry, I could not think of an answer".</div>
 </section>
 
 <section id="start">

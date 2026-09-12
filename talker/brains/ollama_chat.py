@@ -48,6 +48,13 @@ class OllamaChat:
             except Exception:
                 have = "(server not reachable)"
             raise RuntimeError(f"Ollama needs a model: --model <name> or OLLAMA_MODEL. Pulled: {have}")
+        try:                                  # fail now, not at the first question
+            have = list_models(self.host)
+        except Exception:
+            have = []                         # server unreachable: warm_up will say so
+        if have and not any(self.model == h or h.startswith(self.model + ":") for h in have):
+            raise RuntimeError(f"Ollama has no model {self.model!r} on {self.host}. "
+                               f"Pulled: {', '.join(have)}")
         self.max_history = max_history
         self.temperature = temperature
         self.keep_alive = keep_alive          # keep the model loaded between turns

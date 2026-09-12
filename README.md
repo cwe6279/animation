@@ -240,6 +240,24 @@ python speak.py --no-audio --auto-exit --text "Hello"
 
 ## Talking to it (the round trip)
 
+### First run: `--setup`
+
+On a new machine, one command does the whole thing in order and tells you what is wrong
+before anything else can go wrong:
+
+```bash
+python voice_loop.py --setup
+```
+
+It checks the packages and ffmpeg, validates each API key **against the service** rather than
+just noting that it is set, then walks you through picking and testing the speaker, the
+microphone and the camera, offers to measure the room, and finishes with the exact command to
+run. The devices it picks are saved to `calibration.json`, so the flags are optional afterwards.
+
+The key check is the part worth having. Without it a missing or uncredited Anthropic key is
+not noticed until the character first tries to answer, and all you hear is "Sorry, I could not
+think of an answer", which tells you nothing.
+
 ### API keys
 
 Copy `.env.example` to `.env` and fill in your own keys. `.env` is gitignored;
