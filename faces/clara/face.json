@@ -62,8 +62,10 @@
     "aa": "mouth_aa.png",
     "oo": "mouth_oo.png"
   },
-  "tts": "piper",
+  "tts": "elevenlabs",
+  "tts_model": "flash",
   "voices": {
+    "elevenlabs": "dCnu06FiOZma2KVNUoPZ",
     "piper": "en_US-hfc_female-medium",
     "edge": "en-US-AriaNeural"
   },
