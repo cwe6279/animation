@@ -111,7 +111,7 @@ FACE_FIELD_HELP = {
     "body": "moves: the movement names the brain may ask for with {{move name}}.",
     "character": "Personality text (from character.md).",
     "memory": "true: a working memory in notes.md and tasks.md next to face.json, written with {{note ...}} and read at launch through {notes} and {tasks} in character.md.",
-    "errands": "true: {{task ...}} hands work to the backend agent at AGENT_RELAY_URL (tools/agent_relay.py); the result is announced when the room is quiet.",
+    "errands": "true, or a list of what the backend agent can do: {{task ...}} hands work to it at AGENT_RELAY_URL; the result is announced when the room is quiet. Listing its abilities makes her hand those off instead of saying she cannot.",
     "dictation_words": "Short phrases that switch dictation on: keep transcribing, answer only after a long pause.",
     "dictation_end_words": "Short phrases that switch dictation off and answer what was dictated.",
 }

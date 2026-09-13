@@ -11,6 +11,8 @@ agent harness):
     GET  {url}/tasks/{id}   -> {"state": "queued|running|done|failed",
                                 "summary": "...",      (two or three spoken sentences)
                                 "result": "..."}       (the long form; written to the ledger)
+    GET  {url}/capabilities -> {"can": ["search the web", ...]}   optional: what the agent can do,
+                                told to the character so she hands those things off
 
 Polling, not callbacks: it works through any firewall and needs no open port on
 the character's machine. A backend that is down is retried every cycle and said
@@ -89,6 +91,17 @@ class ErrandRunner:
         self.reachable: Optional[bool] = None
         self.stats = {"submitted": 0, "done": 0, "failed": 0, "cycles": 0, "errors": 0}
         self.last_summary = ""
+
+    def capabilities(self, timeout: float = 3.0) -> str:
+        """What the backend says it can do, as one line; '' if it does not say."""
+        try:
+            resp = self.fetch(f"{self.url}/capabilities", timeout=timeout)
+        except Exception:
+            return ""
+        can = resp.get("can") if isinstance(resp, dict) else resp
+        if isinstance(can, (list, tuple)):
+            can = ", ".join(str(x).strip() for x in can if str(x).strip())
+        return str(can or "").strip()
 
     # ── any thread ─────────────────────────────────────
     def submit(self, task: str, context: str = "") -> Errand:

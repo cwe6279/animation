@@ -156,6 +156,7 @@ class FaceManifest:
     # tasks.md next to face.json, and a backend agent (AGENT_RELAY_URL) to hand work to.
     memory:  bool = False
     errands: bool = False
+    errands_can: str = ""           # what the backend agent can do, told to her so she hands those off
     dictation_words: List[str] = field(default_factory=list)      # "take this down": answer only after a long pause
     dictation_end_words: List[str] = field(default_factory=list)  # "that's all": answer what was dictated now
 
@@ -234,7 +235,13 @@ class FaceManifest:
         m.facts = dict(d.get("facts") or {})
         m.sfx_over_speech = bool(d.get("sfx_over_speech", m.sfx_over_speech))
         m.memory      = bool(d.get("memory", m.memory))
-        m.errands     = bool(d.get("errands", m.errands))
+        err = d.get("errands", m.errands)
+        if isinstance(err, dict):
+            err = err.get("can", True)
+        if isinstance(err, (list, tuple)):
+            err = ", ".join(str(x) for x in err)
+        m.errands     = bool(err)
+        m.errands_can = err.strip() if isinstance(err, str) else ""
         m.dictation_words = [str(w).lower() for w in (d.get("dictation_words") or [])]
         m.dictation_end_words = [str(w).lower() for w in (d.get("dictation_end_words") or [])]
         m.character   = str(d.get("character", ""))

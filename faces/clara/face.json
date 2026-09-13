@@ -89,7 +89,14 @@
     "iris_radius": 0.58
   },
   "memory": true,
-  "errands": true,
+  "errands": [
+    "search the web and read pages or PDFs",
+    "read the calendar",
+    "read, search and draft email (sending needs a confirmation, so it will come back as failed)",
+    "calculations",
+    "read and write files",
+    "run code"
+  ],
   "dictation_words": [
     "take this down",
     "take dictation",

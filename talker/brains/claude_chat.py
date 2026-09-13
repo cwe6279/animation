@@ -52,7 +52,7 @@ VISION_RULES = (
 )
 
 
-def assistant_rules(memory: bool = False, errands: bool = False) -> str:
+def assistant_rules(memory: bool = False, errands: bool = False, can: str = "") -> str:
     """The system-prompt addition for an assistant with a working memory (notes.md,
     tasks.md) and/or a backend agent to hand work to. '' when it has neither."""
     if not (memory or errands):
@@ -84,6 +84,12 @@ def assistant_rules(memory: bool = False, errands: bool = False) -> str:
             "your brief shows each task's state; {{tool tasks}} reads it live when someone asks what is "
             "open, and like every block it is never spoken and never offered as something to do."
         )
+        if can:
+            lines.append(
+                f"Through that agent you can: {can}. You cannot do any of those yourself in the room, "
+                "so when someone asks for one of them, hand it off with {{task ...}} and say you have, "
+                "rather than saying you cannot."
+            )
     return "\n".join(lines)
 
 

@@ -47,9 +47,16 @@ for the ear: no lists, no markdown, conclusion first. `result` goes into the led
 never spoken; it may be long. On `failed`, put the reason in `summary`.
 
 ```
-GET /tasks      -> [ ... every task, oldest first ... ]     (for people, not the poller)
-GET /health     -> {"ok": true, "running": 1}
+GET /tasks         -> [ ... every task, oldest first ... ]     (for people, not the poller)
+GET /health        -> {"ok": true, "running": 1}
+GET /capabilities  -> {"can": ["search the web and read pages", "read the calendar", ...]}   optional
 ```
+
+`/capabilities` is optional but worth having: at startup the character asks for it and puts
+the list in her standing instructions ("through that agent you can: ..."), so she hands
+those requests off instead of saying she cannot. Without it, the `errands` field in face.json
+may hold the same list by hand; the backend's answer wins when both exist. Keep the items
+short and spoken-friendly; they are read by a model, not a program.
 
 Anything else you return is ignored. Anything that raises or times out (5 s) is treated as
 "backend unreachable" and retried next cycle; nothing is lost.

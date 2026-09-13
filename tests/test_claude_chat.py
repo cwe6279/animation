@@ -129,3 +129,15 @@ def test_summarise_leaves_history_alone():
     assert chat.summarise("sum up") == "We planned the offsite."
     assert chat.messages == before
     assert client.calls[-1]["messages"][-1] == {"role": "user", "content": "sum up"}
+
+
+def test_errand_abilities_are_told_to_her():
+    from talker.brains.claude_chat import assistant_rules
+    from talker.face_asset_loader import FaceManifest
+    m = FaceManifest.from_dict({"errands": ["read the calendar", "search the web"]})
+    assert m.errands and m.errands_can == "read the calendar, search the web"
+    assert FaceManifest.from_dict({"errands": True}).errands_can == ""
+    assert FaceManifest.from_dict({"errands": {"can": "run code"}}).errands_can == "run code"
+    rules = assistant_rules(errands=True, can=m.errands_can)
+    assert "you can: read the calendar, search the web" in rules and "rather than saying you cannot" in rules
+    assert "Through that agent" not in assistant_rules(errands=True)

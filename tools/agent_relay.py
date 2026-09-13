@@ -19,6 +19,7 @@ API (JSON):
     GET  /tasks/{id}   -> {"id", "state": "queued|running|done|failed", "summary", "result", "created", "updated"}
     GET  /tasks        -> [ ... ]
     GET  /health       -> {"ok": true, "running": n}
+    GET  /capabilities -> {"can": [...]}   from RELAY_CAN ("search the web; read the calendar; ...")
 
 Settings (environment or flags):
     RELAY_PORT      8030            RELAY_HOST     0.0.0.0
@@ -27,6 +28,7 @@ Settings (environment or flags):
     RELAY_TIMEOUT   900             seconds per command run
     RELAY_STATE     relay_tasks.json   where tasks are kept across restarts
     RELAY_WORKERS   2               tasks run at the same time
+    RELAY_CAN       ""              what the harness can do, semicolon-separated; told to the character
 
 This binds to the network with no authentication: it is for a trusted LAN.
 """
@@ -68,8 +70,10 @@ Result:
 
 
 class Relay:
-    def __init__(self, command: str, rounds: int, timeout: float, state_path: str, workers: int):
+    def __init__(self, command: str, rounds: int, timeout: float, state_path: str, workers: int,
+                 can: str = ""):
         self.command = shlex.split(command)
+        self.can = [c.strip() for c in can.split(";") if c.strip()]
         self.rounds = max(1, rounds)
         self.timeout = timeout
         self.state_path = state_path
@@ -148,6 +152,8 @@ def make_handler(relay: Relay):
 
         def do_GET(self) -> None:
             path = self.path.split("?")[0].rstrip("/")
+            if path == "/capabilities":
+                return self._json(200, {"can": relay.can})
             if path == "/health":
                 running = sum(1 for t in relay.tasks.values() if t["state"] == "running")
                 return self._json(200, {"ok": True, "running": running})
@@ -190,8 +196,10 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=float(env("RELAY_TIMEOUT", "900")))
     ap.add_argument("--state", default=env("RELAY_STATE", "relay_tasks.json"))
     ap.add_argument("--workers", type=int, default=int(env("RELAY_WORKERS", "2")))
+    ap.add_argument("--can", default=env("RELAY_CAN", ""),
+                    help="what the harness can do, semicolon-separated; served at /capabilities")
     a = ap.parse_args()
-    relay = Relay(a.command, a.rounds, a.timeout, a.state, a.workers)
+    relay = Relay(a.command, a.rounds, a.timeout, a.state, a.workers, can=a.can)
     srv = ThreadingHTTPServer((a.host, a.port), make_handler(relay))
     srv.daemon_threads = True
     print(f"[relay] listening on http://{a.host}:{a.port}  command={a.command!r} rounds={a.rounds} "

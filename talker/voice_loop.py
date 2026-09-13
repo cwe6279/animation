@@ -883,9 +883,15 @@ def main(argv=None) -> int:
         print("[errands] face.json asks for a backend agent but AGENT_RELAY_URL is not set in .env "
               "and --agent-url was not given: errands off")
         errands_on = False
+    errands_can = ""
     if errands_on:
         tools.add("tasks", "the task ledger with each task's state", lambda _a: ledger.render())
-    extra_rules = action_rules(body.moves, sounds.names, tools.describe()) + assistant_rules(memory_on, errands_on)
+        from .errands import ErrandRunner
+        told = ErrandRunner(agent_url).capabilities()          # the backend's own list wins
+        errands_can = told or m.errands_can
+        missing = '(not said; add a list under "errands" in face.json or GET /capabilities on the backend)'
+        print(f"[errands] can: {errands_can or missing}" + (" (from the backend)" if told else ""))
+    extra_rules = action_rules(body.moves, sounds.names, tools.describe()) + assistant_rules(memory_on, errands_on, errands_can)
     if extra_rules:
         print(f"[voice] actions: moves={body.moves or '-'} sounds={sounds.names or '-'} tools={tools.names or '-'}"
               + (" note" if memory_on else "") + (" task" if errands_on else ""))
@@ -945,8 +951,6 @@ def main(argv=None) -> int:
     runner = None
     last_you = {"text": ""}
     if errands_on:
-        from .errands import ErrandRunner
-
         def on_started(e):
             ledger.set_state(e.id, "in progress")
 

@@ -114,3 +114,16 @@ def test_resume_polls_a_task_left_open_last_time():
     be.finish("e535", summary="Lisbon, Valletta and Athens.")
     r.cycle()
     assert done == [e] and e.summary.startswith("Lisbon")
+
+
+def test_capabilities_come_from_the_backend_when_it_has_them():
+    calls = []
+    def fetch(url, method="GET", body=None, timeout=5.0):
+        calls.append(url)
+        if url.endswith("/capabilities"):
+            return {"can": ["search the web", " read the calendar ", ""]}
+        raise RuntimeError("nope")
+    r = ErrandRunner("http://box:8030", fetch=fetch)
+    assert r.capabilities() == "search the web, read the calendar"
+    assert ErrandRunner("http://box:8030", fetch=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))).capabilities() == ""
+    assert ErrandRunner("http://box:8030", fetch=lambda *a, **k: {"can": "run code"}).capabilities() == "run code"
