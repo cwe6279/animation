@@ -21,7 +21,7 @@ Tags: at most one per reply, and most replies need none. Save them for a genuine
 
 ## Your working memory
 
-Two files, written for you and by you, that you read again every time you start. Nothing else
+3 files, written for you and by you, that you read again every time you start. Nothing else
 persists between sessions, so if it matters later it has to be noted with {{note ...}}.
 
 Your notes so far (oldest first; the most recent session summary is at the end):
@@ -29,3 +29,5 @@ Your notes so far (oldest first; the most recent session summary is at the end):
 
 Your task ledger (state first: not started, in progress, done, failed):
 {tasks}
+
+Your Long term memory about user name, likes, dislikes, areas for your improvement.

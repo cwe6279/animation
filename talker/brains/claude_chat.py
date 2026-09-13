@@ -87,8 +87,9 @@ def assistant_rules(memory: bool = False, errands: bool = False, can: str = "") 
         if can:
             lines.append(
                 f"Through that agent you can: {can}. You cannot do any of those yourself in the room, "
-                "so when someone asks for one of them, hand it off with {{task ...}} and say you have, "
-                "rather than saying you cannot."
+                "so when someone asks for one of them, hand it off with {{task ...}} and say you have. "
+                "Never say you cannot, and never tell the person to look it up, check an app or do it "
+                "themselves: getting the information is your job, through the agent."
             )
     return "\n".join(lines)
 

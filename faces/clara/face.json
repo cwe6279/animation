@@ -90,12 +90,9 @@
   },
   "memory": true,
   "errands": [
-    "search the web and read pages or PDFs",
-    "read the calendar",
-    "read, search and draft email (sending needs a confirmation, so it will come back as failed)",
-    "calculations",
-    "read and write files",
-    "run code"
+    "search the web and read pages",
+    "read and search email, and draft replies",
+    "read the calendar"
   ],
   "dictation_words": [
     "take this down",
