@@ -139,5 +139,5 @@ def test_errand_abilities_are_told_to_her():
     assert FaceManifest.from_dict({"errands": True}).errands_can == ""
     assert FaceManifest.from_dict({"errands": {"can": "run code"}}).errands_can == "run code"
     rules = assistant_rules(errands=True, can=m.errands_can)
-    assert "you can: read the calendar, search the web" in rules and "rather than saying you cannot" in rules
+    assert "you can: read the calendar, search the web" in rules and "Never say you cannot" in rules
     assert "Through that agent" not in assistant_rules(errands=True)
