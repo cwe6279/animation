@@ -101,6 +101,15 @@ class ErrandRunner:
         self._wake.set()
         return e
 
+    def resume(self, task_id: str, task: str) -> Errand:
+        """A task that was still open when the character last shut down: poll it again.
+        Ours and the backend's ids are the same when the backend kept ours (agent_relay does)."""
+        e = Errand(id=task_id, task=task, remote_id=task_id, state="running")
+        with self._lock:
+            self.errands[task_id] = e
+        self._wake.set()
+        return e
+
     def say_later(self, text: str) -> None:
         """Queue an announcement; tried each cycle until deliver() accepts it."""
         with self._lock:

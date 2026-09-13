@@ -100,3 +100,17 @@ def test_thread_runs_and_stops():
     assert e.state == "running"
     r.stop()
     assert not r._thread.is_alive()
+
+
+def test_resume_polls_a_task_left_open_last_time():
+    be = FakeBackend()
+    be.tasks["e535"] = {"state": "running", "summary": "", "result": ""}
+    done = []
+    r = ErrandRunner("http://box:8030", on_done=done.append, fetch=be.fetch)
+    e = r.resume("e535", "research mild winters")
+    assert e.state == "running" and r.pending() == [e]
+    r.cycle()
+    assert done == []
+    be.finish("e535", summary="Lisbon, Valletta and Athens.")
+    r.cycle()
+    assert done == [e] and e.summary.startswith("Lisbon")

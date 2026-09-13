@@ -1030,6 +1030,8 @@ def main(argv=None) -> int:
         loop.on_event = remember_you
     if runner is not None:
         runner.deliver = loop.announce       # a finished task is told when the room is quiet
+        for it in ledger.open_items():       # still open from last time: keep polling them
+            runner.resume(it["id"], it["task"])
         runner.start()
         loop.errands = runner
         print(f"[errands] on: {agent_url}, polled every {args.errand_poll:.0f}s; "

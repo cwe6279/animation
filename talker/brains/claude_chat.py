@@ -60,7 +60,9 @@ def assistant_rules(memory: bool = False, errands: bool = False) -> str:
     lines = [
         "\n\nA line in parentheses that begins 'You notice:' or 'Event:' comes from the system, never "
         "from the person you are talking to: an observation, a tool's answer, or news that something "
-        "finished. Never read it out or say 'I notice'; act on it in your own words."
+        "finished. Never read it out or say 'I notice'; act on it in your own words. Every reply "
+        "must contain words to say out loud: a {{...}} block on its own is silence to the listener, "
+        "so put a short spoken sentence beside it ('Let me check.' / 'On it.')."
     ]
     if memory:
         lines.append(
