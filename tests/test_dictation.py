@@ -117,3 +117,40 @@ def test_session_end_fires_once_after_two_turns():
     loop.end_session("window closed")
     loop.end_session("window closed")
     assert ends == ["window closed"]
+
+
+def test_her_own_voice_is_stripped_from_the_front_of_an_utterance():
+    clock, events = Clock(), []
+    loop, stt, spk, heard = make(clock, events)
+    loop._last_said = ("[calm] I already searched those dates for you—LaGuardia to Las Vegas, October 20 to 23. "
+                       "Delta wasn't the cheapest option. {{move nod}}")
+    loop._last_busy = clock.t                    # she just spoke
+    # echo then the real request (from a real log)
+    loop.on_user_text("I already searched those dates for you. The Guadier to let me. Yeah, yeah, "
+                      "I just need a new updated search today because prices change.")
+    assert wait(lambda: len(heard) == 1)
+    assert heard[0].startswith("The Guadier to let me. Yeah, yeah, I just need")
+    assert any(k == "echo" for k, _ in events)
+    # all echo: dropped, no turn (her last reply is again the long sentence)
+    loop._last_said = "I already searched those dates for you—LaGuardia to Las Vegas, October 20 to 23."
+    loop.on_user_text("I already searched those dates for you, LaGuardia to Las Vegas October 20 to 23.")
+    time.sleep(0.05)
+    assert len(heard) == 1
+    # unrelated speech passes untouched; a short utterance is never touched
+    loop.on_user_text("Is there another New York airport with a direct flight?")
+    assert wait(lambda: len(heard) == 2)
+    assert heard[1] == "Is there another New York airport with a direct flight?"
+    loop.on_user_text("I already")
+    assert wait(lambda: len(heard) == 3)
+
+
+def test_a_reply_that_is_only_a_block_still_says_something():
+    clock, events = Clock(), []
+    loop, stt, spk, heard = make(clock, events, replies=["{{tool tasks}}"])
+    loop.on_user_text("what is still open?")
+    assert wait(lambda: len(spk.spoken) == 1)
+    assert spk.spoken[0] == "{{tool tasks}} Let me check."
+    loop2, stt2, spk2, heard2 = make(clock, [], replies=["On it. {{task find flights}}"])
+    loop2.on_user_text("find flights")
+    assert wait(lambda: len(spk2.spoken) == 1)
+    assert spk2.spoken[0] == "On it. {{task find flights}}"          # words present: untouched

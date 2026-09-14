@@ -32,6 +32,8 @@ import threading
 import time
 from typing import Callable, Iterable, Iterator, List, Optional, Tuple
 
+from .actions import strip_actions
+from .phoneme_scheduler import strip_tags
 from .stt_backends import STTBackend, Transcript
 
 
@@ -118,6 +120,7 @@ class VoiceLoop:
         self._was_speaking = False
         self._vision_ticket: Optional[int] = None
         self._last_heard = 0.0         # last time a partial transcript arrived (someone is talking)
+        self._last_said = ""           # her last reply, to recognise her own voice coming back in
         # Dictation: keep transcribing phrase by phrase but hold the reply until the
         # speaker has been quiet for `dictation_pause_s`; then answer everything at once.
         self.dictating = False
@@ -320,11 +323,42 @@ class VoiceLoop:
             self._thinking = False
         self.on_event("mode", ("waiting" if on else "listening again") + (f" ({reason})" if reason else ""))
 
+    def _strip_echo(self, text: str) -> str:
+        """With barge-in, the first words the mic hears are often her own sentence coming
+        back through the speaker, followed by what the person said. Drop a leading run
+        of words that matches her last reply; drop the lot if it was all her."""
+        said = self._norm(strip_tags(strip_actions(self._last_said)))
+        raw = text.split()
+        words = self._norm(text)
+        if len(said) < 3 or len(words) < 3 or len(raw) != len(words):
+            return text
+        import difflib
+        sm = difflib.SequenceMatcher(None, words, said, autojunk=False)
+        blocks = sorted((a, n) for a, _b, n in sm.get_matching_blocks() if n)
+        lead = 0
+        for a, n in blocks:                        # contiguous from word 0, one mis-heard word allowed;
+            if a <= lead + 1 and (n >= 2 or a == 0):   # a lone common word ("the") never extends the cut
+                lead = max(lead, a + n)
+            elif a > lead + 1:
+                break
+        matched = sum(n for _a, n in blocks)
+        if matched >= 0.7 * len(words) or lead >= len(words) - 1:
+            self.on_event("echo", f"her own voice, dropped: {text}")
+            return ""
+        if lead >= 4:
+            self.on_event("echo", f"dropped her own words from the front: {' '.join(raw[:lead])}")
+            return " ".join(raw[lead:])
+        return text
+
     def on_user_text(self, text: str) -> None:
         """Handle a finished user utterance (also used by --text-only)."""
         if self.waiting:
             self.on_event("ignored", f"waiting mode: {text}")
             return
+        if self._last_said and self.clock() - self._last_busy < 30:
+            text = self._strip_echo(text)
+            if not text.strip():
+                return
         if self.wake_words:
             if self.engaged and self.is_sleep_command(text):
                 self.on_event("you", text)
@@ -488,12 +522,18 @@ class VoiceLoop:
                         self._thinking = False        # speaker is now busy; mic stays gated
                     reply.append(chunk)
                     yield chunk
+                # A reply that was nothing but {{blocks}} is silence to the listener: give it words.
+                from .actions import strip_actions
+                from .phoneme_scheduler import strip_tags
+                if reply and not strip_tags(strip_actions("".join(reply))).strip():
+                    yield " Let me check."
             except Exception as e:
                 self.on_event("error", f"LLM failed: {e}")
                 yield "[sad]Sorry, I could not think of an answer just now."
             finally:
                 self._thinking = False
                 self._last_activity = self.clock()
+                self._last_said = "".join(reply)
                 self.on_event("bot", "".join(reply).strip())
                 if self._ended:
                     self.disengage("the conversation ended")
