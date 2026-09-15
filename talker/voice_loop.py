@@ -85,6 +85,9 @@ class VoiceLoop:
         from .audio_engine import EchoGuard
         self._echo = EchoGuard()
         self.echo_threshold = 0.5      # mic/speaker envelope correlation above this = the character's own voice
+        self.echo_hold = 1.5           # an echo verdict stands this long: the correlation wobbles as she talks
+        self._echo_last = (0.0, 0.0)   # (time, corr) of the last echo verdict
+        self._spoke_at = 0.0           # last time she was heard speaking (a barge-in does not clear it)
         self.on_event = on_event or (lambda kind, text: print(f"[{kind}] {text}"))
         self.clock = clock
         # Wake mode: with wake words set, nothing is answered until one is heard;
@@ -164,6 +167,7 @@ class VoiceLoop:
         now = self.clock()
         if busy:
             self._last_busy = now
+            self._spoke_at = time.monotonic()
             if not self.barge_in or self._thinking:
                 self.stt.reset()          # drop echo; nothing to transcribe
                 self._barge_since = None
@@ -186,8 +190,14 @@ class VoiceLoop:
                 elif (now - self._barge_since) * 1000 >= self.barge_in_ms and self._sustained():
                     env = getattr(self.speaker, "output_envelope", None)
                     corr = self._echo.correlation(env(), t_in) if env else 0.0
-                    if corr >= self.echo_threshold:
-                        self.on_event("echo", f"mic follows the speaker (corr {corr:.2f}); not a barge-in")
+                    t_e, c_e = self._echo_last
+                    held = t_in - t_e < self.echo_hold and c_e >= self.echo_threshold
+                    if corr >= self.echo_threshold or held:
+                        if corr >= self.echo_threshold:
+                            self._echo_last = (t_in, corr)
+                        self.on_event("echo", f"mic follows the speaker (corr {corr:.2f}"
+                                      + (f", {c_e:.2f} a moment ago" if held and corr < self.echo_threshold else "")
+                                      + "); not a barge-in")
                         self._barge_since = None          # start over; a person will break the pattern
                         return
                     self.on_event("barge-in", t.text if t and t.text else f"speech for {self.barge_in_ms} ms (corr {corr:.2f})")
@@ -358,7 +368,7 @@ class VoiceLoop:
         if self.waiting:
             self.on_event("ignored", f"waiting mode: {text}")
             return
-        if self._last_said and self.clock() - self._last_busy < 30:
+        if self._last_said and time.monotonic() - self._spoke_at < 30:
             text = self._strip_echo(text)
             if not text.strip():
                 return

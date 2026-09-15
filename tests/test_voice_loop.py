@@ -271,3 +271,46 @@ def test_mic_frames_are_stamped_when_heard_not_when_processed():
     loop.process(loud)                                   # the callback path stamps and queues
     t_in, pcm = loop._audio_q.get_nowait()
     assert pcm == loud and abs(t_in - time.monotonic()) < 0.5
+
+
+def test_an_echo_verdict_holds_while_the_correlation_wobbles():
+    """Her own voice scored 0.62 then 0.43 four hundred ms later and barged in on her."""
+    import numpy as np
+
+    class Clk:
+        t = 100.0
+        def __call__(self): return self.t
+    clk = Clk()
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    stt._ep = type("Ep", (), {"floor": 100.0, "min_rms": 100.0, "start_ratio": 3.0, "gate_boost": 4.0})()
+    spk.output_envelope = lambda: [(0, 1)]
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, barge_in=True, barge_in_ms=400, clock=clk)
+    scores = iter([0.62, 0.43, 0.43, 0.43, 0.20, 0.20, 0.20, 0.20])
+    loop._echo.correlation = lambda env, now: next(scores)
+    spk.busy = True
+    stt.speech_active = True
+    loud = (np.ones(320, np.int16) * 5000).tobytes()
+    t = 100.0
+    def talk(seconds):
+        nonlocal t
+        for _ in range(int(seconds / 0.02)):
+            t += 0.02; clk.t = t
+            loop._process(loud, t_in=t)
+    talk(0.45)                         # first verdict: 0.62, echo
+    assert spk.interrupts == 0
+    talk(0.9)                          # 0.43 twice within the hold: still echo
+    assert spk.interrupts == 0
+    talk(1.6)                          # the hold has lapsed and the mic no longer follows her: a person
+    assert spk.interrupts == 1
+
+
+def test_echo_transcript_is_dropped_even_after_a_barge_in():
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    heard = []
+    loop = VoiceLoop(stt, lambda t: (heard.append(t), iter(["x"]))[1], spk)
+    loop._last_said = "[annoyed] Because you always forget it. Or perhaps you think it is clever to mock me."
+    loop._spoke_at = time.monotonic()
+    loop._last_busy = 0.0              # what a barge-in does
+    loop.on_user_text("Because you all.")
+    time.sleep(0.05)
+    assert heard == []

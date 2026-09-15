@@ -124,7 +124,7 @@ def test_her_own_voice_is_stripped_from_the_front_of_an_utterance():
     loop, stt, spk, heard = make(clock, events)
     loop._last_said = ("[calm] I already searched those dates for you—LaGuardia to Las Vegas, October 20 to 23. "
                        "Delta wasn't the cheapest option. {{move nod}}")
-    loop._last_busy = clock.t                    # she just spoke
+    loop._spoke_at = time.monotonic()            # she just spoke
     # echo then the real request (from a real log)
     loop.on_user_text("I already searched those dates for you. The Guadier to let me. Yeah, yeah, "
                       "I just need a new updated search today because prices change.")
