@@ -314,3 +314,29 @@ def test_echo_transcript_is_dropped_even_after_a_barge_in():
     loop.on_user_text("Because you all.")
     time.sleep(0.05)
     assert heard == []
+
+
+def test_barge_in_ignores_a_clap():
+    """A clap is loud for a few frames and rings down; at 400 ms it still passed the duty
+    share. Speech is still loud when the window closes; a clap is not."""
+    import numpy as np
+
+    class Clk:
+        t = 0.0
+        def __call__(self): return self.t
+    clk = Clk()
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    stt._ep = type("Ep", (), {"floor": 100.0, "min_rms": 100.0, "start_ratio": 3.0, "gate_boost": 4.0})()
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, barge_in=True, barge_in_ms=400, clock=clk)
+    spk.busy = True
+    stt.speech_active = True
+    quiet = np.zeros(320, np.int16).tobytes()
+    loud = (np.ones(320, np.int16) * 5000).tobytes()
+    for _ in range(4):                           # 160 ms of clap: over the 0.4 duty share on its own
+        clk.t += 0.04; loop._process(loud)
+    for _ in range(8):                           # ...then the room rings down
+        clk.t += 0.04; loop._process(quiet)
+    assert spk.interrupts == 0
+    for _ in range(12):                          # a person: loud right through
+        clk.t += 0.04; loop._process(loud)
+    assert spk.interrupts == 1

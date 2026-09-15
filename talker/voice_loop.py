@@ -247,7 +247,15 @@ class VoiceLoop:
         if not thr or len(self._loud) < 3:
             return True
         loud = sum(1 for _, r in self._loud if r >= thr)
-        return loud / len(self._loud) >= self.barge_in_duty
+        if loud / len(self._loud) < self.barge_in_duty:
+            return False
+        # A clap or a knock is loud at the start of the window and rings down; speech is
+        # still loud when the window closes. Require a loud frame in the last third.
+        t_end = self._loud[-1][0]
+        span = t_end - self._loud[0][0]
+        if span <= 0:
+            return True
+        return any(r >= thr for t, r in self._loud if t >= t_end - span / 3)
 
     @staticmethod
     def _norm(text: str) -> List[str]:
