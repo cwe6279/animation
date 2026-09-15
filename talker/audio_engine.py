@@ -518,12 +518,14 @@ class EchoGuard:
     """
     Compares the mic loudness envelope with the speaker's output envelope over
     the last second or so. Echo rises and falls with the playback (after a
-    small delay); a person talking over the character does not. Returns the
-    best normalised correlation over lags 0-300 ms; above ~0.5 treat the mic
-    as echo.
+    delay: the output buffer, the room, the input buffer, together a few hundred
+    ms); a person talking over the character does not. Returns the best
+    normalised correlation over lags 0-600 ms; above ~0.5 treat the mic as echo.
+    Both envelopes must be stamped on the same clock at the moment the audio
+    passed the device, not when a busy thread got round to it.
     """
 
-    def __init__(self, window_s: float = 1.2, max_lag_s: float = 0.3, step_s: float = 0.02):
+    def __init__(self, window_s: float = 1.2, max_lag_s: float = 0.6, step_s: float = 0.02):
         self.window_s = window_s
         self.max_lag_s = max_lag_s
         self.step_s = step_s

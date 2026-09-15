@@ -136,21 +136,24 @@ class VoiceLoop:
 
     # ── mic path ────────────────────────────────────────
     def process(self, pcm: bytes) -> None:
-        """Called from the audio callback: hand off and return immediately."""
+        """Called from the audio callback: hand off and return immediately. The frame is
+        stamped here, not when the recognizer gets to it: Whisper can hold that thread for
+        a second, and the echo guard compares this clock with the speaker's."""
         try:
-            self._audio_q.put_nowait(pcm)
+            self._audio_q.put_nowait((time.monotonic(), pcm))
         except queue.Full:
             pass                      # recognizer is far behind; drop rather than block the mic
 
     def _drain(self) -> None:
         while True:
-            pcm = self._audio_q.get()
+            t_in, pcm = self._audio_q.get()
             try:
-                self._process(pcm)
+                self._process(pcm, t_in)
             except Exception as e:
                 self.on_event("error", f"STT failed: {e}")
 
-    def _process(self, pcm: bytes) -> None:
+    def _process(self, pcm: bytes, t_in: Optional[float] = None) -> None:
+        t_in = time.monotonic() if t_in is None else t_in     # when the mic heard this frame
         self._last_audio_in = time.monotonic()
         if self.paused or self.waiting:   # calibration owns the mic, or waiting mode: hear nothing
             self.stt.reset()
@@ -171,7 +174,7 @@ class VoiceLoop:
             t = self.stt.feed(pcm)
             import numpy as _np
             frame = _np.frombuffer(pcm, dtype=_np.int16).astype(_np.float32)
-            self._echo.add_mic(now, float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0)
+            self._echo.add_mic(t_in, float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0)
             rms = float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0
             self._loud.append((now, rms))
             while self._loud and now - self._loud[0][0] > self.barge_in_ms / 1000.0:
@@ -182,7 +185,7 @@ class VoiceLoop:
                     self._barge_since = now
                 elif (now - self._barge_since) * 1000 >= self.barge_in_ms and self._sustained():
                     env = getattr(self.speaker, "output_envelope", None)
-                    corr = self._echo.correlation(env(), now) if env else 0.0
+                    corr = self._echo.correlation(env(), t_in) if env else 0.0
                     if corr >= self.echo_threshold:
                         self.on_event("echo", f"mic follows the speaker (corr {corr:.2f}); not a barge-in")
                         self._barge_since = None          # start over; a person will break the pattern

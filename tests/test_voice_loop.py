@@ -245,3 +245,29 @@ def test_waiting_mode_hears_nothing_and_stops_talking():
     assert not spk.spoken and any(k == "ignored" for k, _ in events)
     loop.set_waiting(False)
     assert ("mode", "listening again") in events
+
+
+def test_echo_guard_finds_echo_that_arrives_half_a_second_late():
+    """Output buffer + room + input buffer can add several hundred ms; the guard must
+    still line the two envelopes up."""
+    import math
+    from talker.audio_engine import EchoGuard
+    out = [(t / 100.0, 1000 + 800 * math.sin(2 * math.pi * 3 * t / 100.0)) for t in range(0, 200)]
+    echo = EchoGuard()
+    for t, v in out:
+        echo.add_mic(t + 0.45, v * 0.3 + 50)
+    assert echo.correlation(out, 2.4) > 0.8
+
+
+def test_mic_frames_are_stamped_when_heard_not_when_processed():
+    """A slow recognizer must not skew the mic timeline the echo guard compares."""
+    import numpy as np
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, barge_in=True)
+    spk.busy = True
+    loud = (np.ones(320, np.int16) * 5000).tobytes()
+    loop._process(loud, t_in=123.456)
+    assert loop._echo._mic[-1][0] == 123.456
+    loop.process(loud)                                   # the callback path stamps and queues
+    t_in, pcm = loop._audio_q.get_nowait()
+    assert pcm == loud and abs(t_in - time.monotonic()) < 0.5
