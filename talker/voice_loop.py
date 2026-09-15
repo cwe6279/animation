@@ -363,6 +363,13 @@ class VoiceLoop:
             elif a > lead + 1:
                 break
         matched = sum(n for _a, n in blocks)
+        rest = len(words) - lead
+        if lead >= 4 and rest >= 3:
+            # her words, then the person's: keep the tail if it is not hers too
+            matched_rest = sum(n for a, n in blocks if a >= lead)
+            if matched_rest < 0.5 * rest:
+                self.on_event("echo", f"dropped her own words from the front: {' '.join(raw[:lead])}")
+                return " ".join(raw[lead:])
         if matched >= 0.7 * len(words) or lead >= len(words) - 1:
             self.on_event("echo", f"her own voice, dropped: {text}")
             return ""

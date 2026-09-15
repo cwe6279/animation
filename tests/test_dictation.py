@@ -154,3 +154,16 @@ def test_a_reply_that_is_only_a_block_still_says_something():
     loop2.on_user_text("find flights")
     assert wait(lambda: len(spk2.spoken) == 1)
     assert spk2.spoken[0] == "On it. {{task find flights}}"          # words present: untouched
+
+
+def test_a_question_asked_over_her_long_sentence_survives():
+    """From a real log: most of the utterance was her, the last five words were the person."""
+    clock, events = Clock(), []
+    loop, stt, spk, heard = make(clock, events)
+    loop._last_said = ("[happy] Come, sit by the fire, little one. My sheep Whitey and Spotty were just playing "
+                       "this morning — they make me smile more than anything in this world does.")
+    loop._spoke_at = time.monotonic()
+    loop.on_user_text("Come sit by the fire, little one. My sheep, whitey and spotty, we're just playing "
+                      "this morning. Can you show me angry?")
+    assert wait(lambda: len(heard) == 1)
+    assert heard[0] == "Can you show me angry?"
