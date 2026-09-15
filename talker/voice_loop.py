@@ -88,6 +88,7 @@ class VoiceLoop:
         self.echo_hold = 1.5           # an echo verdict stands this long: the correlation wobbles as she talks
         self._echo_last = (0.0, 0.0)   # (time, corr) of the last echo verdict
         self._spoke_at = 0.0           # last time she was heard speaking (a barge-in does not clear it)
+        self._echo_started: Optional[float] = None   # when this reply's mic history began
         self.on_event = on_event or (lambda kind, text: print(f"[{kind}] {text}"))
         self.clock = clock
         # Wake mode: with wake words set, nothing is answered until one is heard;
@@ -178,6 +179,9 @@ class VoiceLoop:
             t = self.stt.feed(pcm)
             import numpy as _np
             frame = _np.frombuffer(pcm, dtype=_np.int16).astype(_np.float32)
+            if self._echo_started is None:            # a new reply: start the echo history afresh
+                self._echo_started = t_in
+                self._echo.reset()
             self._echo.add_mic(t_in, float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0)
             rms = float(_np.sqrt(_np.mean(frame * frame))) if frame.size else 0.0
             self._loud.append((now, rms))
@@ -189,6 +193,8 @@ class VoiceLoop:
                     self._barge_since = now
                 elif (now - self._barge_since) * 1000 >= self.barge_in_ms and self._sustained():
                     env = getattr(self.speaker, "output_envelope", None)
+                    if env and not self._echo.ready(t_in):
+                        return                            # too early in her reply to tell echo from a person
                     corr = self._echo.correlation(env(), t_in) if env else 0.0
                     t_e, c_e = self._echo_last
                     held = t_in - t_e < self.echo_hold and c_e >= self.echo_threshold
@@ -211,6 +217,7 @@ class VoiceLoop:
             self.stt.set_playback_gate(1.0)
             self._gated = False
         self._barge_since = None
+        self._echo_started = None
         if now - self._last_busy < self.GRACE_AFTER_SPEECH:
             self.stt.reset()
             return
@@ -356,27 +363,25 @@ class VoiceLoop:
         import difflib
         sm = difflib.SequenceMatcher(None, words, said, autojunk=False)
         blocks = sorted((a, n) for a, _b, n in sm.get_matching_blocks() if n)
-        lead = 0
-        for a, n in blocks:                        # contiguous from word 0, one mis-heard word allowed;
-            if a <= lead + 1 and (n >= 2 or a == 0):   # a lone common word ("the") never extends the cut
-                lead = max(lead, a + n)
-            elif a > lead + 1:
-                break
+        # Hers: any run of three or more of her words, wherever it sits (the mic can stitch
+        # her sentence and the person's together), plus a lone mis-heard word between two runs.
+        hers = [False] * len(words)
+        for a, n in blocks:
+            if n >= 3 or (a == 0 and n >= 2):
+                for i in range(a, a + n):
+                    hers[i] = True
+        for i in range(1, len(words) - 1):
+            if not hers[i] and hers[i - 1] and hers[i + 1]:
+                hers[i] = True
+        if not any(hers):
+            return text
+        kept = [w for w, h in zip(raw, hers) if not h]
         matched = sum(n for _a, n in blocks)
-        rest = len(words) - lead
-        if lead >= 4 and rest >= 3:
-            # her words, then the person's: keep the tail if it is not hers too
-            matched_rest = sum(n for a, n in blocks if a >= lead)
-            if matched_rest < 0.5 * rest:
-                self.on_event("echo", f"dropped her own words from the front: {' '.join(raw[:lead])}")
-                return " ".join(raw[lead:])
-        if matched >= 0.7 * len(words) or lead >= len(words) - 1:
+        if len(kept) < 2 or matched >= 0.8 * len(words):
             self.on_event("echo", f"her own voice, dropped: {text}")
             return ""
-        if lead >= 4:
-            self.on_event("echo", f"dropped her own words from the front: {' '.join(raw[:lead])}")
-            return " ".join(raw[lead:])
-        return text
+        self.on_event("echo", "dropped her own words: " + " ".join(w for w, h in zip(raw, hers) if h))
+        return " ".join(kept)
 
     def on_user_text(self, text: str) -> None:
         """Handle a finished user utterance (also used by --text-only)."""

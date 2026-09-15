@@ -340,3 +340,28 @@ def test_barge_in_ignores_a_clap():
     for _ in range(12):                          # a person: loud right through
         clk.t += 0.04; loop._process(loud)
     assert spk.interrupts == 1
+
+
+def test_barge_in_waits_until_the_echo_guard_has_something_to_judge():
+    """At her first words the guard has no history and scored 0.0, which read as a person."""
+    import numpy as np
+
+    class Clk:
+        t = 50.0
+        def __call__(self): return self.t
+    clk = Clk()
+    stt, spk = ScriptedSTT(), FakeSpeaker()
+    stt._ep = type("Ep", (), {"floor": 100.0, "min_rms": 100.0, "start_ratio": 3.0, "gate_boost": 4.0})()
+    spk.output_envelope = lambda: [(0, 1)]
+    loop = VoiceLoop(stt, lambda t: iter(["x"]), spk, barge_in=True, barge_in_ms=400, clock=clk)
+    loop._echo.correlation = lambda env, now: 0.0        # "a person", if asked
+    spk.busy = True
+    stt.speech_active = True
+    loud = (np.ones(320, np.int16) * 5000).tobytes()
+    t = 50.0
+    for _ in range(30):                                  # 600 ms: the duty and window are satisfied...
+        t += 0.02; clk.t = t; loop._process(loud, t_in=t)
+    assert spk.interrupts == 0                           # ...but the guard cannot judge yet
+    for _ in range(15):                                  # 900 ms in: it can, and it says a person
+        t += 0.02; clk.t = t; loop._process(loud, t_in=t)
+    assert spk.interrupts == 1

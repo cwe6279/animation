@@ -534,6 +534,15 @@ class EchoGuard:
     def add_mic(self, t: float, rms: float) -> None:
         self._mic.append((t, rms))
 
+    def reset(self) -> None:
+        """Forget the mic history: points from an earlier reply would be interpolated
+        across the gap and corrupt the window."""
+        self._mic.clear()
+
+    def ready(self, now: float, need_s: float = 0.8) -> bool:
+        """Enough mic history in the window to score at all."""
+        return len(self._mic) >= 8 and now - self._mic[0][0] >= need_s
+
     @staticmethod
     def _resample(points, t0, t1, step):
         if not points:

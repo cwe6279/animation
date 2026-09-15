@@ -167,3 +167,18 @@ def test_a_question_asked_over_her_long_sentence_survives():
                       "this morning. Can you show me angry?")
     assert wait(lambda: len(heard) == 1)
     assert heard[0] == "Can you show me angry?"
+
+
+def test_her_words_are_cut_from_the_middle_too():
+    """From a real log: the mic stitched her sentence and the person's together."""
+    clock, events = Clock(), []
+    loop, stt, spk, heard = make(clock, events)
+    loop._last_said = ("[resigned tone] You think I lie about my flock? I know what I know, stranger. My sheep "
+                       "are real enough — I hear them, I feed them, they know my voice.")
+    loop._spoke_at = time.monotonic()
+    loop.on_user_text("You think I lie about my flock? I know what that is. I think you just made up the names. "
+                      "My sheep are real enough. I think you just made up the names.")
+    assert wait(lambda: len(heard) == 1)
+    assert "My sheep are real enough" not in heard[0]
+    assert "I think you just made up the names" in heard[0]
+    assert "You think I lie" not in heard[0]
