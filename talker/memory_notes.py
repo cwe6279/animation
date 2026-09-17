@@ -83,8 +83,10 @@ class Notebook:
         now = _now(now)
         self._append(f"\n### Session summary {now.strftime('%H:%M')}\n{text}\n", now)
 
-    def recent(self, max_chars: int = 3000) -> str:
-        """The tail of the file for the prompt; the oldest lines fall off first."""
+    def recent(self, max_chars: int = 6000) -> str:
+        """The tail of the file for the prompt; the oldest lines fall off first.
+        About 1500 tokens, cached with the rest of the system prompt, so a bigger
+        cap costs a little money on the first turn and no latency after it."""
         text = self._read().strip()
         if not text:
             return "(no notes yet)"
@@ -168,7 +170,7 @@ class TaskLedger:
     def open_items(self) -> List[Dict]:
         return [it for it in self.items if it["state"] in ("not started", "in progress")]
 
-    def render(self, max_chars: int = 2000) -> str:
+    def render(self, max_chars: int = 3000) -> str:
         """For the prompt: every open task, then the most recent finished ones that fit."""
         if not self.items:
             return "(no tasks yet)"
