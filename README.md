@@ -435,6 +435,31 @@ shows it as it lands, and only answers after `--dictation-pause` seconds of quie
 to everything at once. "That's all" (`dictation_end_words`) answers now and switches it off.
 A sleep word still stops her, and nothing is announced while you dictate.
 
+### Fast mode (Opus and GPT-5.6, `-fast` on the model name)
+
+```bash
+python voice_loop.py --face clara --model claude-opus-5-fast
+python voice_loop.py --face clara --llm openai --model gpt-5.6-fast
+```
+
+Both Anthropic and OpenAI sell a faster tier of the same model at a per-token
+premium: the same weights, up to 2.5x the output tokens per second. Add `-fast`
+to the model name and the brain sets it (`speed: "fast"` with the
+`fast-mode-2026-02-01` beta on Claude Opus 5 and Opus 4.8, `service_tier: "fast"`
+on GPT-5.6); anything else keeps its name and runs as before.
+
+**It does not shorten the wait for the first token**, which is where most of a
+reply's latency sits here. What it shortens is everything after: the first
+*sentence* finishes sooner, so the voice starts sooner. Expect the gain on
+longer replies and little on a four-word one.
+
+Both are metered separately from the standard model, and Anthropic's is a
+research preview your key has to be granted. If the fast request is refused the
+reply still goes out, at standard speed: a rate limit falls back for that turn
+(and after a run of them the brain stops asking for five minutes), and anything
+else turns fast mode off for the session. Every fallback says so in the log,
+and the control page shows `fast` next to the brain while it is in use.
+
 ### Vision (optional, off unless `--camera` is given)
 
 ```bash

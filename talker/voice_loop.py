@@ -755,7 +755,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--list-models", action="store_true", help="List the models on the Ollama server and exit")
     p.add_argument("--model", default=None,
                    help="Model id for the chosen --llm (defaults: claude-haiku-4-5 for speed; "
-                        "--model claude-opus-5 for the best writing at ~2 s more per reply; openai: gpt-4o-mini)")
+                        "--model claude-opus-5 for the best writing at ~2 s more per reply; openai: gpt-4o-mini). "
+                        "Add -fast to an Opus model (claude-opus-5-fast, claude-opus-4-8-fast) for fast mode: "
+                        "the same model at up to 2.5x the tokens per second and twice the price. It does not "
+                        "shorten the wait for the first token, only the words after it, so it reaches the first "
+                        "spoken sentence sooner. Research preview: it falls back to standard speed if your key "
+                        "has no access")
     p.add_argument("--effort", default="low", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--thinking", action="store_true",
                    help="Enable Claude's reasoning pass before answering (about +1 s to first token; off by default)")
@@ -997,7 +1002,9 @@ def main(argv=None) -> int:
         print(f"[error] brain '{args.llm}' unavailable: {e}")
         print("        python voice_loop.py --setup checks your keys and the models you have")
         return 1
-    print(f"[voice] brain: {args.llm} {chat.model}{' (told it can see)' if can_see else ''}")
+    print(f"[voice] brain: {args.llm} {chat.model}"
+          f"{' fast' if getattr(chat, 'speed', None) == 'fast' else ''}"
+          f"{' (told it can see)' if can_see else ''}")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps, borderless=args.borderless)
     actions = ActionDispatcher(on_result=lambda a, r: chat.add_context(f"the {a.name} tool answered: {r}"))
@@ -1220,7 +1227,7 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     def status():
         st = {"face": manifest.name, "waiting": loop.waiting,
               "stt": getattr(stt, "name", "text only") if stt else "text only",
-              "llm": f"{args.llm} {chat.model}", "tts": f"{backend.name} {getattr(backend, 'voice_name', '') or ''}".strip(),
+              "llm": f"{args.llm} {chat.model}" + (" fast" if getattr(chat, "speed", None) == "fast" else ""), "tts": f"{backend.name} {getattr(backend, 'voice_name', '') or ''}".strip(),
               "mic_rms": audio.get_state()[0], "speaking": bool(pipeline and pipeline.is_busy),
               "thinking": bool(getattr(loop, "_thinking", False)), "engaged": loop.engaged,
               "first_audio_ms": (pipeline.stats or {}).get("time_to_first_audio_ms") if pipeline else None,

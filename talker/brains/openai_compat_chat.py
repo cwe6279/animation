@@ -20,14 +20,27 @@ from .claude_chat import VISION_RULES, VOICE_RULES, WAKE_RULES, load_system_prom
 
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 
+# Fast mode, the same idea as Claude's (see claude_chat.split_speed): "-fast" on the
+# model name asks for the quicker tier at a per-token premium. OpenAI spells it
+# service_tier="fast" and offers it on the GPT-5.6 family; a model without it errors,
+# and the reply then goes out at standard speed.
+FAST_TIER = "fast"
+
 
 class OpenAICompatChat:
+    @staticmethod
+    def split_speed(model: str) -> tuple:
+        """('gpt-5.6-fast') -> ('gpt-5.6', 'fast')."""
+        if model and model.endswith("-fast"):
+            return model[: -len("-fast")], FAST_TIER
+        return model, None
+
     def __init__(self, model: str, api_key: Optional[str], base_url: Optional[str] = None,
                  character: Optional[str] = None, max_history: int = 20, client=None,
                  temperature: float = 0.8, name: str = "openai", can_see: bool = False,
                  wake_mode: bool = False, extra_rules: str = ""):
         self.name = name
-        self.model = model
+        self.model, self.speed = self.split_speed(model)
         self.max_history = max_history
         self.temperature = temperature
         self.system = (load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
@@ -79,25 +92,40 @@ class OpenAICompatChat:
                      + [{"role": "user", "content": instruction}])
         return (r.choices[0].message.content or "").strip()
 
+    def _stream(self, speed: Optional[str]):
+        extra = {"service_tier": speed} if speed else {}
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": self.system}] + self.messages,
+            max_tokens=256,
+            temperature=self.temperature,
+            stream=True,
+            **extra,
+        )
+
     def reply(self, user_text: str) -> Iterator[str]:
         self._push_user(user_text)
         self.messages = self.messages[-self.max_history:]
         parts: List[str] = []
+        speed = self.speed
         try:
-            stream = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "system", "content": self.system}] + self.messages,
-                max_tokens=256,
-                temperature=self.temperature,
-                stream=True,
-            )
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    parts.append(delta)
-                    yield delta
+            while True:
+                try:
+                    for chunk in self._stream(speed):
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta.content
+                        if delta:
+                            parts.append(delta)
+                            yield delta
+                    break
+                except Exception as e:
+                    # Same rule as the Claude brain: if fast mode is what failed and
+                    # nothing has been said yet, answer at standard speed instead.
+                    if not speed or parts:
+                        raise
+                    print(f"[brain] fast mode unavailable ({e}); standard speed from here on")
+                    self.speed = speed = None
         finally:
             full = "".join(parts).strip()
             if full:

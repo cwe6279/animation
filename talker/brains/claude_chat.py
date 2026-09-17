@@ -14,11 +14,32 @@ answered by another model.
 from __future__ import annotations
 
 import os
+import time
 from typing import Iterator, List, Optional
 
 import anthropic
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Fast mode (research preview): the same model at up to 2.5x the output tokens per
+# second, at double the price. Add "-fast" to the model name: claude-opus-5-fast.
+# It speeds up tokens per second, NOT time to first token, so in this pipeline it
+# shortens the wait for the first *sentence* to reach the voice, not the first token.
+# Opus 5 and Opus 4.8 only; 4.7 errors and 4.6 quietly runs standard.
+FAST_BETA = "fast-mode-2026-02-01"
+FAST_MODELS = ("claude-opus-5", "claude-opus-4-8")
+
+
+def split_speed(model: str) -> tuple:
+    """('claude-opus-5-fast') -> ('claude-opus-5', 'fast'). Unknown models keep their name."""
+    if not model or not model.endswith("-fast"):
+        return model, None
+    base = model[: -len("-fast")]
+    if base not in FAST_MODELS:
+        print(f"[brain] fast mode is only offered on {' and '.join(FAST_MODELS)}; "
+              f"running {base} at standard speed")
+        return base, None
+    return base, "fast"
 
 
 def load_system_prompt() -> str:
@@ -108,11 +129,13 @@ def make_client() -> anthropic.Anthropic:
 
 
 class ClaudeChat:
+    FAST_PAUSE_S = 300.0             # after three fast-mode rate limits in a row, wait this long
+
     def __init__(self, model: str = "claude-opus-5", effort: str = "low",
                  character: Optional[str] = None, max_history: int = 20,
                  client: Optional[anthropic.Anthropic] = None, thinking: bool = True,
                  can_see: bool = False, wake_mode: bool = False, extra_rules: str = ""):
-        self.model = model
+        self.model, self.speed = split_speed(model)
         self.effort = effort
         self.thinking = thinking     # False = no reasoning pass before answering (faster first token)
         self.max_history = max_history
@@ -122,6 +145,8 @@ class ClaudeChat:
             self.system += f"\n\nCharacter: {character}"
         self.messages: List[dict] = []
         self.last_usage = None
+        self._fast_429 = 0           # consecutive fast-mode rate limits
+        self._fast_pause_until = 0.0  # after a run of them, stop asking for a while
         # Context notes (a scene change, a tool's answer, a finished task) wait here
         # and go into the conversation as one entry ahead of the next thing the
         # visitor says; quiet turns add nothing. All of them are kept, in order.
@@ -161,32 +186,80 @@ class ClaudeChat:
                                               system=self.system, messages=msgs) as stream:
             return "".join(stream.text_stream).strip()
 
+    def _stream(self, speed: Optional[str]):
+        extra = {}
+        haiku = self.model.startswith("claude-haiku")
+        if not haiku:   # Haiku 4.5 rejects effort, thinking-disabled and fallbacks
+            extra["output_config"] = {"effort": self.effort}
+            extra["betas"] = ["server-side-fallback-2026-07-01"]
+            extra["fallbacks"] = "default"
+            if not self.thinking:
+                extra["thinking"] = {"type": "disabled"}
+        client = self.client
+        if speed == "fast":
+            extra["speed"] = "fast"
+            extra["betas"] = list(extra.get("betas", [])) + [FAST_BETA]
+            # Don't sit through the SDK's retry backoff when fast capacity is gone:
+            # fail at once and let the caller drop to standard speed for this turn.
+            opts = getattr(client, "with_options", None)
+            client = opts(max_retries=0) if opts else client
+        return client.beta.messages.stream(
+            model=self.model,
+            max_tokens=512,
+            **extra,
+            # The system prompt is identical every turn: mark it cacheable so
+            # the server reuses it (cheaper, and a little faster to first token).
+            system=[{"type": "text", "text": self.system, "cache_control": {"type": "ephemeral"}}],
+            messages=self.messages,
+        )
+
     def reply(self, user_text: str) -> Iterator[str]:
         self._push_user(user_text)
         self.messages = self.messages[-self.max_history:]
         parts: List[str] = []
+        speed = self.speed
+        if speed == "fast" and time.monotonic() < self._fast_pause_until:
+            speed = None                 # backing off after a run of rate limits
         try:
-            extra = {}
-            haiku = self.model.startswith("claude-haiku")
-            if not haiku:   # Haiku 4.5 rejects effort, thinking-disabled and fallbacks
-                extra["output_config"] = {"effort": self.effort}
-                extra["betas"] = ["server-side-fallback-2026-07-01"]
-                extra["fallbacks"] = "default"
-                if not self.thinking:
-                    extra["thinking"] = {"type": "disabled"}
-            with self.client.beta.messages.stream(
-                model=self.model,
-                max_tokens=512,
-                **extra,
-                # The system prompt is identical every turn: mark it cacheable so
-                # the server reuses it (cheaper, and a little faster to first token).
-                system=[{"type": "text", "text": self.system, "cache_control": {"type": "ephemeral"}}],
-                messages=self.messages,
-            ) as stream:
-                for text in stream.text_stream:
-                    parts.append(text)
-                    yield text
-                self.last_usage = stream.get_final_message().usage
+            while True:
+                try:
+                    with self._stream(speed) as stream:
+                        for text in stream.text_stream:
+                            parts.append(text)
+                            yield text
+                        self.last_usage = stream.get_final_message().usage
+                    if speed == "fast":
+                        self._fast_429 = 0
+                    break
+                except Exception as e:
+                    # Nothing has been said yet and fast mode is what failed: say it
+                    # at standard speed rather than not at all. A rate limit is this
+                    # turn only (capacity returns in seconds); anything else — no
+                    # access to the preview, a bad beta — is for the whole session.
+                    if speed != "fast" or parts:
+                        raise
+                    import anthropic as _a
+                    if isinstance(e, _a.RateLimitError):
+                        # Fast capacity replenishes continuously, so a 429 is usually
+                        # over in seconds: answer this turn at standard speed and try
+                        # again next turn. Only a run of them is worth backing off from.
+                        self._fast_429 += 1
+                        # "rate limit of 0 fast mode input tokens" means this key has no
+                        # fast allocation (it is a research preview, granted per account),
+                        # so don't spend two more turns discovering that.
+                        if "of 0 fast mode" in str(e):
+                            self._fast_429 = 3
+                        if self._fast_429 >= 3:
+                            self._fast_pause_until = time.monotonic() + self.FAST_PAUSE_S
+                            print(f"[brain] no fast mode capacity for a request this size; standard "
+                                  f"speed for {self.FAST_PAUSE_S / 60:.0f} minutes. Fast mode is a "
+                                  f"research preview your key has to be granted")
+                        else:
+                            print("[brain] fast mode is rate limited; this reply goes at standard speed")
+                    else:
+                        print(f"[brain] fast mode unavailable ({e}); standard speed from here on")
+                        self.speed = None
+                    speed = None
         finally:
             full = "".join(parts).strip()
             if full:

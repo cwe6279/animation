@@ -1,5 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import httpx2 as httpx
 import pytest
 pytest.importorskip("anthropic")
 from talker.brains.claude_chat import ClaudeChat
@@ -19,14 +20,22 @@ class FakeClient:
     def __init__(self, chunks):
         self.chunks = chunks
         self.calls = []
+        self.retries = None            # what with_options(max_retries=...) was given
+        self.raise_on_fast = None      # an exception the fast attempt should raise
         outer = self
         class Messages:
             def stream(self, **kw):
                 outer.calls.append(kw)
+                if kw.get("speed") == "fast" and outer.raise_on_fast is not None:
+                    raise outer.raise_on_fast
                 return FakeStream(outer.chunks)
         class Beta:
             messages = Messages()
         self.beta = Beta()
+
+    def with_options(self, **kw):
+        self.retries = kw.get("max_retries")
+        return self
 
 
 def test_reply_streams_and_keeps_history():
@@ -141,3 +150,109 @@ def test_errand_abilities_are_told_to_her():
     rules = assistant_rules(errands=True, can=m.errands_can)
     assert "you can: read the calendar, search the web" in rules and "Never say you cannot" in rules
     assert "Through that agent" not in assistant_rules(errands=True)
+
+
+def test_fast_mode_is_a_model_suffix():
+    from talker.brains.claude_chat import FAST_BETA, split_speed
+    assert split_speed("claude-opus-5-fast") == ("claude-opus-5", "fast")
+    assert split_speed("claude-opus-4-8-fast") == ("claude-opus-4-8", "fast")
+    assert split_speed("claude-opus-5") == ("claude-opus-5", None)
+    assert split_speed("claude-haiku-4-5-fast") == ("claude-haiku-4-5", None)   # not offered there
+    client = FakeClient(["fast enough."])
+    chat = ClaudeChat(model="claude-opus-5-fast", client=client)
+    assert chat.model == "claude-opus-5" and chat.speed == "fast"
+    assert "".join(chat.reply("hello")) == "fast enough."
+    kw = client.calls[0]
+    assert kw["model"] == "claude-opus-5" and kw["speed"] == "fast"
+    assert FAST_BETA in kw["betas"] and "server-side-fallback-2026-07-01" in kw["betas"]
+    assert client.retries == 0                          # no waiting through backoff on a fast turn
+    # standard speed sends neither
+    plain = FakeClient(["hi."])
+    "".join(ClaudeChat(model="claude-opus-5", client=plain).reply("hello"))
+    assert "speed" not in plain.calls[0] and FAST_BETA not in plain.calls[0]["betas"]
+
+
+def test_a_rate_limited_fast_turn_still_answers_at_standard_speed():
+    import anthropic
+    client = FakeClient(["standard answer."])
+    chat = ClaudeChat(model="claude-opus-5-fast", client=client)
+    client.raise_on_fast = anthropic.RateLimitError(
+        "rate limited", response=httpx.Response(429, request=httpx.Request("POST", "http://x")), body=None)
+    assert "".join(chat.reply("hello")) == "standard answer."
+    assert client.calls[0].get("speed") == "fast" and "speed" not in client.calls[1]
+    assert chat.speed == "fast"                         # a transient rate limit is this turn only
+    assert chat.messages[-1] == {"role": "assistant", "content": "standard answer."}
+    for _ in range(2):                                  # ... three in a row backs off for a while
+        client.chunks = ["again."]
+        "".join(chat.reply("more"))
+    assert chat.speed == "fast" and chat._fast_pause_until > 0
+    client.calls.clear(); client.chunks = ["quiet."]
+    "".join(chat.reply("more"))
+    assert "speed" not in client.calls[0]                # not asked for during the pause
+    chat._fast_pause_until = 0                           # ... and asked for again after it
+    client.raise_on_fast = None; client.calls.clear(); client.chunks = ["quick."]
+    assert "".join(chat.reply("more")) == "quick."
+    assert client.calls[0]["speed"] == "fast" and chat._fast_429 == 0
+
+def test_no_access_to_the_preview_turns_fast_mode_off_for_the_session():
+    import anthropic
+    client = FakeClient(["plain answer."])
+    chat = ClaudeChat(model="claude-opus-5-fast", client=client)
+    client.raise_on_fast = anthropic.PermissionDeniedError(
+        "not entitled", response=httpx.Response(403, request=httpx.Request("POST", "http://x")), body=None)
+    assert "".join(chat.reply("hello")) == "plain answer."
+    assert chat.speed is None
+    client.calls.clear(); client.chunks = ["again."]
+    assert "".join(chat.reply("more")) == "again."
+    assert "speed" not in client.calls[0]               # not tried again this session
+
+
+def test_openai_fast_mode_uses_the_service_tier():
+    pytest.importorskip("openai")
+    from talker.brains.openai_compat_chat import OpenAICompatChat
+    assert OpenAICompatChat.split_speed("gpt-5.6-fast") == ("gpt-5.6", "fast")
+    assert OpenAICompatChat.split_speed("gpt-4o-mini") == ("gpt-4o-mini", None)
+
+    class FakeChunk:
+        def __init__(self, text):
+            self.choices = [type("C", (), {"delta": type("D", (), {"content": text})()})()]
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.calls = []
+            self.fail_fast = False
+            outer = self
+            class Completions:
+                def create(self, **kw):
+                    outer.calls.append(kw)
+                    if kw.get("service_tier") and outer.fail_fast:
+                        raise RuntimeError("service_tier 'fast' is not available for this model")
+                    return iter([FakeChunk("hello "), FakeChunk("there.")])
+            class Chat:
+                completions = Completions()
+            self.chat = Chat()
+
+    client = FakeOpenAI()
+    chat = OpenAICompatChat("gpt-5.6-fast", api_key=None, client=client)
+    assert chat.model == "gpt-5.6" and chat.speed == "fast"
+    assert "".join(chat.reply("hi")) == "hello there."
+    assert client.calls[0]["service_tier"] == "fast" and client.calls[0]["model"] == "gpt-5.6"
+    # a model without the tier: answered at standard speed, and not retried after that
+    client2 = FakeOpenAI(); client2.fail_fast = True
+    chat2 = OpenAICompatChat("gpt-5.6-fast", api_key=None, client=client2)
+    assert "".join(chat2.reply("hi")) == "hello there."
+    assert chat2.speed is None and "service_tier" not in client2.calls[1]
+
+
+def test_a_zero_fast_limit_backs_off_on_the_first_try():
+    import anthropic
+    client = FakeClient(["plain."])
+    chat = ClaudeChat(model="claude-opus-5-fast", client=client)
+    client.raise_on_fast = anthropic.RateLimitError(
+        "Error code: 429 - would exceed your rate limit of 0 fast mode input tokens per minute",
+        response=httpx.Response(429, request=httpx.Request("POST", "http://x")), body=None)
+    assert "".join(chat.reply("hello")) == "plain."
+    assert chat._fast_pause_until > 0                    # straight to the back-off
+    client.calls.clear(); client.chunks = ["again."]
+    "".join(chat.reply("more"))
+    assert "speed" not in client.calls[0]

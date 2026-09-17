@@ -531,6 +531,9 @@ python voice_loop.py --mic-test --mic-device gomic --record recordings/   # also
     <tr><td><code>elevenlabs</code></td><td>Scribe realtime</td><td class="num">1.4%</td><td class="num">1.4%</td><td class="num">0.51</td><td>cloud, live partials, server decides when you stopped</td></tr>
   </table></div>
 
+  <h3>Fast mode</h3>
+  <p>Both Anthropic and OpenAI sell a faster tier of the same model at a per-token premium: the same weights, up to 2.5x the output tokens per second. Add <code>-fast</code> to the model name — <code>--model claude-opus-5-fast</code> (also <code>claude-opus-4-8-fast</code>), or <code>--llm openai --model gpt-5.6-fast</code> — and the brain sets <code>speed: "fast"</code> with the <code>fast-mode-2026-02-01</code> beta, or <code>service_tier: "fast"</code> on the OpenAI side. It does <strong>not</strong> shorten the wait for the first token, which is where most of a reply's latency sits here; it shortens everything after, so the first spoken sentence lands sooner and long replies gain most. Fast capacity is metered separately from the standard model and Anthropic's is a research preview your key has to be granted; when a fast request is refused the reply still goes out at standard speed, a rate limit falling back for that turn and anything else switching fast mode off for the session. The log says so every time, and the control page shows <code>fast</code> beside the brain while it is in use.</p>
+
   <h3>Brains</h3>
   <p>Same cat persona, eight prompts. <em>Known</em> is the share of tags in the allowed vocabulary; <em>leading</em> the share placed before words; <em>md</em> replies with markdown or emoji.</p>
   <div class="tablewrap"><table>
