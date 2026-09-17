@@ -61,3 +61,12 @@ def test_nmcli_fields_unescape_colons():
     from talker.web_panel import WifiControl
     assert WifiControl._fields("no:HomeNet:100:WPA2 WPA3") == ["no", "HomeNet", "100", "WPA2 WPA3"]
     assert WifiControl._fields(r"yes:Cafe\:Wifi:80:WPA2") == ["yes", "Cafe:Wifi", "80", "WPA2"]
+
+
+def test_a_face_can_name_its_own_brain_per_llm():
+    from talker.face_asset_loader import FaceManifest
+    m = FaceManifest.from_dict({"models": {"Claude": "claude-haiku-4-5", "ollama": "qwen3:8b"}})
+    assert m.models == {"claude": "claude-haiku-4-5", "ollama": "qwen3:8b"}
+    assert m.models.get("claude") == "claude-haiku-4-5"
+    assert m.models.get("openai") is None            # unset brain falls through to the default
+    assert FaceManifest.from_dict({}).models == {}

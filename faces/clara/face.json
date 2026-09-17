@@ -69,6 +69,9 @@
     "piper": "en_US-hfc_female-medium",
     "edge": "en-US-AriaNeural"
   },
+  "models": {
+    "claude": "claude-sonnet-5"
+  },
   "wake_words": [
     "clara",
     "hey clara",

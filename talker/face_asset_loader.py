@@ -141,6 +141,11 @@ class FaceManifest:
     # backend name: {"elevenlabs": "<voice id>", "edge": "en-US-AriaNeural"};
     # tts_model picks the ElevenLabs model (e.g. "eleven_v3").
     voices:     Dict[str, str] = field(default_factory=dict)
+    # This face's brain, keyed by --llm the way voices is keyed by TTS backend:
+    #   "models": {"claude": "claude-haiku-4-5", "ollama": "qwen3:8b"}
+    # --model still wins. Keyed so a face that names a Claude model does not hand
+    # that name to Ollama when someone runs the same face locally.
+    models:     Dict[str, str] = field(default_factory=dict)
     tts:        Optional[str] = None    # this face's own backend (piper, elevenlabs, edge...); --tts wins
     tts_model:  Optional[str] = None
     voice_speed: Optional[float] = None # speaking rate multiplier (Flash / edge; v3 ignores)
@@ -165,7 +170,7 @@ class FaceManifest:
         "face_base_opacity", "face_color", "face_outline", "glow_color", "glow_intensity",
         "glow_style", "core_color", "rim_color", "light_offset", "cut_depth", "wall_color", "eye_left", "eye_right", "eye_color", "draw_eyes", "blink", "blink_interval", "blink_speed",
         "eye_speech_pulse", "eye_lids", "gaze", "draw_nose", "nose_color", "nose",
-        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "tts", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words", "sounds", "body", "idle_sounds", "facts", "sfx_over_speech",
+        "mouth", "mouth_images", "draw_stem", "stem_color", "voices", "models", "tts", "tts_model", "voice_speed", "character", "textured_eye", "wake_words", "sleep_words", "sounds", "body", "idle_sounds", "facts", "sfx_over_speech",
         "memory", "errands", "dictation_words", "dictation_end_words",
     }
     _KNOWN_EYE = {"image", "cx", "cy", "scale", "opacity"}
@@ -223,6 +228,7 @@ class FaceManifest:
         m.stem_color  = tuple(d.get("stem_color", m.stem_color))
         m.mouth_images = {str(k).lower(): v for k, v in d.get("mouth_images", {}).items()}
         m.voices      = {str(k).lower(): str(v) for k, v in d.get("voices", {}).items()}
+        m.models      = {str(k).lower(): str(v) for k, v in d.get("models", {}).items()}
         m.tts         = (d.get("tts") or "").lower() or None
         m.tts_model   = d.get("tts_model") or None
         m.voice_speed = float(d["voice_speed"]) if d.get("voice_speed") else None

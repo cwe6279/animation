@@ -124,7 +124,8 @@ Four areas, each with a default that works out of the box and options you switch
 | **BRAIN** (LLM) | `claude` Haiku 4.5, ~0.7 s to first token | `--model claude-opus-5` best writing, ~2 s more per reply · `--thinking` for deeper answers · `ollama` local, no key · `openai` for comparison | `--llm`, `--model`, `--effort`, `--thinking`, `--character` | `ANTHROPIC_API_KEY` (workspace-scoped, prepaid) · `OPENAI_API_KEY` |
 | **SPEECH** (text-to-speech) | `elevenlabs` v3 when the key is set (performs `[tags]`, ~1 s to first audio), else `edge` free | `--tts-model flash` (~0.25 s, tags stripped) · `fish` Fish Audio · `edge` free | `--tts`, `--tts-model`, `--voice`, `--voice-speed`, `--output-device` | ElevenLabs: `ELEVENLABS_API_KEY` · Fish: `FISH_AUDIO_API_KEY` · edge: nothing |
 
-Per face, `face.json` can fix the voice (`voices`), the ElevenLabs model (`tts_model`),
+Per face, `face.json` can fix the brain (`models`, keyed by `--llm`), the voice
+(`voices`), the ElevenLabs model (`tts_model`),
 the wake words and the personality lives in `character.md`. `--profile pi` picks the
 cloud choices for a Raspberry Pi in one flag. Measured numbers for every option are in
 [Choosing backends](#choosing-backends-measured-results).

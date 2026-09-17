@@ -754,7 +754,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Ollama server URL for --llm ollama (default OLLAMA_HOST or http://localhost:11434)")
     p.add_argument("--list-models", action="store_true", help="List the models on the Ollama server and exit")
     p.add_argument("--model", default=None,
-                   help="Model id for the chosen --llm (defaults: claude-haiku-4-5 for speed; "
+                   help="Model id for the chosen --llm; overrides the face's own \"models\" entry "
+                        "(defaults: claude-haiku-4-5 for speed; "
                         "--model claude-opus-5 for the best writing at ~2 s more per reply; openai: gpt-4o-mini). "
                         "Add -fast to an Opus model (claude-opus-5-fast, claude-opus-4-8-fast) for fast mode: "
                         "the same model at up to 2.5x the tokens per second and twice the price. It does not "
@@ -943,6 +944,7 @@ def main(argv=None) -> int:
     voice = args.voice or m.voices.get(args.tts)
     tts_model = args.tts_model or m.tts_model or ("eleven_v3" if args.tts == "elevenlabs" else None)
     character = args.character or m.character or None
+    model = args.model or m.models.get(args.llm)      # face.json "models", keyed by brain
     speed = args.voice_speed or m.voice_speed
 
     # Actions the brain may write next to its speech ({{move nod}}, {{sfx creak}},
@@ -985,18 +987,18 @@ def main(argv=None) -> int:
                       else (m.wake_words or [m.name.replace("_", " ")]))
     try:
         if args.llm == "claude":
-            chat = ClaudeChat(model=args.model or "claude-haiku-4-5", effort=args.effort, character=character,
+            chat = ClaudeChat(model=model or "claude-haiku-4-5", effort=args.effort, character=character,
                               thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words),
                               extra_rules=extra_rules)
         elif args.llm == "ollama":
             from .brains.ollama_chat import OllamaChat
-            chat = OllamaChat(model=args.model, character=character, host=args.ollama_host,
+            chat = OllamaChat(model=model, character=character, host=args.ollama_host,
                               can_see=can_see, wake_mode=bool(wake_words), extra_rules=extra_rules)
             print(f"[voice] loading {chat.model} on {chat.host} ...")
             chat.warm_up()                   # load the weights now, not on the first question
         else:
             from .brains.openai_compat_chat import OpenAICompatChat
-            chat = OpenAICompatChat.openai(model=args.model, character=character, can_see=can_see,
+            chat = OpenAICompatChat.openai(model=model, character=character, can_see=can_see,
                                            wake_mode=bool(wake_words), extra_rules=extra_rules)
     except Exception as e:                   # a wrong model name or a missing key, said plainly
         print(f"[error] brain '{args.llm}' unavailable: {e}")
