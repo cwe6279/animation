@@ -124,6 +124,7 @@ def test_her_own_voice_is_stripped_from_the_front_of_an_utterance():
     loop, stt, spk, heard = make(clock, events)
     loop._last_said = ("[calm] I already searched those dates for you—LaGuardia to Las Vegas, October 20 to 23. "
                        "Delta wasn't the cheapest option. {{move nod}}")
+    loop.barge_in = True                         # only then does the mic hear her
     loop._spoke_at = time.monotonic()            # she just spoke
     # echo then the real request (from a real log)
     loop.on_user_text("I already searched those dates for you. The Guadier to let me. Yeah, yeah, "
@@ -162,6 +163,7 @@ def test_a_question_asked_over_her_long_sentence_survives():
     loop, stt, spk, heard = make(clock, events)
     loop._last_said = ("[happy] Come, sit by the fire, little one. My sheep Whitey and Spotty were just playing "
                        "this morning — they make me smile more than anything in this world does.")
+    loop.barge_in = True
     loop._spoke_at = time.monotonic()
     loop.on_user_text("Come sit by the fire, little one. My sheep, whitey and spotty, we're just playing "
                       "this morning. Can you show me angry?")
@@ -175,6 +177,7 @@ def test_her_words_are_cut_from_the_middle_too():
     loop, stt, spk, heard = make(clock, events)
     loop._last_said = ("[resigned tone] You think I lie about my flock? I know what I know, stranger. My sheep "
                        "are real enough — I hear them, I feed them, they know my voice.")
+    loop.barge_in = True
     loop._spoke_at = time.monotonic()
     loop.on_user_text("You think I lie about my flock? I know what that is. I think you just made up the names. "
                       "My sheep are real enough. I think you just made up the names.")
@@ -182,3 +185,19 @@ def test_her_words_are_cut_from_the_middle_too():
     assert "My sheep are real enough" not in heard[0]
     assert "I think you just made up the names" in heard[0]
     assert "You think I lie" not in heard[0]
+
+
+def test_half_duplex_never_mistakes_an_answer_for_her_echo():
+    """From a real log: she asked whether he could speak freely, he said 'Yes, I can speak
+    freely', and the echo filter dropped it. Without barge-in the mic was deaf while she
+    spoke, so there is no echo to remove."""
+    clock, events = Clock(), []
+    loop, stt, spk, heard = make(clock, events)
+    assert loop.barge_in is False
+    loop._last_said = ("[warm] Hello. I have the Board here. Before we begin, it would like to know "
+                       "whether you're somewhere you can speak freely.")
+    loop._spoke_at = time.monotonic()
+    loop.on_user_text("Yes, I can speak freely.")
+    assert wait(lambda: len(heard) == 1)
+    assert heard[0] == "Yes, I can speak freely."
+    assert not any(k == "echo" for k, _ in events)

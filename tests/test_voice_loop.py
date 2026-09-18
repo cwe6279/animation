@@ -307,7 +307,7 @@ def test_an_echo_verdict_holds_while_the_correlation_wobbles():
 def test_echo_transcript_is_dropped_even_after_a_barge_in():
     stt, spk = ScriptedSTT(), FakeSpeaker()
     heard = []
-    loop = VoiceLoop(stt, lambda t: (heard.append(t), iter(["x"]))[1], spk)
+    loop = VoiceLoop(stt, lambda t: (heard.append(t), iter(["x"]))[1], spk, barge_in=True)
     loop._last_said = "[annoyed] Because you always forget it. Or perhaps you think it is clever to mock me."
     loop._spoke_at = time.monotonic()
     loop._last_busy = 0.0              # what a barge-in does

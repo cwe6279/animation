@@ -388,7 +388,11 @@ class VoiceLoop:
         if self.waiting:
             self.on_event("ignored", f"waiting mode: {text}")
             return
-        if self._last_said and time.monotonic() - self._spoke_at < 30:
+        # Only with barge-in does the mic listen while she talks. Half-duplex is deaf
+        # then, so an utterance is always the person, and one that answers her by
+        # repeating her own words ("...somewhere you can speak freely?" "Yes, I can
+        # speak freely.") must not be thrown away as her echo.
+        if self.barge_in and self._last_said and time.monotonic() - self._spoke_at < 30:
             text = self._strip_echo(text)
             if not text.strip():
                 return
