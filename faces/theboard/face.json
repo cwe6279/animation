@@ -42,6 +42,9 @@
     "elevenlabs": "zrHiDhphv9ZnVXBqCLjz",
     "edge": "en-US-AriaNeural"
   },
+  "models": {
+    "claude": "claude-opus-5"
+  },
   "tts_model": "v3",
   "wake_words": [
     "the board",
