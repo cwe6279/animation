@@ -1,3 +1,4 @@
+import os
 """The control page: state, live tunables, actions, reference, all over plain HTTP."""
 import argparse
 import json
@@ -70,3 +71,14 @@ def test_a_face_can_name_its_own_brain_per_llm():
     assert m.models.get("claude") == "claude-haiku-4-5"
     assert m.models.get("openai") is None            # unset brain falls through to the default
     assert FaceManifest.from_dict({}).models == {}
+
+
+def test_a_face_name_is_found_whatever_its_case(capsys):
+    from talker.app import resolve_face_dir
+    assert resolve_face_dir("theboard", None).endswith(os.path.join("faces", "theboard"))
+    assert resolve_face_dir("TheBoard", None).endswith(os.path.join("faces", "theboard"))
+    assert resolve_face_dir("CLARA", None).endswith(os.path.join("faces", "clara"))
+    capsys.readouterr()
+    assert resolve_face_dir("no-such-face", None) is None
+    out = capsys.readouterr().out
+    assert "no face called 'no-such-face'" in out and "theboard" in out    # lists what exists

@@ -422,8 +422,25 @@ def resolve_face_dir(face: str, face_dir: Optional[str]) -> Optional[str]:
     if face_dir:
         return face_dir
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    candidate = os.path.join(root, "faces", face)
-    return candidate if os.path.isfile(os.path.join(candidate, "face.json")) else None
+    faces = os.path.join(root, "faces")
+    candidate = os.path.join(faces, face)
+    if os.path.isfile(os.path.join(candidate, "face.json")):
+        return candidate
+    # Face folders are lowercase, but a name is naturally typed the way it is
+    # written: let --face TheBoard find faces/theboard.
+    try:
+        names = sorted(n for n in os.listdir(faces)
+                       if not n.startswith("_") and os.path.isfile(os.path.join(faces, n, "face.json")))
+    except OSError:
+        names = []
+    for n in names:
+        if n.lower() == face.lower():
+            return os.path.join(faces, n)
+    # Say so. Silently drawing a procedural face here once looked like the wrong
+    # character had loaded: an orange pumpkin, no persona, the default brain.
+    print(f"[assets] warning: no face called {face!r} in faces/, so this is a procedural "
+          f"stand-in with no persona. Faces: {', '.join(names)}")
+    return None
 
 
 def build_audio(no_audio: bool, sync_offset: float, output_device: Optional[int] = None) -> BaseAudioEngine:
