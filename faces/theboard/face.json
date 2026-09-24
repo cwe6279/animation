@@ -43,7 +43,7 @@
     "edge": "en-US-AriaNeural"
   },
   "models": {
-    "claude": "claude-opus-5"
+    "claude": "claude-sonnet-5"
   },
   "tts_model": "v3",
   "wake_words": [
