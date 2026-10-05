@@ -139,7 +139,7 @@ is the reference for the JSON shapes and the state machine.
 
 The character is a thin client: microphone, brain, voice. The agent stays at home doing the
 long work. That split is the point, and it is also what breaks the moment she leaves the
-house, because `http://agent.local:8080` is an mDNS name for a private address that does not
+house, because an address like `http://agentbox.local:8030` is an mDNS name for a private address that does not
 exist on hotel wifi or a phone hotspot. Her errands would queue forever.
 
 **Put both machines on a tailnet.** It needs no router changes, exposes nothing to the
