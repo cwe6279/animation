@@ -90,9 +90,14 @@ class ErrandRunner:
                  on_started: Optional[Callable[[Errand], None]] = None,
                  on_needs_input: Optional[Callable[[Errand], None]] = None,
                  deliver: Optional[Callable[[str], bool]] = None,
-                 fetch: Callable[..., dict] = _http, sender: str = "talker"):
+                 fetch: Callable[..., dict] = _http, sender: str = "talker",
+                 timeout: float = 10.0):
         self.url = (url or "").strip().rstrip("/")
         self.poll_s = poll_s
+        # Every request to the agent waits this long. Five seconds is plenty on a LAN and
+        # turns a working agent into a false "unreachable" over hotel wifi or a relayed
+        # tailnet hop, which is where she is when the backend is furthest away.
+        self.timeout = timeout
         self.on_done = on_done
         self.on_fail = on_fail
         self.on_started = on_started
@@ -175,7 +180,7 @@ class ErrandRunner:
             return {"ok": False, "detail": "no address set"}
         t0 = time.perf_counter()
         try:
-            resp = self.fetch(f"{url}/health")
+            resp = self.fetch(f"{url}/health", timeout=self.timeout)
         except Exception as ex:
             return {"ok": False, "detail": str(ex)[:200], "ms": round((time.perf_counter() - t0) * 1000)}
         if url == self.url:
@@ -231,6 +236,21 @@ class ErrandRunner:
         if ok != self.reachable:
             print(f"[errands] backend at {self.url} {'reachable' if ok else 'unreachable, will retry'}"
                   + (f": {err}" if err else ""))
+            # Away from home the agent is a network away, and a handed-off task that
+            # simply queues looks like it was ignored. Say it once per change, and only
+            # when something is actually waiting to go.
+            with self._lock:
+                waiting = len(self._outbox)
+            what = "task" if waiting == 1 else f"{waiting} tasks"
+            if waiting and not ok:
+                self.say_later(
+                    f"The agent cannot be reached right now, so the {what} you handed over has "
+                    f"not gone yet. Say so briefly and that you will send it the moment the "
+                    f"connection is back.")
+            elif waiting and self.reachable is False:   # only if we said it was down
+                self.say_later(
+                    f"The agent can be reached again and the waiting {what} is going over now. "
+                    f"Say so in a few words.")
         self.reachable = ok
 
     def _post_outbox(self) -> None:
@@ -241,7 +261,7 @@ class ErrandRunner:
                 body = {"id": e.id, "task": e.task, "context": e.context, "from": self.sender}
                 if e.approvals and "approvals" in self.features:
                     body["approvals"] = e.approvals
-                resp = self.fetch(f"{self.url}/tasks", "POST", body)
+                resp = self.fetch(f"{self.url}/tasks", "POST", body, timeout=self.timeout)
             except Exception as ex:
                 self._say_reachability(False, str(ex))
                 return                                # keep the rest queued; try next cycle
@@ -259,7 +279,8 @@ class ErrandRunner:
             todo, self._answers = self._answers, []
         for i, (e, answer, by) in enumerate(todo):
             try:
-                self.fetch(f"{self.url}/tasks/{e.remote_id}/answer", "POST", {"answer": answer, "by": by})
+                self.fetch(f"{self.url}/tasks/{e.remote_id}/answer", "POST",
+                           {"answer": answer, "by": by}, timeout=self.timeout)
             except Exception as ex:
                 if "409" in str(ex):                  # no longer waiting (expired / answered): the poll will say
                     e.state = "running"
@@ -278,7 +299,7 @@ class ErrandRunner:
             if e.state not in ("running", "needs_input"):
                 continue
             try:
-                resp = self.fetch(f"{self.url}/tasks/{e.remote_id}")
+                resp = self.fetch(f"{self.url}/tasks/{e.remote_id}", timeout=self.timeout)
             except Exception as ex:
                 self._say_reachability(False, str(ex))
                 return

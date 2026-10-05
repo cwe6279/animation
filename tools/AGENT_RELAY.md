@@ -135,6 +135,59 @@ If you would rather not go through a subprocess at all, implement the three endp
 directly inside your harness; the whole contract is the section above and `tools/agent_relay.py`
 is the reference for the JSON shapes and the state machine.
 
+## Taking her with you
+
+The character is a thin client: microphone, brain, voice. The agent stays at home doing the
+long work. That split is the point, and it is also what breaks the moment she leaves the
+house, because `http://agent.local:8080` is an mDNS name for a private address that does not
+exist on hotel wifi or a phone hotspot. Her errands would queue forever.
+
+**Put both machines on a tailnet.** It needs no router changes, exposes nothing to the
+internet, works through carrier NAT, and gives one address that resolves at home *and* away,
+so there is nothing to switch when a trip starts. On Fedora, on the agent box and on whatever
+she travels on:
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+sudo dnf install -y tailscale
+sudo systemctl enable --now tailscaled
+sudo tailscale up                      # browser login, once per machine
+tailscale status                       # note the agent box's name, and whether the path is direct
+```
+
+On Raspberry Pi OS the first two lines become `curl -fsSL https://tailscale.com/install.sh | sh`;
+the rest is identical. Then in her `.env`, which is gitignored:
+
+```
+AGENT_RELAY_URL=http://agentbox.<tailnet>.ts.net:8080
+AGENT_RELAY_TOKEN=<the shared secret below>
+```
+
+Two things to check rather than assume: that the agent service binds `0.0.0.0` and not
+`127.0.0.1`, or it will not answer on the tailnet interface; and that `tailscale status` shows
+a direct connection rather than a relayed one, since a relayed path adds latency. If it is
+relayed, raise `--agent-timeout` (default 10 s) or the `agent_timeout_s` tunable on the
+control page.
+
+The address can also be changed while she is running, from the control page's **Agent** tab,
+and it is saved to `settings.json` for the next start. That is the escape hatch when DNS
+misbehaves in a hotel.
+
+**Then make the token mean something.** She sends `X-Relay-Token` on every request whenever
+`AGENT_RELAY_TOKEN` is set; a relay that ignores it is wide open to anyone who can reach the
+port. On a private tailnet that is defence in depth; the first time anything is tunnelled
+publicly it is the only thing between a stranger and your calendar and your email. So:
+
+- `POST /tasks` and the `GET /tasks*` routes compare `X-Relay-Token` against a secret from the
+  relay's own environment and return **401** when it is missing or wrong.
+- `GET /health` stays open, so the reachability probe and the control page's Test button keep
+  working, and neither reveals anything.
+
+**What she does when she cannot reach it.** Nothing is lost: the task waits in the outbox and
+is posted the moment the agent answers again. She also says so out loud, once, rather than
+appearing to ignore the request — and says again when it goes over. Idle polling costs
+nothing on mobile data: a cycle with no task in flight makes no request at all.
+
 ## Trying it end to end
 
 1. Start the relay (or your own service) and `curl` a task through to `done`.

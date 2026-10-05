@@ -172,3 +172,44 @@ def test_resume_polls_a_task_left_open_last_time():
     r.cycle()
     assert done == [e] and e.summary.startswith("Lisbon")
 
+
+
+def test_she_says_the_agent_is_unreachable_once_and_says_when_it_returns():
+    """On a trip a handed-off task that silently queues looks ignored."""
+    be = FakeBackend()
+    said = []
+    r = ErrandRunner("http://box:8030", deliver=lambda t: said.append(t) or True, fetch=be.fetch)
+    be.down = True
+    r.submit("find three projectors")
+    r.cycle()
+    assert len(said) == 1 and "cannot be reached" in said[0] and "task you handed over" in said[0]
+    r.cycle(); r.cycle()
+    assert len(said) == 1                       # once per change, not once per cycle
+    be.down = False
+    r.cycle()
+    assert len(said) == 2 and "can be reached again" in said[1]
+    assert r.pending() and r.pending()[0].state == "running"
+
+
+def test_nothing_is_said_when_the_outbox_is_empty():
+    be = FakeBackend()
+    said = []
+    r = ErrandRunner("http://box:8030", deliver=lambda t: said.append(t) or True, fetch=be.fetch)
+    be.down = True
+    r.cycle(); r.cycle()
+    assert said == [] and r.reachable is not True
+    be.down = False
+    r.cycle()
+    assert said == []                           # nothing was waiting, so there is nothing to report
+
+
+def test_the_timeout_reaches_every_request():
+    seen = []
+    def fetch(url, method="GET", body=None, timeout=5.0):
+        seen.append(timeout)
+        return {"id": "srv-1"} if method == "POST" else {"ok": True, "state": "running"}
+    r = ErrandRunner("http://box:8030", fetch=fetch, timeout=30.0)
+    assert r.timeout == 30.0
+    r.health(); r.submit("x"); r.cycle()
+    assert seen and set(seen) == {30.0}
+    assert ErrandRunner("http://box:8030").timeout == 10.0     # the default, raised for slow links
