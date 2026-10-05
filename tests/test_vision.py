@@ -72,6 +72,27 @@ def test_describe_errors_are_counted_not_fatal(tmp_path):
     assert w.stats["errors"] >= 1 and errors and w.context() == ""
 
 
+def test_picam_specs_are_recognised():
+    from talker.vision import picam_index
+    assert picam_index("picam") == 0 and picam_index("PiCam1") == 1 and picam_index("csi") == 0
+    assert picam_index("c920") is None and picam_index("0") is None and picam_index(None) is None
+    assert picam_index("picamera2x") is None
+
+
+def test_frame_signature_works_without_opencv(monkeypatch):
+    import builtins, io
+    from PIL import Image
+    from talker.vision import frame_signature, change_score
+    real_import = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__",
+                        lambda name, *a, **k: (_ for _ in ()).throw(ImportError(name)) if name == "cv2" else real_import(name, *a, **k))
+    def jpeg(shade):
+        b = io.BytesIO(); Image.new("RGB", (96, 54), (shade,) * 3).save(b, "JPEG"); return b.getvalue()
+    a, b = frame_signature(jpeg(20)), frame_signature(jpeg(230))
+    assert a is not None and a.shape == (14, 24)
+    assert change_score(a, frame_signature(jpeg(20))) < 0.01 < change_score(a, b)
+
+
 def test_resolve_camera_accepts_index():
     assert resolve_camera(0) == 0 and resolve_camera("2") == 2
 

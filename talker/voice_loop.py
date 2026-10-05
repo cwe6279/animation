@@ -97,6 +97,9 @@ class VoiceLoop:
         self.wake_words = sorted({w.strip().lower() for w in (wake_words or []) if w.strip()},
                                  key=lambda w: (-len(w.split()), -len(w)))
         self.idle_timeout = idle_timeout
+        # News (a finished errand) wakes a dormant character to say it, then the usual idle
+        # timeout applies again. Off: the news waits for the next wake word.
+        self.announce_wakes = True
         # Start engaged (first visitor need not say the name); go dormant after the
         # idle timeout or a goodbye. start_engaged=False for a kiosk that waits.
         self.engaged = (not self.wake_words) or start_engaged
@@ -472,21 +475,31 @@ class VoiceLoop:
             self._start_turn(text)
 
     # ── a turn nobody asked for ─────────────────────────
+    PARTIAL_STALE_S = 4.0          # a partial with no newer words for this long is not 'mid-sentence'
+
     def announce(self, event_text: str) -> bool:
         """Tell the brain something happened and let it speak up, but only when the room is
         quiet: not while it talks or thinks, not while someone is mid-sentence, not within
         a couple of seconds of either. Returns False to say: try again later."""
-        if self.waiting or self.paused or not self.engaged or self.dictating:
+        if self.waiting or self.paused or self.dictating:
             return False
-        if self.speaker.is_busy or self._thinking or self._partial:
+        if not self.engaged and not (self.announce_wakes and self.wake_words):
+            return False
+        if self.speaker.is_busy or self._thinking:
             return False
         now = time.monotonic()
+        # Someone mid-sentence, unless that partial went stale: a cloud recognizer can send a
+        # partial and never its final, which would otherwise hold the news back for good.
+        if self._partial and now - self._last_heard < self.PARTIAL_STALE_S:
+            return False
         if now - self._last_heard < 2.0 or self.clock() - self._last_busy < 2.0:
             return False
         with self._lock:
             if self._thinking:
                 return False
             self._thinking = True
+        if not self.engaged:
+            self.engage("news to tell")               # stays engaged for idle_timeout after, for follow-ups
         self.turns += 1
         self._session_turns += 1
         self._speech_end_at = 0.0                    # no utterance to time this against
@@ -516,6 +529,21 @@ class VoiceLoop:
 
     VISUAL_RE = re.compile(r"\b(see|look|watch|holding|hold|wearing|wear|this|that|these|expression|"
                            r"face|colou?r|what am i|who am i|how many|show|showing|picture|drawing)\b", re.I)
+
+    def brain_health(self, ok: bool, kind: str = "", detail: str = "") -> None:
+        """Track whether the brain answers; a change of state is logged and recorded once."""
+        was = getattr(self, "brain", None) or {"ok": True}
+        if ok and not was.get("ok", True):
+            print(f"[brain] answering again (was: {was.get('kind')})")
+            self.on_brain(True, "", "")
+        elif not ok and (was.get("ok", True) or was.get("kind") != kind):
+            print(f"[brain] failing: {kind}")
+            self.on_brain(False, kind, detail)
+        self.brain = {"ok": ok, "kind": "" if ok else kind, "since": was.get("since") if ok == was.get("ok", True)
+                      else time.strftime("%H:%M:%S")}
+
+    def on_brain(self, ok: bool, kind: str, detail: str) -> None:
+        """Hook: replaced in main() to record incidents."""
 
     def _answer(self, text: str) -> None:
         self._ended = False
@@ -566,7 +594,11 @@ class VoiceLoop:
                     yield " Let me check."
             except Exception as e:
                 self.on_event("error", f"LLM failed: {e}")
-                yield "[sad]Sorry, I could not think of an answer just now."
+                kind, spoken = brain_problem(e)
+                self.brain_health(False, kind, str(e))
+                yield spoken
+            else:
+                self.brain_health(True)
             finally:
                 self._thinking = False
                 self._last_activity = self.clock()
@@ -582,6 +614,92 @@ class VoiceLoop:
 # ═══════════════════════════════════════════════════════
 # PROFILES
 # ═══════════════════════════════════════════════════════
+def brain_problem(e: Exception) -> tuple:
+    """(kind, what to say) for a failed brain call, so the person hears why, not just 'sorry'."""
+    msg = f"{type(e).__name__}: {e}".lower()
+    if "credit balance" in msg or "billing" in msg:
+        return "out_of_credit", "[sad]I can't think right now: my thinking service is out of credit."
+    if "401" in msg or "authentication" in msg or "api key" in msg or "x-api-key" in msg:
+        return "bad_key", "[sad]I can't think right now: my thinking service won't accept my key."
+    if "429" in msg or "rate limit" in msg or "rate_limit" in msg:
+        return "rate_limited", "[sad]I'm being rate limited for a moment. Ask me again shortly."
+    if "529" in msg or "overloaded" in msg or " 50" in msg or "internal server" in msg:
+        return "overloaded", "[sad]My thinking service is overloaded right now. Try me again in a minute."
+    if "connect" in msg or "timeout" in msg or "timed out" in msg or "resolution" in msg:
+        return "unreachable", "[sad]I can't reach my thinking service right now."
+    return "error", "[sad]Sorry, I could not think of an answer just now."
+
+
+HANDOFF_ACK = {"task": "On it.", "approve": "Okay, going ahead.", "deny": "Alright, I won't."}
+
+
+def handoff_brief(reply):
+    """A reply that STARTS with {{task}}, {{approve}} or {{deny}} is a handoff: say a short
+    acknowledgement at once (before the block has even finished streaming), pass the block
+    through for the action dispatcher, and drop any words after it, so the plan is never read
+    back. Any other reply streams through untouched, with no added delay."""
+    import re as _re
+    lead = _re.compile(r"^\s*(?:\[[^\]\n]{0,40}\]\s*)*")
+    kinds = "|".join(HANDOFF_ACK)
+
+    def wrapped(text, *a, **k):
+        buf, mode, pending, in_block = "", "decide", "", True
+        for chunk in reply(text, *a, **k):
+            if mode == "pass":
+                yield chunk
+                continue
+            if mode == "decide":
+                buf += chunk
+                rest = buf[lead.match(buf).end():]
+                if not rest or (rest.startswith("{") and _re.fullmatch(r"\{\{?\s*[a-z]*", rest)):
+                    continue                              # can't tell yet: a block may be starting
+                m = _re.match(r"\{\{\s*(" + kinds + r")\b", rest)
+                if not m:
+                    mode = "pass"
+                    yield buf
+                    continue
+                mode = "handoff"
+                yield buf[:len(buf) - len(rest)] + HANDOFF_ACK[m.group(1)] + " "
+                chunk = rest
+            pending += chunk
+            while pending:                                # blocks go through; words between them don't
+                if in_block:
+                    end = pending.find("}}")
+                    if end < 0:
+                        keep = 1 if pending.endswith("}") else 0
+                        out, pending = pending[:len(pending) - keep], pending[len(pending) - keep:]
+                        if out:
+                            yield out
+                        break
+                    yield pending[:end + 2]
+                    pending, in_block = pending[end + 2:], False
+                else:
+                    start = pending.find("{{")
+                    if start < 0:
+                        pending = "{" if pending.endswith("{") else ""
+                        break
+                    pending, in_block = pending[start:], True
+        if mode == "decide" and buf:
+            yield buf                                     # a reply too short to decide on: say it as it is
+    return wrapped
+
+
+def always_speaks(reply):
+    """A reply made only of {{blocks}} and [tags] is silence to the listener: add a word."""
+    import re as _re
+
+    def wrapped(text, *a, **k):
+        said = []
+        for chunk in reply(text, *a, **k):
+            said.append(chunk)
+            yield chunk
+        full = "".join(said)
+        spoken = _re.sub(r"\{\{.*?\}\}|\[[^\]\n]{1,40}\]", "", full, flags=_re.S)
+        if full.strip() and not _re.search(r"[A-Za-z0-9]", spoken):
+            yield " Noted."
+    return wrapped
+
+
 def apply_pi_profile(args) -> None:
     """
     Raspberry Pi: keep every heavy stage in the cloud. Local Whisper takes
@@ -609,7 +727,9 @@ def stt_kwargs(args) -> dict:
         return {"model_path": args.vosk_model, "silence_ms": args.silence_ms}
     if args.stt == "whisper":
         return {"model_size": args.whisper_model, "silence_ms": args.silence_ms}
-    if args.stt in ("elevenlabs", "openai"):
+    if args.stt == "elevenlabs":
+        return {"silence_ms": args.silence_ms, "language": args.stt_language or None}
+    if args.stt == "openai":
         return {"silence_ms": args.silence_ms}
     return {}
 
@@ -727,6 +847,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vosk-model", default=None,
                    help="small (default) | lgraph | large | path. Larger = more accurate")
     p.add_argument("--whisper-model", default=None, help="faster-whisper size, e.g. base.en, small.en")
+    p.add_argument("--stt-language", default="en",
+                   help="Language code for cloud Scribe (--stt elevenlabs); \"\" lets it auto-detect, which "
+                        "drifts into other languages on short or hesitant English. Whisper and OpenAI are always en")
     p.add_argument("--silence-ms", type=int, default=None,
                    help="Silence that ends an utterance (default 600). Lower = snappier, more mid-sentence cuts")
     p.add_argument("--mic-device", default=None, help="Input device: name fragment (\"samson\") or index")
@@ -806,7 +929,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--list-cameras", action="store_true", help="List cameras and exit")
     p.add_argument("--vision-interval", type=float, default=9.0, help="Seconds between camera bursts (default 9)")
     p.add_argument("--vision-frames", type=int, default=3, help="Frames per burst (default 3)")
-    p.add_argument("--vision-model", default="claude-haiku-4-5", help="Vision model for scene notes")
+    p.add_argument("--vision-model", default="claude-haiku-4-5", help="Claude vision model for scene notes")
+    p.add_argument("--vision-mode", choices=["on_demand", "periodic"], default="on_demand",
+                   help="on_demand: look at startup, on waking from dormant, and when she decides to ({{look}} or a "
+                        "visual question); periodic: every --vision-interval seconds while awake")
+    p.add_argument("--vision-backend", choices=["auto", "ollama", "anthropic"], default="anthropic",
+                   help="Who describes the camera: ollama (a local vision model, free per look), anthropic "
+                        "(Claude; ANTHROPIC_VISION_API_KEY gives it its own key), auto = local first, Claude fallback")
+    p.add_argument("--vision-url", default=None,
+                   help="Ollama server for --vision-backend ollama/auto (default VISION_OLLAMA_URL, else http://localhost:11434)")
+    p.add_argument("--vision-local-model", default=None,
+                   help="Local vision model (default VISION_OLLAMA_MODEL, else qwen3.8:27b)")
+    p.add_argument("--vision-dormant-interval", type=float, default=300.0,
+                   help="Seconds between camera looks while dormant (default 300); sound still triggers a look, "
+                        "at most once a minute")
+    p.add_argument("--planner-model", default="claude-sonnet-5",
+                   help="Model that plans agent goals into steps (default claude-sonnet-5)")
     p.add_argument("--vision-change", type=float, default=0.035,
                    help="Change filter: a burst is sent to the vision model only if the picture differs from "
                         "the last described one by more than this fraction (default 0.035 = 3.5%% mean pixel "
@@ -832,8 +970,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-web", action="store_true", help="Do not start the control page")
     p.add_argument("--agent-url", default=None,
                    help="Backend agent that {{task ...}} errands go to (tools/agent_relay.py on the machine "
-                        "with your agent harness), e.g. http://agentbox:8030; default AGENT_RELAY_URL from "
-                        ".env. Only a face with \"errands\": true uses it")
+                        "with your agent harness), e.g. http://agentbox:8030; default: what the control page "
+                        "saved in settings.json, then AGENT_RELAY_URL from .env. Only a face with \"errands\" uses it")
+    p.add_argument("--errand-mode", choices=["auto", "ask"], default="auto",
+                   help="auto: she plans, chases and approves what the request itself asked for, and only asks "
+                        "the person for real decisions; ask: every action the agent wants to take is put to the person")
     p.add_argument("--errand-poll", type=float, default=5.0,
                    help="Seconds between polls of the backend agent for finished tasks (default 5)")
     p.add_argument("--dictation-pause", type=float, default=4.0,
@@ -851,6 +992,25 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     if args.profile == "pi":
         apply_pi_profile(args)
+    # Slow imports run in the background while the face and devices load: anthropic takes
+    # ~15 s to import on a Pi Zero. A later `import` waits for it rather than doing it twice.
+    threading.Thread(target=lambda: __import__("anthropic"), name="preload", daemon=True).start()
+    from .phoneme_scheduler import warm_up_g2p_in_background
+    warm_up_g2p_in_background()
+    # The control page comes up first and says what is loading, so a slow start does not look
+    # like a dead one; its settings appear once everything is up.
+    starting = {"stage": "loading libraries", "since": time.time()}
+    early_panel = None
+    if not args.no_web:
+        from .web_panel import WebPanel
+        early_panel = WebPanel(port=args.web_port, host=args.web_host)
+        early_panel.status_fn = lambda: {"face": args.face, "starting": starting["stage"],
+                                         "starting_s": round(time.time() - starting["since"])}
+        early_panel.start()
+
+    def stage(text):
+        starting["stage"] = text
+        print(f"[start] {text}")
     # calibration.json (from --calibrate) supplies defaults for what was not given explicitly
     from .calibrate import load_calibration
     cal = load_calibration()
@@ -939,6 +1099,7 @@ def main(argv=None) -> int:
         notebook, ledger = Notebook(face_dir), TaskLedger(face_dir)
         register("notes", notebook.recent)
         register("tasks", ledger.render)
+    stage("loading the face")
     assets = FaceAssetLoader().load(face_dir) if face_dir else FaceAssetLoader().build(default_manifest(args.face))
 
     # Face-level defaults for voice, model and persona (flags win)
@@ -961,12 +1122,18 @@ def main(argv=None) -> int:
     # An assistant: notes she writes herself, and errands for a backend agent (errands.py).
     from .brains.claude_chat import assistant_rules
     memory_on = bool(m.memory) and notebook is not None
-    agent_url = (args.agent_url or os.environ.get("AGENT_RELAY_URL") or "").strip()
+    # The agent's address: the flag, then what the control page saved, then .env.
+    from . import local_settings
+    agent_url, agent_source = "", "none"
+    for source, value in (("flag", args.agent_url), ("settings", local_settings.load().get("agent_url")),
+                          ("env", os.environ.get("AGENT_RELAY_URL"))):
+        if value and str(value).strip():
+            agent_url, agent_source = str(value).strip(), source
+            break
     errands_on = bool(m.errands)
     if errands_on and not agent_url:
-        print("[errands] face.json asks for a backend agent but AGENT_RELAY_URL is not set in .env "
-              "and --agent-url was not given: errands off")
-        errands_on = False
+        print("[errands] face.json asks for a backend agent but no address is set yet: tasks wait until "
+              "one is given on the control page (Agent tab), --agent-url or AGENT_RELAY_URL in .env")
     if errands_on:
         tools.add("tasks", "the task ledger with each task's state", lambda _a: ledger.render())
         print(f"[errands] can: {m.errands_can or '(not said; list what the agent can do under \"errands\" in face.json)'}")
@@ -1011,6 +1178,7 @@ def main(argv=None) -> int:
     print(f"[voice] brain: {args.llm} {chat.model}"
           f"{' fast' if getattr(chat, 'speed', None) == 'fast' else ''}"
           f"{' (told it can see)' if can_see else ''}")
+    stage("starting the voice and the display")
     app = TalkerApp(assets, audio, backend, debug=args.debug, show_hud=not args.no_hud,
                     fullscreen=args.fullscreen, adaptive_fps=not args.fixed_fps, borderless=args.borderless)
     actions = ActionDispatcher(on_result=lambda a, r: chat.add_context(f"the {a.name} tool answered: {r}"))
@@ -1030,33 +1198,47 @@ def main(argv=None) -> int:
                 print(f"[note] {line}")
         actions.register("note", note_handler)
     runner = None
+    orch = None
     last_you = {"text": ""}
     if errands_on:
+        # She manages the agent work (orchestrator.py): a request becomes a planned goal whose
+        # steps are sent in order, chased, retried and approved; one announcement per goal.
         from .errands import ErrandRunner
+        from .orchestrator import Orchestrator, make_claude_planner
+        ledger_state = {"planning": "in progress", "running": "in progress", "needs_input": "needs input",
+                        "done": "done", "failed": "failed"}
 
-        def on_started(e):
-            ledger.set_state(e.id, "in progress")
+        def on_goal_change(g):
+            if g.state == "failed" and not getattr(g, "_incident", False):
+                g._incident = True
+                from . import incidents
+                incidents.record("goal_failed", goal=g.text[:240], why=g.progress()[:400])
+            if ledger.get(g.id) is None:
+                ledger.add(g.id, g.text)
+            ledger.set_state(g.id, ledger_state.get(g.state, "in progress"), summary=g.progress() or None)
 
-        def on_done(e):
-            ledger.set_state(e.id, "done", summary=e.summary or e.result[:300])
-            runner.say_later(f'Task {e.id} "{e.task}" finished. Result: {e.summary or e.result[:600]}')
+        runner = ErrandRunner(agent_url, poll_s=args.errand_poll, sender=m.name)
+        orch = Orchestrator(runner, planner=make_claude_planner(model=args.planner_model, can=m.errands_can),
+                            announce=runner.say_later, mode=args.errand_mode, on_change=on_goal_change)
+        runner.on_done, runner.on_fail = orch.on_errand_done, orch.on_errand_failed
+        runner.on_needs_input = orch.on_errand_needs_input
 
-        def on_fail(e):
-            ledger.set_state(e.id, "failed", summary=e.summary or "failed")
-            runner.say_later(f'Task {e.id} "{e.task}" failed: {e.summary or "no reason given"}')
-
-        runner = ErrandRunner(agent_url, poll_s=args.errand_poll, on_started=on_started,
-                              on_done=on_done, on_fail=on_fail, sender=m.name)
-
-        def task_handler(a):                       # enqueue only; the poller thread does the HTTP
+        def task_handler(a):                       # returns at once; planning and HTTP run elsewhere
             task = f"{a.name} {a.args}".strip()
             if not task:
                 return None
-            e = runner.submit(task, context=f"the person had just said: {last_you['text']}" if last_you["text"] else "")
-            ledger.add(e.id, e.task)
-            print(f"[task] {e.id} queued: {e.task}")
+            g = orch.start_goal(task, context=f"the person had just said: {last_you['text']}" if last_you["text"] else "")
+            print(f"[task] {g.id} goal: {g.text}")
             return None
+
+        def decision_handler(approve):
+            def handle(a):
+                print(f"[task] {orch.decide(a.name.strip(), approve)}")
+                return None
+            return handle
         actions.register("task", task_handler)
+        actions.register("approve", decision_handler(True))
+        actions.register("deny", decision_handler(False))
     if getattr(app, "pipeline", None) is not None:
         app.pipeline.on_action = actions.dispatch
 
@@ -1064,6 +1246,7 @@ def main(argv=None) -> int:
     if not text_only:
         try:
             from .stt_backends import make_stt
+            stage("connecting speech recognition")
             stt = make_stt(args.stt, **stt_kwargs(args))
         except Exception as e:
             print(f"[error] STT backend '{args.stt}' unavailable: {e}")
@@ -1071,10 +1254,12 @@ def main(argv=None) -> int:
 
     watcher = None
     if args.camera is not None and not args.no_vision:
+        stage("starting the camera")
+    if args.camera is not None and not args.no_vision:
         try:
-            from .vision import CameraSource, SceneWatcher, describe_with_claude, resolve_camera
-            cam_index = resolve_camera(args.camera)
-            source = CameraSource(cam_index)
+            from .vision import SceneWatcher, make_describer, open_camera
+            source = open_camera(args.camera, tuning=local_settings.load().get("camera"))
+            cam_index = source.label
             def on_note(n):
                 if args.debug:
                     print(f"[scene] {'EMERGENCY ' if n.emergency else ''}people={n.people}: "
@@ -1083,24 +1268,88 @@ def main(argv=None) -> int:
                 if ctx:
                     chat.add_context(ctx)                    # only fires on a real change
 
-            watcher = SceneWatcher(source, lambda frames, prev: describe_with_claude(frames, prev, model=args.vision_model),
+            describe = make_describer(args.vision_backend, claude_model=args.vision_model,
+                                      ollama_url=args.vision_url or os.environ.get("VISION_OLLAMA_URL", "http://localhost:11434"),
+                                      ollama_model=args.vision_local_model or os.environ.get("VISION_OLLAMA_MODEL", "qwen3.8:27b"))
+            watcher = SceneWatcher(source, describe, dormant_interval=args.vision_dormant_interval,
+                                   on_demand=args.vision_mode == "on_demand",
                                    interval=args.vision_interval, burst=args.vision_frames,
                                    change_threshold=args.vision_change, on_note=on_note)
             watcher.start()
-            print(f"[vision] on: camera {cam_index}, {args.vision_frames} frames every {args.vision_interval:.0f}s, "
-                  f"{args.vision_model}, described only when the scene changes; frames are not stored "
-                  f"(emergencies go to emergencies/)")
+            when = ("on demand (startup, waking up, {{look}}, visual questions)" if args.vision_mode == "on_demand"
+                    else f"every {args.vision_interval:.0f}s, every {args.vision_dormant_interval:.0f}s while dormant")
+            local = args.vision_local_model or os.environ.get("VISION_OLLAMA_MODEL", "qwen3.8:27b")
+            print(f"[vision] on: camera {cam_index}, {args.vision_frames} frames {when}; {args.vision_backend} "
+                  f"({local} / {args.vision_model}); frames are not stored (emergencies go to emergencies/)")
         except Exception as e:
             print(f"[error] vision unavailable: {e}")
             return 1
 
     sleep_words = ([w for w in args.sleep_word.split(",")] if args.sleep_word
                    else (m.sleep_words if m.sleep_words else None))
-    loop = VoiceLoop(stt, chat.reply, app, barge_in=args.barge_in, wake_words=wake_words,
+    loop = VoiceLoop(stt, always_speaks(handoff_brief(chat.reply)), app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
     loop.vision = watcher
+    if watcher is not None:
+        watcher.is_dormant = lambda: bool(loop.wake_words) and not loop.engaged
+        if watcher.on_demand:
+            watcher.request(force=True)                 # one look at startup: the scene she starts from
+            plain_engage = loop.engage
+
+            def engage_and_look(reason=""):
+                was = loop.engaged
+                plain_engage(reason)
+                if not was:
+                    watcher.request(force=True)         # coming out of dormant: who is here now?
+            loop.engage = engage_and_look
+
+            def look_handler(a):
+                def work():
+                    seen = watcher.look_now(timeout=8.0)
+                    if seen:
+                        loop.announce(f"You looked: {seen}. Say what matters about it, briefly.")
+                threading.Thread(target=work, daemon=True, name="look").start()
+                return None
+            actions.register("look", look_handler)
+
+    def on_brain(ok, kind, detail):
+        from . import incidents
+        incidents.record("brain_ok" if ok else "brain_failed", kind=kind, detail=detail[:300])
+    loop.on_brain = on_brain
     loop.add_context = chat.add_context      # a visual question hands her the current scene
+    # Resilience: say when the cloud is gone (from a cached local recording: the voice is cloud
+    # too), try to heal the link, and keep a record of what went wrong (logs/incidents.jsonl).
+    from . import cues, incidents
+    from .netwatch import NetWatch
+    if not text_only:
+        cues.prepare({"offline": "I've lost my internet connection. I'll keep trying, and tell you when I'm back.",
+                      "online": "I'm back online."})
+
+    def net_offline():
+        incidents.record("net_offline")
+        if not text_only:
+            cues.play("offline")
+
+    def net_online(seconds):
+        incidents.record("net_online", down_s=round(seconds))
+        if not text_only:
+            cues.play("online")
+    net = NetWatch(on_offline=net_offline, on_online=net_online)
+    net.start()
+    loop.net = net
+    prev_turn_event = loop.on_event
+
+    def note_slow_turns(kind, text):
+        if kind == "turn":
+            try:
+                ms = int(text.rsplit("first audio", 1)[1].split()[0])
+                if ms > incidents.SLOW_TURN_MS:
+                    incidents.record("slow_turn", first_audio_ms=ms, line=text)
+            except (IndexError, ValueError):
+                pass
+        prev_turn_event(kind, text)
+    loop.on_event = note_slow_turns
     loop.dictation_pause_s = args.dictation_pause
     loop.dictation_words = list(m.dictation_words)
     loop.dictation_end_words = list(m.dictation_end_words)
@@ -1117,11 +1366,11 @@ def main(argv=None) -> int:
         loop.on_event = remember_you
     if runner is not None:
         runner.deliver = loop.announce       # a finished task is told when the room is quiet
-        for it in ledger.open_items():       # still open from last time: keep polling them
-            runner.resume(it["id"], it["task"])
+        for it in ledger.open_items():       # goals live in memory: say plainly that a restart cut them off
+            ledger.set_state(it["id"], "failed", summary="interrupted: the character restarted before it finished")
         runner.start()
         loop.errands = runner
-        print(f"[errands] on: {agent_url}, polled every {args.errand_poll:.0f}s; "
+        print(f"[errands] on: {agent_url or '(no address yet)'}, polled every {args.errand_poll:.0f}s; "
               f"{len(ledger.open_items())} open in tasks.md")
     if memory_on:
         def session_end(reason):
@@ -1176,7 +1425,9 @@ def main(argv=None) -> int:
     panel = None
     if not args.no_web:
         panel = _start_panel(args, p, loop, app, audio, stt, chat, backend, watcher, m, face_dir, idle,
-                             runner=runner, notebook=notebook if memory_on else None)
+                             runner=runner, notebook=notebook if memory_on else None, agent_source=agent_source,
+                             orch=orch, panel=early_panel)
+    print(f"[start] ready in {time.time() - starting['since']:.0f} s")
 
     if stt is not None:
         try:
@@ -1209,10 +1460,12 @@ def main(argv=None) -> int:
 
 
 def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir, idle=None,
-                 runner=None, notebook=None):
-    """The control page: registers what it may read and change, then serves it."""
+                 runner=None, notebook=None, agent_source="none", orch=None, panel=None):
+    """The control page: registers what it may read and change, then serves it. `panel` is the
+    one started early to show the startup stage; it is reused, not started twice."""
     from .web_panel import WebPanel
-    panel = WebPanel(port=args.web_port, host=args.web_host)
+    early = panel is not None
+    panel = panel or WebPanel(port=args.web_port, host=args.web_host)
     panel.parser, panel.args, panel.manifest = parser, args, manifest
     pipeline = getattr(app, "pipeline", None)
     last = {"heard": "", "said": "", "turn": ""}
@@ -1244,6 +1497,10 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
                             "skipped": watcher.stats.get("skipped_unchanged", 0),
                             "latest": (n.changes or n.notes) if n else ""}
         st["dictation"] = loop.dictating
+        st["brain"] = getattr(loop, "brain", None) or {"ok": True}
+        if getattr(loop, "net", None) is not None:
+            st["online"] = loop.net.online
+            st["outages"] = loop.net.outages
         if runner is not None:
             st["errands"] = {"backend": runner.url, "reachable": runner.reachable,
                              "open": len(runner.pending()), "done": runner.stats["done"],
@@ -1285,6 +1542,9 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("waiting", lambda: loop.waiting, lambda v: app.on_wait_toggle and (loop.set_waiting(v, "panel"), setattr(app, "waiting", loop.waiting)),
                   "Waiting mode (the spacebar in the window does the same): stops talking, ignores the mic, wake words and typed text until switched off. For calls and meetings.",
                   kind="bool")
+    panel.tunable("announce_wakes", lambda: loop.announce_wakes, lambda v: setattr(loop, "announce_wakes", v),
+                  "Wake mode: a finished errand wakes the character to announce it, then it goes dormant "
+                  "again after idle_timeout. Off: the news waits until someone says a wake word.", kind="bool")
     panel.tunable("engaged", lambda: loop.engaged,
                   lambda v: loop.engage("panel") if v else loop.disengage("panel"),
                   "Wake mode: on = answering; off = dormant until a wake word.", kind="bool")
@@ -1300,6 +1560,10 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
         panel.tunable("errand_poll_s", lambda: runner.poll_s, lambda v: setattr(runner, "poll_s", float(v)),
                       "Seconds between polls of the backend agent for finished tasks.",
                       kind="float", unit="s", lo=1, hi=120, flag="--errand-poll")
+        from . import local_settings
+        from .errands import AgentControl
+        panel.agent = AgentControl(runner, can=manifest.errands_can, source=agent_source, orch=orch,
+                                   save=lambda url: local_settings.save("agent_url", url or None))
     if idle is not None:
         def set_gap(lo=None, hi=None):
             a, b = idle.interval
@@ -1334,6 +1598,34 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
                 frames = src.burst(1)
                 return frames[0] if frames else None
             panel.snapshot = snapshot
+        if src is not None and hasattr(src, "tune"):
+            from . import local_settings
+
+            def camera_setter(name):
+                def apply(v):
+                    try:
+                        src.tune(name, v)
+                    except ValueError as e:
+                        print(f"[vision] {e}")
+                        return
+                    local_settings.save("camera", dict(src.settings))   # kept for the next start
+                return apply
+            cam_help = {
+                "ev": "Exposure compensation in stops: + brightens (a room backlit by a window wants +0.5 to +1.5), "
+                      "- darkens. Check with Test setup, Take a snapshot.",
+                "metering": "What exposure is judged on: CentreWeighted (default), Spot (the middle only, best "
+                            "against a bright window) or Matrix (the whole frame).",
+                "brightness": "Brightness offset applied after exposure, -1 to 1 (0 = none).",
+                "contrast": "Contrast, 0 to 4 (1 = normal). Raise a little in flat light.",
+                "saturation": "Colour saturation, 0 to 4 (1 = normal).",
+                "awb": "White balance: Auto, Daylight, Cloudy, Indoor, Incandescent, Tungsten, Fluorescent.",
+            }
+            for name in ("ev", "metering", "brightness", "contrast", "saturation", "awb"):
+                numeric = src.NUMERIC.get(name)
+                panel.tunable(f"camera_{name}", (lambda n=name: src.settings[n]), camera_setter(name),
+                              cam_help[name], kind="float" if numeric else "str",
+                              lo=numeric[1] if numeric else None, hi=numeric[2] if numeric else None,
+                              options=None if numeric else list(src.MODES[name][2]))
 
     if pipeline is not None:
         panel.action("speak", lambda t: (pipeline.speak(t or "Testing one two three. Can you hear me from the door?"), "speaking")[1],
@@ -1355,7 +1647,8 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
         panel.calibrator = lambda ask: run_calibration(audio, pipeline.speak, lambda: pipeline.is_busy,
                                                        args.mic_device, args.output_device, ask=ask)
         panel.pause = lambda on: setattr(loop, "paused", on)
-    panel.start()
+    if not early:
+        panel.start()
     return panel
 
 

@@ -50,6 +50,52 @@ def test_panel_serves_state_tunables_and_actions():
         panel.stop()
 
 
+def test_agent_tab_sets_tests_and_lists_tasks():
+    from talker.errands import AgentControl, ErrandRunner
+    saved = []
+    health = lambda url, *a, **k: {"ok": True, "running": 0} if url.endswith("/health") else {"id": "x"}
+    runner = ErrandRunner("", fetch=health)
+    panel = WebPanel(port=0, host="127.0.0.1")
+    base = None
+    try:
+        panel.start()
+        base = f"http://127.0.0.1:{panel.port}"
+        assert "error" in json.loads(_get(base + "/api/agent")[2])          # a face without errands
+        assert json.loads(_get(base + "/api/state")[2])["agent"] is False
+        panel.agent = AgentControl(runner, can="research", source="none", save=saved.append)
+        info = json.loads(_get(base + "/api/agent")[2])
+        assert info["url"] == "" and info["can"] == "research" and info["tasks"] == []
+        assert _post(base + "/api/agent/test", {"url": "http://agentbox:8030"})["ok"] is True
+        assert "error" in _post(base + "/api/agent/set", {"url": "agentbox:8030"})
+        r = _post(base + "/api/agent/set", {"url": "http://agentbox:8030"})
+        assert r["url"] == "http://agentbox:8030" and runner.url == r["url"] and saved == [r["url"]]
+        runner.submit("find a projector")
+        info = json.loads(_get(base + "/api/agent")[2])
+        assert info["open"] == 1 and info["tasks"][0]["task"] == "find a projector"
+        assert any(e["kind"] == "agent" for e in json.loads(_get(base + "/api/state")[2])["events"])
+        assert b'data-t="agent"' in _get(base + "/")[2]                     # the tab is on the page
+    finally:
+        panel.stop()
+
+
+def test_a_tunable_with_options_is_a_dropdown_and_refuses_other_values():
+    box = {"awb": "Auto"}
+    panel = WebPanel(port=0, host="127.0.0.1")
+    panel.tunable("camera_awb", lambda: box["awb"], lambda v: box.__setitem__("awb", v), "white balance",
+                  kind="str", options=["Auto", "Daylight", "Cloudy"])
+    panel.start()
+    base = f"http://127.0.0.1:{panel.port}"
+    try:
+        st = json.loads(_get(base + "/api/state")[2])
+        assert st["tunables"][0]["options"] == ["Auto", "Daylight", "Cloudy"]
+        assert _post(base + "/api/set", {"name": "camera_awb", "value": "daylight"})["value"] == "Daylight"
+        assert "must be one of" in _post(base + "/api/set", {"name": "camera_awb", "value": "purple"})["error"]
+        assert box["awb"] == "Daylight"
+        assert b"<select" in _get(base + "/")[2]
+    finally:
+        panel.stop()
+
+
 def test_describe_parser_handles_percent_and_bools():
     p = argparse.ArgumentParser()
     p.add_argument("--vision-change", type=float, default=0.035, help="3.5%% change (default %(default)s)")

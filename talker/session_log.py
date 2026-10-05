@@ -20,13 +20,22 @@ LOG_DIR = os.path.join(HERE, "logs")
 
 
 class _Tee:
+    """The terminal gets the output as printed; the file gets each line stamped with the time."""
+
     def __init__(self, stream, fh):
         self.stream, self.fh = stream, fh
+        self._bol = True                     # the next byte written to the file starts a line
 
     def write(self, data):
         self.stream.write(data)
         try:
-            self.fh.write(data)
+            out = []
+            for piece in data.splitlines(keepends=True):
+                if self._bol and piece.strip():
+                    out.append(time.strftime("%H:%M:%S "))
+                out.append(piece)
+                self._bol = piece.endswith("\n")
+            self.fh.write("".join(out))
             self.fh.flush()
         except Exception:
             pass

@@ -21,9 +21,11 @@ What it shows and does:
   * the full flag reference (every --option with its help and current value)
     and the face.json fields with what they do
   * Wi-Fi (Raspberry Pi kiosks): see networks and join one through NetworkManager
+  * Agent (assistant faces with errands): the backend agent's address, a reachability
+    test, saving it to settings.json, and the task list with each summary
 
 Register what the page may touch from voice_loop.py: panel.tunable(...),
-panel.action(...), panel.status_fn, panel.calibrator, panel.snapshot.
+panel.action(...), panel.status_fn, panel.calibrator, panel.snapshot, panel.agent.
 """
 
 from __future__ import annotations
@@ -55,6 +57,7 @@ class Tunable:
     lo: Optional[float] = None
     hi: Optional[float] = None
     flag: str = ""                # the command-line flag that sets the same thing at startup
+    options: Optional[List[str]] = None   # a fixed set of values: shown as a dropdown
 
     def coerce(self, raw: Any) -> Any:
         if self.kind == "bool":
@@ -64,6 +67,11 @@ class Tunable:
         elif self.kind == "float":
             v = float(raw)
         else:
+            if self.options:
+                match = [o for o in self.options if o.lower() == str(raw).strip().lower()]
+                if not match:
+                    raise ValueError(f"{self.name} must be one of {', '.join(self.options)}")
+                return match[0]
             return str(raw)
         if self.lo is not None:
             v = max(self.lo, v)
@@ -222,6 +230,7 @@ class WebPanel:
         self.snapshot: Optional[Callable[[], Optional[bytes]]] = None
         self.calibrator: Optional[Callable[[Callable[[str], None]], Dict]] = None
         self.pause: Callable[[bool], None] = lambda on: None
+        self.agent = None                 # errands.AgentControl when the face hands work to an agent
         self.wifi = WifiControl()
         self.calib: Dict[str, Any] = {"state": "idle", "prompt": "", "result": None, "error": ""}
         self._calib_go = threading.Event()
@@ -231,8 +240,9 @@ class WebPanel:
 
     # registration -------------------------------------------------------------
     def tunable(self, name: str, get, set, help: str, kind: str = "float", unit: str = "",
-                lo: Optional[float] = None, hi: Optional[float] = None, flag: str = "") -> None:
-        self.tunables[name] = Tunable(name, get, set, help, kind, unit, lo, hi, flag)
+                lo: Optional[float] = None, hi: Optional[float] = None, flag: str = "",
+                options: Optional[List[str]] = None) -> None:
+        self.tunables[name] = Tunable(name, get, set, help, kind, unit, lo, hi, flag, list(options) if options else None)
 
     def action(self, name: str, fn: Callable[[str], str], help: str, takes_text: bool = False) -> None:
         self.actions[name] = Action(name, fn, help, takes_text)
@@ -242,6 +252,8 @@ class WebPanel:
 
     # lifecycle ----------------------------------------------------------------
     def start(self) -> Optional[str]:
+        if self._server is not None:
+            return None                        # already serving (started early to show the startup stage)
         panel = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -279,6 +291,9 @@ class WebPanel:
                         if st.get("available") and parse_qs(u.query).get("scan"):
                             st["networks"] = panel.wifi.scan()
                         self._json(st)
+                    elif u.path == "/api/agent":
+                        self._json(panel.agent.info() if panel.agent else
+                                   {"error": "this face does not hand work to an agent (no \"errands\" in its face.json)"})
                     else:
                         self._json({"error": "not found"}, 404)
                 except Exception as e:
@@ -301,6 +316,23 @@ class WebPanel:
                     elif u.path == "/api/wifi/connect":
                         panel.record("wifi", f"joining {body.get('ssid', '')!r}")
                         self._json({"message": panel.wifi.connect(str(body.get("ssid", "")), str(body.get("password", "")))})
+                    elif u.path.startswith("/api/agent/") and panel.agent is None:
+                        self._json({"error": "this face does not hand work to an agent"})
+                    elif u.path == "/api/agent/test":
+                        self._json(panel.agent.test(str(body.get("url", ""))))
+                    elif u.path == "/api/agent/decide":
+                        r = panel.agent.decide(str(body.get("goal", "")), bool(body.get("approve")))
+                        panel.record("agent", r.get("message") or r.get("error", ""))
+                        self._json(r)
+                    elif u.path == "/api/agent/mode":
+                        r = panel.agent.set_mode(str(body.get("mode", "")))
+                        panel.record("agent", r.get("message") or r.get("error", ""))
+                        self._json(r)
+                    elif u.path == "/api/agent/set":
+                        r = panel.agent.set_url(str(body.get("url", "")), save=bool(body.get("save", True)))
+                        if "error" not in r:
+                            panel.record("agent", f"address {r['url'] or '(none)'}: {r['message']}")
+                        self._json(r)
                     else:
                         self._json({"error": "not found"}, 404)
                 except Exception as e:
@@ -344,7 +376,7 @@ class WebPanel:
             except Exception as e:
                 v = f"? {e}"
             tun.append({"name": t.name, "value": v, "kind": t.kind, "unit": t.unit, "help": t.help,
-                        "lo": t.lo, "hi": t.hi, "flag": t.flag})
+                        "lo": t.lo, "hi": t.hi, "flag": t.flag, "options": t.options})
         try:
             status = self.status_fn() or {}
         except Exception as e:
@@ -353,6 +385,7 @@ class WebPanel:
                 "actions": [{"name": a.name, "help": a.help, "takes_text": a.takes_text} for a in self.actions.values()],
                 "events": list(self.events)[-40:], "calibration": dict(self.calib),
                 "has_camera": self.snapshot is not None, "wifi": self.wifi.available,
+                "agent": self.agent is not None,
                 "uptime_s": round(time.time() - self.started_at)}
 
     def reference(self) -> Dict[str, Any]:
@@ -371,7 +404,10 @@ class WebPanel:
         t = self.tunables.get(name)
         if t is None:
             return {"error": f"unknown tunable {name!r}"}
-        v = t.coerce(raw)
+        try:
+            v = t.coerce(raw)
+        except ValueError as e:
+            return {"error": str(e)}
         t.set(v)
         self.record("panel", f"{name} = {v}")
         return {"name": name, "value": t.get()}
@@ -442,7 +478,7 @@ main{padding:1.2rem 1.4rem;max-width:1100px;margin:0 auto}section{display:none}s
 .meter i{display:block;height:100%;background:var(--accent);width:0;transition:width .12s}
 table{border-collapse:collapse;width:100%;font-size:.9rem}th,td{text-align:left;padding:.45rem .6rem;border-bottom:1px solid var(--line);vertical-align:top}
 th{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}.wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px}
-input[type=number],input[type=text],input[type=password]{font:inherit;padding:.3rem .5rem;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);width:9rem}
+select,input[type=number],input[type=text],input[type=password]{font:inherit;padding:.3rem .5rem;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);width:9rem}
 button.act{font:inherit;padding:.4rem .8rem;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);cursor:pointer}
 button.act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .help{color:var(--mute);font-size:.84rem}.q{display:inline-block;width:1.1em;height:1.1em;border-radius:50%;border:1px solid var(--mute);color:var(--mute);font-size:.7em;text-align:center;line-height:1.1em;margin-left:.3em;cursor:help}
@@ -452,7 +488,7 @@ h2{font-size:1.05rem;margin:1.2rem 0 .6rem}#toast{position:fixed;bottom:1rem;rig
 img.snap{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 </style></head><body>
 <header><h1>Talker control</h1><span class="sub" id="who">connecting…</span><span class="sub" id="up"></span></header>
-<nav><button class="on" data-t="status">Status</button><button data-t="tune">Tune</button><button data-t="test">Test setup</button><button data-t="ref">Reference</button><button data-t="wifi">Wi-Fi</button></nav>
+<nav><button class="on" data-t="status">Status</button><button data-t="tune">Tune</button><button data-t="test">Test setup</button><button data-t="ref">Reference</button><button data-t="wifi">Wi-Fi</button><button data-t="agent">Agent</button></nav>
 <main>
 <section id="status" class="on">
   <div class="grid" id="cards"></div>
@@ -491,25 +527,47 @@ img.snap{max-width:100%;border-radius:8px;border:1px solid var(--line)}
   <div class="wrap"><table id="nets"><tr><th>network</th><th>signal</th><th>security</th><th></th></tr></table></div>
   <div class="row"><input type="text" id="ssid" placeholder="network name"><input type="password" id="pw" placeholder="password"><button class="act primary" onclick="join()">Join</button><span id="wifimsg" class="help"></span></div>
 </section>
+<section id="agent">
+  <p class="help">Where this character's <code>{{task ...}}</code> errands go: <code>tools/agent_relay.py</code> on the machine with your agent harness (see <code>tools/AGENT_RELAY.md</code>). Changes apply at once; tasks asked for while no address is set wait and are sent when one is. Saved to <code>settings.json</code> for the next start.</p>
+  <div id="agentoff" class="help" style="display:none"></div>
+  <div id="agenton">
+    <div class="grid">
+      <div class="card"><h3>Backend</h3><div class="big" id="agstate">–</div><div class="help" id="agsrc"></div></div>
+      <div class="card"><h3>Tasks</h3><div class="big" id="agcount">–</div><div class="help">open · done · failed</div></div>
+    </div>
+    <div class="row"><b>Mode</b><select id="agmode" onchange="agMode()"><option value="auto">auto: she plans, chases and approves what was asked; asks you only for real decisions</option><option value="ask">ask: every action the agent wants to take comes to you</option></select></div>
+    <h2>Goals <span class="help">(each request she handed off, its plan and each step's state)</span></h2>
+    <div id="aggoals" class="help">none yet</div>
+    <h2>Connection</h2>
+    <div class="row"><input type="text" id="agurl" style="width:24rem" placeholder="http://agentbox:8030"><button class="act" onclick="agTest()">Test</button><button class="act primary" onclick="agSet()">Save</button><button class="act" onclick="$('#agurl').value='';agSet()">Clear</button><span id="agmsg" class="help"></span></div>
+    <h2>What the agent can do <span class="help">(the "errands" list in face.json; she offers these)</span></h2>
+    <div class="log" id="agcan"></div>
+    <h2>Agent tasks <span class="help">(every single task sent to the agent, newest first)</span></h2>
+    <div class="wrap"><table id="agtasks"><tr><th>id</th><th>task</th><th>state</th><th>summary</th></tr></table></div>
+  </div>
+</section>
 </main>
 <div id="toast"></div>
 <script>
 const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));if(b.dataset.t==='ref')loadRef();if(b.dataset.t==='wifi')wifi(false);});
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));if(b.dataset.t==='ref')loadRef();if(b.dataset.t==='wifi')wifi(false);if(b.dataset.t==='agent')agent(true);});
 function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._h);t._h=setTimeout(()=>t.style.opacity=0,2200)}
 async function post(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return r.json()}
 let built=false;
-function buildTunables(list){const t=$('#tunables');list.forEach(x=>{const tr=document.createElement('tr');const ctl=x.kind==='bool'?`<input type="checkbox" data-n="${x.name}" ${x.value?'checked':''}>`:`<input type="${x.kind==='str'?'text':'number'}" data-n="${x.name}" value="${esc(x.value)}" ${x.lo!=null?`min="${x.lo}"`:''} ${x.hi!=null?`max="${x.hi}"`:''} step="${x.kind==='int'?1:'any'}"> <span class="mute">${esc(x.unit)}</span>`;tr.innerHTML=`<td><b>${esc(x.name)}</b>${x.flag?`<div class="help"><code>${esc(x.flag)}</code></div>`:''}</td><td>${ctl}</td><td class="help">${esc(x.help)}</td>`;t.appendChild(tr);});
- t.querySelectorAll('input').forEach(i=>i.onchange=async()=>{const v=i.type==='checkbox'?i.checked:i.value;const r=await post('/api/set',{name:i.dataset.n,value:v});toast(r.error||`${i.dataset.n} = ${r.value}`)});built=true}
+function buildTunables(list){const t=$('#tunables');list.forEach(x=>{const tr=document.createElement('tr');const ctl=x.options?`<select data-n="${x.name}">${x.options.map(o=>`<option ${o===x.value?'selected':''}>${esc(o)}</option>`).join('')}</select>`:x.kind==='bool'?`<input type="checkbox" data-n="${x.name}" ${x.value?'checked':''}>`:`<input type="${x.kind==='str'?'text':'number'}" data-n="${x.name}" value="${esc(x.value)}" ${x.lo!=null?`min="${x.lo}"`:''} ${x.hi!=null?`max="${x.hi}"`:''} step="${x.kind==='int'?1:'any'}"> <span class="mute">${esc(x.unit)}</span>`;tr.innerHTML=`<td><b>${esc(x.name)}</b>${x.flag?`<div class="help"><code>${esc(x.flag)}</code></div>`:''}</td><td>${ctl}</td><td class="help">${esc(x.help)}</td>`;t.appendChild(tr);});
+ t.querySelectorAll('input,select').forEach(i=>i.onchange=async()=>{const v=i.type==='checkbox'?i.checked:i.value;const r=await post('/api/set',{name:i.dataset.n,value:v});toast(r.error||`${i.dataset.n} = ${r.value}`)});built=true}
 function buildActions(list){const d=$('#actions');d.innerHTML='';list.forEach(a=>{const row=document.createElement('div');row.className='row';row.innerHTML=`<button class="act">${esc(a.name)}</button>${a.takes_text?`<input type="text" style="width:22rem" placeholder="text">`:''}<span class="help">${esc(a.help)}</span>`;row.querySelector('button').onclick=async()=>{const inp=row.querySelector('input');const r=await post('/api/action',{name:a.name,text:inp?inp.value:''});toast(r.error||r.message)};d.appendChild(row)})}
 function card(h,v,cls,help){return `<div class="card"><h3>${esc(h)}</h3><div class="big ${cls||''}">${esc(v)}</div>${help?`<div class="help">${esc(help)}</div>`:''}</div>`}
 async function tick(){try{const s=await (await fetch('/api/state')).json();const st=s.status||{};$('#who').textContent=`${st.face||'?'} · ears ${st.stt||'-'} · brain ${st.llm||'-'} · voice ${st.tts||'-'}`;$('#up').textContent=`up ${Math.floor(s.uptime_s/60)} min`;
- const mode=st.waiting?'waiting':(st.engaged===false?'dormant':(st.thinking?'thinking':(st.speaking?'speaking':'listening')));
- $('#cards').innerHTML=card('State',mode,mode==='speaking'?'ok':(mode==='dormant'?'warn':''),st.mode_help||'')+card('Mic level',Math.round(st.mic_rms||0),'', 'live, from the microphone')+card('Time to first audio',st.first_audio_ms!=null?st.first_audio_ms+' ms':'–','','last reply, from the moment the text was ready')+card('Heard',st.last_heard||'–','','')+card('Said',st.last_said||'–','','')+(st.vision?card('Vision',`${st.vision.described} looks, ${st.vision.skipped} skipped`,'',st.vision.latest||''):'');
+ const mode=st.starting?'starting':(st.waiting?'waiting':(st.engaged===false?'dormant':(st.thinking?'thinking':(st.speaking?'speaking':'listening'))));
+ if(st.starting){$('#cards').innerHTML=card('State','starting','warn',`${st.starting} (${st.starting_s||0} s so far; about a minute in all on a Pi Zero)`);$('#turn').textContent='still starting';return}
+ $('#cards').innerHTML=card('State',mode,mode==='speaking'?'ok':(mode==='dormant'?'warn':''),st.mode_help||'')+card('Mic level',Math.round(st.mic_rms||0),'', 'live, from the microphone')+card('Time to first audio',st.first_audio_ms!=null?st.first_audio_ms+' ms':'–','','last reply, from the moment the text was ready')+card('Heard',st.last_heard||'–','','')+card('Said',st.last_said||'–','','')+(st.vision?card('Vision',`${st.vision.described} looks, ${st.vision.skipped} skipped`,'',st.vision.latest||''):'')
+ +(st.brain?card('Brain',st.brain.ok?'answering':('failing: '+(st.brain.kind||'error').replace(/_/g,' ')),st.brain.ok?'ok':'bad',st.brain.ok?'':'since '+(st.brain.since||'')):'')
+ +(st.online!==undefined?card('Internet',st.online?'online':'offline',st.online?'ok':'bad',`${st.outages||0} outages this run`):'');
  $('#turn').textContent=st.last_turn||'no turn yet';
  $('#events').innerHTML=(s.events||[]).slice().reverse().map(e=>`<div><span class="mute">${new Date(e.t*1000).toLocaleTimeString()}</span> [${esc(e.kind)}] ${esc(e.text)}</div>`).join('');
  $('#lvl').textContent=Math.round(st.mic_rms||0);$('#lvlbar').style.width=Math.min(100,Math.log10(1+(st.mic_rms||0))/4.5*100)+'%';$('#spk').textContent=st.speaking?'speaking':'quiet';
- if(!built){buildTunables(s.tunables);buildActions(s.actions);$('#camhelp').textContent=s.has_camera?'':'no camera in this run (start with --camera)';}
+ if(!built&&s.tunables.length){buildTunables(s.tunables);buildActions(s.actions);$('#camhelp').textContent=s.has_camera?'':'no camera in this run (start with --camera)';}
  const c=s.calibration||{};$('#cont').disabled=c.state!=='waiting';$('#calmsg').textContent=c.state==='idle'?'':`${c.state}: ${c.prompt||c.error||''}`;if(c.result){const r=c.result;$('#calres').style.display='block';$('#calres').textContent=`ambient ${r.ambient}  speaker bleed ${r.speaker}  person ${r.person}  (person is ${r.person_over_speaker}x the speaker)\n${r.verdict}\nrecommended --barge-in-boost ${r.barge_in_boost}${r.mic_gain!=='ok'?'\nmic gain: '+r.mic_gain:''}`}
 }catch(e){$('#who').textContent='not reachable: '+e}}
 async function loadRef(){const r=await (await fetch('/api/reference')).json();$('#flags').innerHTML='<tr><th>flag</th><th>in use</th><th>default</th><th>help</th></tr>'+r.flags.map(f=>`<tr><td><code>${esc(f.flags)}</code></td><td>${esc(f.value)}</td><td class="mute">${esc(f.default)}</td><td class="help">${esc(f.help)}</td></tr>`).join('');$('#face').innerHTML='<tr><th>field</th><th>value</th><th>what it does</th></tr>'+r.face.map(f=>`<tr><td><code>${esc(f.field)}</code></td><td><code>${esc(f.value)}</code></td><td class="help">${esc(f.help)}</td></tr>`).join('')}
@@ -517,6 +575,20 @@ async function snap(){const b=$('#snapbox');b.innerHTML='<span class="help">taki
 async function calib(step){const r=await post('/api/calibrate',{step});if(r.error)toast(r.error)}
 async function wifi(scan){const r=await (await fetch('/api/wifi'+(scan?'?scan=1':''))).json();if(!r.available){$('#wifistat').textContent=r.reason;return}$('#wifistat').innerHTML=(r.devices||[]).map(d=>`${esc(d.device)} (${esc(d.type)}): <b>${esc(d.state)}</b> ${esc(d.connection)}`).join(' · ')+` · this box is ${esc(r.ip)}`;if(r.networks){$('#nets').innerHTML='<tr><th>network</th><th>signal</th><th>security</th><th></th></tr>'+r.networks.map(n=>`<tr><td>${n.active?'<b>':''}${esc(n.ssid)}${n.active?'</b> (connected)':''}</td><td>${n.signal}%</td><td>${esc(n.security)}</td><td><button class="act" onclick="$('#ssid').value=${JSON.stringify(n.ssid)}">use</button></td></tr>`).join('')}}
 async function join(){$('#wifimsg').textContent='joining…';const r=await post('/api/wifi/connect',{ssid:$('#ssid').value,password:$('#pw').value});$('#wifimsg').textContent=r.error||r.message;wifi(false)}
+const SRC={flag:'from --agent-url',settings:'from settings.json',env:'from AGENT_RELAY_URL in .env',none:'not set at startup'};
+async function agent(fill){const r=await (await fetch('/api/agent')).json();if(r.error){$('#agenton').style.display='none';$('#agentoff').style.display='block';$('#agentoff').textContent=r.error;return}
+ $('#agenton').style.display='block';$('#agentoff').style.display='none';if(fill)$('#agurl').value=r.url||'';
+ $('#agstate').textContent=!r.url?'no address':(r.reachable===true?'reachable':(r.reachable===false?'unreachable':'not tried yet'));$('#agstate').className='big '+(!r.url?'warn':(r.reachable===true?'ok':(r.reachable===false?'bad':'')));
+ $('#agsrc').textContent=(r.url||'')+(r.url?' · ':'')+(SRC[r.source]||'')+` · polled every ${r.poll_s}s`;$('#agcount').textContent=`${r.open} · ${r.stats.done} · ${r.stats.failed}`;$('#agcan').textContent=r.can||'(not listed; add what the agent can do under "errands" in face.json)';
+ if(r.mode&&document.activeElement!==$('#agmode'))$('#agmode').value=r.mode;$('#aggoals').innerHTML=(r.goals||[]).length?r.goals.map(goalHtml).join(''):'none yet';
+ $('#agtasks').innerHTML='<tr><th>id</th><th>task</th><th>state</th><th>summary</th></tr>'+(r.tasks||[]).map(t=>`<tr><td><code>${esc(t.id)}</code></td><td>${esc(t.task)}</td><td class="${t.state==='done'?'ok':(t.state==='failed'?'bad':'')}">${esc(t.state)}</td><td class="help" title="${esc(t.result)}">${esc(t.summary)}</td></tr>`).join('')}
+function goalHtml(g){const cls=g.state==='done'?'ok':(g.state==='failed'?'bad':(g.state==='needs_input'?'warn':''));const ask=g.state==='needs_input'?`<div class="row"><b class="warn">Needs your decision:</b> <button class="act primary" onclick="agDecide('${g.id}',true)">Approve</button><button class="act" onclick="agDecide('${g.id}',false)">Deny</button></div>`:'';
+ return `<div class="card" style="margin:.5rem 0"><h3>${esc(g.id)} · <span class="${cls}">${esc(g.state)}</span></h3><div><b>${esc(g.text)}</b></div>${ask}<table>${(g.steps||[]).map(s=>`<tr><td>${s.n}${s.after.length?' <span class="mute">after '+s.after.join(',')+'</span>':''}</td><td>${esc(s.do)}${s.kind==='action'?` <span class="mute">[action${s.approved?', approved':''}]</span>`:''}${s.question&&s.state==='needs_input'?`<div class="log">${esc(s.question)}</div>`:''}</td><td class="${s.state==='done'?'ok':(s.state==='failed'?'bad':(s.state==='needs_input'?'warn':''))}">${esc(s.state)}${s.tries>1?' ×'+s.tries:''}</td><td class="help">${esc(s.summary)}</td></tr>`).join('')}</table></div>`}
+async function agDecide(g,ok){const r=await post('/api/agent/decide',{goal:g,approve:ok});toast(r.error||r.message);agent(false)}
+async function agMode(){const r=await post('/api/agent/mode',{mode:$('#agmode').value});toast(r.error||r.message)}
+async function agTest(){$('#agmsg').textContent='testing…';const r=await post('/api/agent/test',{url:$('#agurl').value});$('#agmsg').textContent=r.error||(r.ok?`reachable in ${r.ms} ms${r.running!=null?', '+r.running+' running':''}`:`not reachable: ${r.detail}`)}
+async function agSet(){const r=await post('/api/agent/set',{url:$('#agurl').value,save:true});$('#agmsg').textContent=r.error||r.message;agent(false)}
+setInterval(()=>{if($('#agent').classList.contains('on'))agent(false)},3000);
 tick();setInterval(tick,500);
 </script></body></html>
 """

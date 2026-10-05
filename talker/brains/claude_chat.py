@@ -69,7 +69,10 @@ VISION_RULES = (
     "read out. React to it the way a person reacts to what they see: a glance, a short remark in "
     "your own words, only if it matters right now. Never recite or paraphrase the observation "
     "itself, never say 'I notice' or 'I see that', and do not repeat details you have already "
-    "mentioned. If you have no observation to go on, say you cannot make it out rather than invent."
+    "mentioned. If you have no observation to go on, say you cannot make it out rather than invent. "
+    "You look at the start, when you wake up, and when someone asks about what is in view. To look "
+    "again yourself, write {{look}} beside a short spoken line ('Let me see.'): you will get what "
+    "you see a moment later and can answer then. Look when it would help, not out of habit."
 )
 
 
@@ -83,7 +86,9 @@ def assistant_rules(memory: bool = False, errands: bool = False, can: str = "") 
         "from the person you are talking to: an observation, a tool's answer, or news that something "
         "finished. Never read it out or say 'I notice'; act on it in your own words. Every reply "
         "must contain words to say out loud: a {{...}} block on its own is silence to the listener, "
-        "so put a short spoken sentence beside it ('Let me check.' / 'On it.')."
+        "so put a short spoken sentence beside it ('Let me check.' / 'On it.'). The one exception is a "
+        "reply that starts with {{task ...}}, {{approve ...}} or {{deny ...}}: the system speaks the "
+        "acknowledgement for those."
     ]
     if memory:
         lines.append(
@@ -99,11 +104,27 @@ def assistant_rules(memory: bool = False, errands: bool = False, can: str = "") 
             "You can hand work to a separate agent on another machine that researches, reads, writes and "
             "runs code for minutes at a time: {{task <what to do, one clear sentence with everything it "
             "needs>}}. Use it only for work that genuinely takes longer than a reply, never for something "
-            "you can answer now. The block is silent, so the same reply must also say, in words, that you "
-            "have handed it off, like 'On it. I'll tell you when it's back.' When it finishes you get an "
-            "Event with a short summary: tell the person the conclusion in your own words. The ledger in "
-            "your brief shows each task's state; {{tool tasks}} reads it live when someone asks what is "
-            "open, and like every block it is never spoken and never offered as something to do."
+            "you can answer now. Start the reply with the block; the system says a short acknowledgement "
+            "for you the moment it sees it. The ledger in your brief shows "
+            "each task's state; {{tool tasks}} reads it live when someone asks what is open, and like every "
+            "block it is never spoken and never offered as something to do."
+        )
+        lines.append(
+            "You manage that work; the person should not have to. Before handing off, ask only what is truly "
+            "missing to do it right (which city, which person, what to say), in one short question, and only "
+            "if you cannot sensibly assume it. Then write ONE {{task ...}} for the whole request, with every "
+            "detail and target spelled out inside the block, including what the person explicitly asked for "
+            "(for example 'the owner asked to have it texted to +1 212 555 0199'): that is their approval for "
+            "exactly that. All of that detail lives in the block only. Put the block FIRST in the reply, "
+            "before any words: the system speaks a short acknowledgement ('On it.') as soon as it sees the "
+            "block, and nothing you write after the block is spoken, so write nothing after it. Never read "
+            "the plan, the steps or the details back: the person knows what they asked. A clarifying "
+            "question goes in its own reply, without a block. The system plans the steps, sends them in order, retries and "
+            "chases them; do not narrate steps or promise updates. You hear back once per request: an Event that it finished (tell the useful "
+            "result in your own words) or could not be finished (give whatever was found first, then the "
+            "problem in one sentence). Only when an Event says a decision is needed from the owner, ask them "
+            "in a few words; when they answer, start your reply with {{approve <goal id>}} or "
+            "{{deny <goal id>}} and nothing after it: the system acknowledges it out loud."
         )
         if can:
             lines.append(

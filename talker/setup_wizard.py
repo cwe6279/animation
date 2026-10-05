@@ -287,15 +287,16 @@ def check_camera(report: Report) -> Optional[str]:
         report.add(SKIP, "camera", "run without --camera")
         return None
     try:
-        from .vision import CameraSource, list_cameras, resolve_camera
+        from .vision import list_cameras, open_camera
         cams = list_cameras()
         if not cams:
             report.add(WARN, "no cameras found")
             return None
         for c in cams:
             print(f"     [{c['index']}] {c['name']}  ({c['path']})")
-        choice = _ask("Which camera? number or a name fragment", str(cams[0]["index"]))
-        src = CameraSource(resolve_camera(choice))
+        first = cams[0]["path"] if cams[0]["path"].startswith("picam") else str(cams[0]["index"])
+        choice = _ask("Which camera? number, a name fragment, or picam for a Pi camera", first)
+        src = open_camera(choice)
         frames = src.burst(1)
         src.close()
         report.add(OK if frames else BAD, f"camera {choice!r}",

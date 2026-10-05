@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, List, Optional, Tuple
@@ -407,10 +408,14 @@ def _ensure_nltk_data() -> None:
             nltk.download(pkg, quiet=True)
 
 
-def _get_g2p():
+def _get_g2p(block: bool = True):
+    """The g2p-en instance, or None for the regex fallback. block=False never waits: while a
+    background load is under way it returns None at once, so speech is never held up by it."""
     global _g2p_instance, _g2p_unavailable
     if _g2p_instance is not None or _g2p_unavailable:
         return _g2p_instance
+    if not block and _g2p_lock.locked():
+        return None
     with _g2p_lock:
         if _g2p_instance is None and not _g2p_unavailable:
             try:
@@ -432,9 +437,23 @@ def warm_up_g2p() -> None:
     _get_g2p()
 
 
+def warm_up_g2p_in_background() -> threading.Thread:
+    """Start loading g2p-en on a daemon thread; lip sync uses the regex fallback until it is ready.
+    On a Pi Zero the load takes 30-60 s, which would otherwise hold up the whole startup."""
+    def work():
+        t0 = time.monotonic()
+        already = _g2p_instance is not None
+        _get_g2p()
+        if _g2p_instance is not None and not already:
+            print(f"[speech] pronunciation library ready ({time.monotonic() - t0:.0f} s, in the background)")
+    t = threading.Thread(target=work, name="g2p-warmup", daemon=True)
+    t.start()
+    return t
+
+
 def word_to_arpabet(word: str) -> List[str]:
     """Convert a word to ARPAbet phonemes (stress digits stripped)."""
-    g2p = _get_g2p()
+    g2p = _get_g2p(block=False)
     if g2p is not None:
         try:
             raw = g2p(word)

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import os
 import time
 import traceback
 from typing import Callable, Iterable, List, Optional, Tuple
@@ -38,7 +39,7 @@ from .actions import Action, parse_actions
 from .audio_engine import BaseAudioEngine
 from .phoneme_scheduler import (
     Emotion, EmotionEvent, ScheduleReader, SentenceSplitter,
-    parse_tags, word_to_viseme_events, warm_up_g2p,
+    parse_tags, word_to_viseme_events, warm_up_g2p, warm_up_g2p_in_background,
 )
 from .tts_backends import (
     AudioChunk, END_OF_TEXT, SentenceDone, TTSBackend, WordBoundary,
@@ -82,11 +83,15 @@ class SpeechPipeline:
         self._thread = threading.Thread(target=self._run_loop, name="speech-pipeline", daemon=True)
         self._thread.start()
         self._ready.wait()
-        # Load g2p now (1-2 s once). Doing it in the background instead costs
-        # ~600 ms on the first utterance through GIL contention.
-        t0 = time.monotonic()
-        warm_up_g2p()
-        print(f"[speech] ready (g2p loaded in {(time.monotonic() - t0) * 1000:.0f} ms)")
+        # g2p loads in the background: 1-2 s on a desktop, 30-60 s on a Pi Zero, where waiting for
+        # it held up the whole startup. Until it is ready, lip sync uses the regex fallback.
+        if os.environ.get("TALKER_G2P_BLOCKING"):
+            t0 = time.monotonic()
+            warm_up_g2p()
+            print(f"[speech] ready (g2p loaded in {(time.monotonic() - t0) * 1000:.0f} ms)")
+        else:
+            warm_up_g2p_in_background()
+            print("[speech] ready (pronunciation library loading in the background)")
 
     def stop(self) -> None:
         if self._loop is None:

@@ -3,6 +3,12 @@ talker/vision.py — a camera watcher that takes notes about the scene for the b
 
     python voice_loop.py --list-cameras
     python voice_loop.py --face eve --camera c920            # or an index: --camera 0
+    python voice_loop.py --face eve --camera picam           # Raspberry Pi ribbon camera (libcamera)
+
+A Pi ribbon camera (Camera Module 2/3, HQ) is not a plain V4L2 webcam: OpenCV
+gets raw sensor data or nothing from it. --camera picam (or picam1 for a second
+one) opens it through picamera2 instead, which Raspberry Pi OS ships, and encodes
+with Pillow, so a Pi needs no OpenCV at all.
 
 Every `interval` seconds (default 9) the watcher grabs `burst` frames
 (default 3, ~0.3 s apart), downsizes them, and sends them to a fast vision
@@ -66,9 +72,34 @@ class SceneNote:
 # ─────────────────────────────────────────────────────
 # CAMERAS
 # ─────────────────────────────────────────────────────
+PICAM_PREFIXES = ("picam", "picamera", "libcamera", "csi")
+
+
+def picam_index(spec) -> Optional[int]:
+    """'picam' -> 0, 'picam1' -> 1, anything else -> None."""
+    s = str(spec or "").strip().lower()
+    for p in PICAM_PREFIXES:
+        if s.startswith(p) and (s[len(p):] == "" or s[len(p):].isdigit()):
+            return int(s[len(p):] or 0)
+    return None
+
+
+def list_picameras() -> List[dict]:
+    """Ribbon cameras libcamera can see, as [{index, name, path}] with path 'picam<N>'."""
+    try:
+        from picamera2 import Picamera2
+        info = Picamera2.global_camera_info()
+    except Exception:
+        return []
+    return [{"index": i, "name": f"{c.get('Model', 'camera')} (Pi camera)", "path": f"picam{i}"}
+            for i, c in enumerate(info)]
+
+
 def list_cameras() -> List[dict]:
     """[{index, name, path}] for capture devices. Linux reads names from sysfs."""
-    cams = []
+    cams = list_picameras()
+    if cams:                    # a Pi with a ribbon camera: its V4L2 nodes are raw sensor/ISP devices
+        return cams
     if os.path.isdir("/sys/class/video4linux"):
         for d in sorted(glob.glob("/sys/class/video4linux/video*")):
             idx = int(re.sub(r"\D", "", os.path.basename(d)) or 0)
@@ -156,6 +187,100 @@ class CameraSource:
             pass
 
 
+class PiCameraSource:
+    """A Raspberry Pi ribbon camera through picamera2: same burst() as CameraSource.
+    The ISP scales to the output size, so no resize runs on the CPU; Pillow encodes.
+
+    tune(name, value) changes exposure and colour live: ev (exposure compensation in
+    stops; + brightens a backlit room), metering (CentreWeighted / Spot / Matrix),
+    brightness, contrast, saturation and awb (white balance). `settings` holds the
+    values in use, so they can be saved and passed back as `tuning` next start."""
+
+    NUMERIC = {"ev": ("ExposureValue", -4.0, 4.0, 0.0), "brightness": ("Brightness", -1.0, 1.0, 0.0),
+               "contrast": ("Contrast", 0.0, 4.0, 1.0), "saturation": ("Saturation", 0.0, 4.0, 1.0)}
+    MODES = {"metering": ("AeMeteringMode", "AeMeteringModeEnum", ("CentreWeighted", "Spot", "Matrix")),
+             "awb": ("AwbMode", "AwbModeEnum", ("Auto", "Daylight", "Cloudy", "Indoor", "Incandescent",
+                                                "Tungsten", "Fluorescent"))}
+
+    def __init__(self, index: int = 0, width: int = 896, height: int = 504, jpeg_quality: int = 80,
+                 tuning: Optional[dict] = None):
+        from picamera2 import Picamera2
+        self.label = f"picam{index}"
+        self.cam = Picamera2(index)
+        self.cam.configure(self.cam.create_video_configuration(
+            main={"size": (width, height), "format": "RGB888"}, buffer_count=3))
+        self.cam.start()
+        try:                                         # Camera Module 3 and others with autofocus
+            from libcamera import controls
+            self.cam.set_controls({"AfMode": controls.AfModeEnum.Continuous})
+        except Exception:
+            pass
+        self.quality = jpeg_quality
+        self.settings = {k: d for k, (_, _, _, d) in self.NUMERIC.items()}
+        self.settings.update({k: opts[0] if k == "metering" else "Auto" for k, (_, _, opts) in self.MODES.items()})
+        for name, value in (tuning or {}).items():
+            try:
+                self.tune(name, value)
+            except (KeyError, ValueError):
+                pass                                 # a stale or unknown saved setting is skipped
+        time.sleep(1.5)                              # exposure, white balance and focus settle
+
+    def tune(self, name: str, value):
+        """Apply one setting now; returns the value in use. Unknown names raise KeyError,
+        values outside the options raise ValueError; numbers are clamped to their range."""
+        if name in self.NUMERIC:
+            control, lo, hi, _ = self.NUMERIC[name]
+            v = max(lo, min(hi, float(value)))
+            self.cam.set_controls({control: v})
+        elif name in self.MODES:
+            control, enum_name, options = self.MODES[name]
+            match = [o for o in options if o.lower() == str(value).strip().lower()]
+            if not match:
+                raise ValueError(f"{name} must be one of {', '.join(options)}")
+            from libcamera import controls
+            v = match[0]
+            self.cam.set_controls({control: getattr(getattr(controls, enum_name), v)})
+        else:
+            raise KeyError(name)
+        self.settings[name] = v
+        return v
+
+    def burst(self, n: int = 3, spacing_s: float = 0.12) -> List[bytes]:
+        import io
+        from PIL import Image
+        frames: List[bytes] = []
+        for i in range(n):
+            arr = self.cam.capture_array("main")     # RGB888 is B,G,R in memory
+            buf = io.BytesIO()
+            Image.fromarray(arr[:, :, ::-1]).save(buf, "JPEG", quality=self.quality)
+            frames.append(buf.getvalue())
+            if i < n - 1:
+                time.sleep(spacing_s)
+        return frames
+
+    def close(self) -> None:
+        try:
+            self.cam.stop()
+            self.cam.close()
+        except Exception:
+            pass
+
+
+def open_camera(spec, tuning: Optional[dict] = None):
+    """The right source for --camera: 'picam'/'picam1' -> PiCameraSource (with saved
+    `tuning`); an index or a name fragment -> CameraSource (OpenCV). With no spec, a Pi
+    camera wins if there is one."""
+    idx = picam_index(spec)
+    if idx is None and (spec is None or spec == "") and list_picameras():
+        idx = 0
+    if idx is not None:
+        return PiCameraSource(idx, tuning=tuning)
+    index = resolve_camera(spec)
+    src = CameraSource(index)
+    src.label = f"camera {index}"
+    return src
+
+
 # ─────────────────────────────────────────────────────
 # CHANGE DETECTION  (don't pay for a description of an unchanged scene)
 # ─────────────────────────────────────────────────────
@@ -164,6 +289,15 @@ def frame_signature(jpeg: bytes, size=(24, 14)):
     import numpy as np
     try:
         import cv2
+    except ImportError:                              # a Pi without OpenCV: Pillow does the same
+        try:
+            import io
+            from PIL import Image
+            small = Image.open(io.BytesIO(jpeg)).convert("L").resize(size, Image.BOX)
+            return np.asarray(small, dtype=np.float32) / 255.0
+        except Exception:
+            return None
+    try:
         arr = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
         if arr is None:
             return None
@@ -184,6 +318,69 @@ def change_score(a, b) -> float:
 # ─────────────────────────────────────────────────────
 # VISION MODEL
 # ─────────────────────────────────────────────────────
+def _parse_note(text: str) -> dict:
+    m = re.search(r"\{.*\}", text, re.S)
+    try:
+        return json.loads(m.group(0) if m else text)
+    except Exception:
+        return {"changes": text.strip()[:200], "state": text.strip()[:120], "people": 0, "emergency": False}
+
+
+def describe_with_ollama(frames: List[bytes], previous: str = "", model: str = "qwen3.8:27b",
+                         url: str = "http://localhost:11434", timeout: float = 60.0,
+                         keep_alive: str = "30m") -> dict:
+    """The same note from a local vision model through Ollama (no per-call cost, frames stay on
+    the network). `keep_alive` keeps the model loaded between looks: a cold load takes ~30 s."""
+    import urllib.request
+    body = {"model": model, "stream": False, "think": False, "format": "json", "keep_alive": keep_alive,
+            "options": {"temperature": 0.2},
+            "messages": [{"role": "user", "images": [base64.standard_b64encode(j).decode() for j in frames],
+                          "content": VISION_PROMPT.format(n=len(frames),
+                                                          previous=previous.strip() or "none yet (first look)")}]}
+    req = urllib.request.Request(url.rstrip("/") + "/api/chat", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        resp = json.load(r)
+    return _parse_note((resp.get("message") or {}).get("content", ""))
+
+
+def make_describer(backend: str = "auto", claude_model: str = "claude-haiku-4-5",
+                   ollama_url: str = "http://localhost:11434", ollama_model: str = "qwen3.8:27b"):
+    """describe(frames, previous) for --vision-backend: 'ollama', 'anthropic', or 'auto' (the local
+    model first, Claude when it is unreachable). Claude uses ANTHROPIC_VISION_API_KEY when set, so
+    vision can have its own key, workspace and spend limit, apart from the conversation."""
+    client = {"c": None}
+
+    def claude(frames, previous=""):
+        if client["c"] is None:
+            key = os.environ.get("ANTHROPIC_VISION_API_KEY", "").strip()
+            if key:
+                import anthropic
+                client["c"] = anthropic.Anthropic(api_key=key)
+            else:
+                from .brains.claude_chat import make_client
+                client["c"] = make_client()
+        return describe_with_claude(frames, previous, model=claude_model, client=client["c"])
+
+    def local(frames, previous=""):
+        return describe_with_ollama(frames, previous, model=ollama_model, url=ollama_url)
+
+    if backend == "anthropic":
+        return claude
+    if backend == "ollama":
+        return local
+
+    def auto(frames, previous=""):
+        try:
+            return local(frames, previous)
+        except Exception as e:
+            if not getattr(auto, "warned", False):
+                print(f"[vision] local model unreachable ({str(e)[:80]}); using Claude for now")
+                auto.warned = True
+            return claude(frames, previous)
+    return auto
+
+
 def describe_with_claude(frames: List[bytes], previous: str = "", model: str = "claude-haiku-4-5",
                          client=None) -> dict:
     """Send JPEG frames (+ the previous one-line state) to Claude; returns the parsed JSON note."""
@@ -199,13 +396,7 @@ def describe_with_claude(frames: List[bytes], previous: str = "", model: str = "
         n=len(frames), previous=previous.strip() or "none yet (first look)")})
     resp = client.messages.create(model=model, max_tokens=300,
                                   messages=[{"role": "user", "content": content}])
-    text = "".join(b.text for b in resp.content if b.type == "text")
-    m = re.search(r"\{.*\}", text, re.S)
-    try:
-        data = json.loads(m.group(0) if m else text)
-    except Exception:
-        data = {"changes": text.strip()[:200], "state": text.strip()[:120], "people": 0, "emergency": False}
-    return data
+    return _parse_note("".join(b.text for b in resp.content if b.type == "text"))
 
 
 _TRIVIAL_RE = re.compile(r"\b(no change|nothing changed|no significant|no new|no meaningful|slightly|"
@@ -236,8 +427,22 @@ class SceneWatcher:
                  on_note: Optional[Callable[[SceneNote], None]] = None,
                  on_error: Optional[Callable[[str], None]] = None, clock=time.monotonic,
                  change_threshold: float = 0.035, max_quiet_s: float = 90.0,
-                 signature: Callable = frame_signature):
+                 signature: Callable = frame_signature, dormant_interval: float = 300.0,
+                 dormant_min_gap: float = 60.0, is_dormant: Optional[Callable[[], bool]] = None,
+                 on_demand: bool = False):
         self.source = source
+        # on_demand: no periodic looks and no sound-triggered ones; a look happens only when
+        # request(force=True) or look_now() asks (startup, waking up, {{look}}, a visual question).
+        self.on_demand = on_demand
+        # While the character is dormant nobody is talking to it: look every `dormant_interval`
+        # seconds, and when sound wakes the watcher, at most once per `dormant_min_gap`.
+        self.dormant_interval = dormant_interval
+        self.dormant_min_gap = dormant_min_gap
+        self.is_dormant = is_dormant or (lambda: False)
+        self._last_look: Optional[float] = None
+        # After a failed look, wait longer each time (30 s, 1, 2, 5, 10 min); a success resets it.
+        self.backoff_steps = (30.0, 60.0, 120.0, 300.0, 600.0)
+        self._fail_streak = 0
         self.describe = describe
         self.interval = interval
         self.burst = burst
@@ -266,7 +471,7 @@ class SceneWatcher:
         self._observations = 0                  # completed observe_once() calls
         self._thread: Optional[threading.Thread] = None
         self.stats = {"bursts": 0, "described": 0, "skipped_unchanged": 0, "errors": 0,
-                      "emergencies": 0, "last_ms": 0, "last_change": 0.0}
+                      "emergencies": 0, "last_ms": 0, "last_change": 0.0, "dormant_skips": 0}
 
     # ── lifecycle ──
     def start(self) -> None:
@@ -283,25 +488,49 @@ class SceneWatcher:
         except Exception:
             pass
 
+    def next_wait(self) -> float:
+        """Seconds until the next periodic look: the failure backoff, else the dormant or awake interval."""
+        if self._fail_streak:
+            return self.backoff_steps[min(self._fail_streak, len(self.backoff_steps)) - 1]
+        if self.on_demand:
+            return 24 * 3600.0                          # until someone asks
+        return self.dormant_interval if self.is_dormant() else self.interval
+
     def _run(self) -> None:
+        if self.on_demand:
+            self._wake.wait()                           # nothing until the first request
         while not self._stop.is_set():
             t0 = time.monotonic()
             with self._done:
                 wanted = self._force_wanted
-            force, self._force = (self._force or wanted > self._force_done), False
+            asked = wanted > self._force_done                # look_now(): a visual question, always served
+            force, self._force = (self._force or asked), False
             self._wake.clear()
-            try:
-                self.observe_once(force=force)
-            except Exception as e:
-                self.stats["errors"] += 1
-                self.on_error(f"observation failed: {e}")
+            now = time.monotonic()
+            skip = (not asked and self.is_dormant() and self._last_look is not None
+                    and now - self._last_look < self.dormant_min_gap)
+            if skip:
+                self.stats["dormant_skips"] += 1
+            else:
+                self._last_look = now
+                try:
+                    self.observe_once(force=force)
+                    if self._fail_streak:
+                        print(f"[vision] looking again after {self._fail_streak} failed looks")
+                    self._fail_streak = 0
+                except Exception as e:
+                    self.stats["errors"] += 1
+                    self._fail_streak += 1
+                    if self._fail_streak == 1 or self._fail_streak in (3, 5) or self._fail_streak % 10 == 0:
+                        self.on_error(f"observation failed ({self._fail_streak} in a row; next look in "
+                                      f"{self.next_wait():.0f}s): {str(e)[:160]}")
             with self._done:
                 self._observations += 1
                 if force:
                     self._force_done = wanted
                 self._done.notify_all()
             elapsed = time.monotonic() - t0
-            self._wake.wait(max(0.5, self.interval - elapsed)) if not self._stop.is_set() else None
+            self._wake.wait(max(0.5, self.next_wait() - elapsed)) if not self._stop.is_set() else None
 
     # ── on-demand ──
     def request(self, force: bool = True) -> int:
@@ -311,6 +540,8 @@ class SceneWatcher:
         """
         with self._done:
             ticket = self._observations + 1
+        if self.on_demand and not force:
+            return ticket                               # a sound onset is not a reason to look
         self._force = self._force or force
         self._wake.set()
         return ticket

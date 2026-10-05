@@ -15,6 +15,10 @@ class FakeBackend:
         self.calls = []
 
     def fetch(self, url, method="GET", body=None, timeout=5.0):
+        if url.endswith("/health"):                 # protocol discovery: a version 1 agent
+            if self.down:
+                raise RuntimeError(f"{url} not reachable: refused")
+            return {"ok": True}
         self.calls.append((method, url))
         if self.down:
             raise RuntimeError(f"{url} not reachable: refused")
@@ -100,6 +104,59 @@ def test_thread_runs_and_stops():
     assert e.state == "running"
     r.stop()
     assert not r._thread.is_alive()
+
+
+def test_no_address_yet_keeps_tasks_until_one_is_set():
+    be = FakeBackend()
+    r = ErrandRunner("", fetch=be.fetch)
+    e = r.submit("find a projector")
+    r.cycle(); r.cycle()
+    assert e.state == "queued" and be.calls == []          # nowhere to send it: kept, nothing tried
+    r.set_url("http://box:8030/")
+    assert r.url == "http://box:8030" and r.reachable is None
+    r.cycle()
+    assert e.state == "running" and be.calls[0] == ("POST", "http://box:8030/tasks")
+
+
+def test_health_reports_without_raising():
+    be = FakeBackend()
+    r = ErrandRunner("", fetch=lambda url, *a, **k: {"ok": True, "running": 2} if url.endswith("/health") else be.fetch(url, *a, **k))
+    assert r.health()["ok"] is False and "no address" in r.health()["detail"]
+    h = r.health("http://box:8030")
+    assert h["ok"] is True and h["running"] == 2 and "ms" in h
+    be.down = True
+    r2 = ErrandRunner("http://box:8030", fetch=be.fetch)
+    h = r2.health()
+    assert h["ok"] is False and "not reachable" in h["detail"]
+
+
+def test_agent_control_validates_saves_and_lists():
+    from talker.errands import AgentControl
+    be = FakeBackend()
+    saved = []
+    r = ErrandRunner("", fetch=be.fetch)
+    ctl = AgentControl(r, can="research, write", source="none", save=saved.append)
+    assert "error" in ctl.set_url("agentbox:8030")          # no scheme
+    out = ctl.set_url("http://agentbox:8030/")
+    assert out["url"] == "http://agentbox:8030" and saved == ["http://agentbox:8030"]
+    r.submit("one"); r.submit("two")
+    info = ctl.info()
+    assert info["url"] == "http://agentbox:8030" and info["can"] == "research, write" and info["open"] == 2
+    assert [t["task"] for t in info["tasks"]] in (["two", "one"], ["one", "two"])   # same-tick creation order
+    ctl.set_url("", save=True)
+    assert r.url == "" and saved[-1] == ""
+    flagged = AgentControl(ErrandRunner("http://a:1", fetch=be.fetch), source="flag", save=saved.append)
+    assert "--agent-url" in flagged.set_url("http://b:2")["message"]
+
+
+def test_local_settings_round_trip(tmp_path):
+    from talker import local_settings
+    p = str(tmp_path / "settings.json")
+    assert local_settings.load(p) == {}
+    local_settings.save("agent_url", "http://agentbox:8030", p)
+    assert local_settings.load(p) == {"agent_url": "http://agentbox:8030"}
+    local_settings.save("agent_url", None, p)
+    assert local_settings.load(p) == {}
 
 
 def test_resume_polls_a_task_left_open_last_time():

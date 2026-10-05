@@ -84,9 +84,10 @@ def test_announce_only_when_the_room_is_quiet_and_lands_as_an_event():
     spk.busy = False
     loop._last_heard = time.monotonic()
     assert loop.announce("task done") is False               # someone just spoke
-    loop._last_heard = 0.0
     loop._partial = "um"
+    loop._last_heard = time.monotonic() - 3.0
     assert loop.announce("task done") is False               # someone is mid-sentence
+    loop._last_heard = 0.0
     loop._partial = ""
     loop.dictating = True
     assert loop.announce("task done") is False               # never during dictation
@@ -99,6 +100,31 @@ def test_announce_only_when_the_room_is_quiet_and_lands_as_an_event():
     assert heard == ['(Event: Task 3f2a "find projectors" finished. Result: the Epson.)']
     assert ("event", 'Task 3f2a "find projectors" finished. Result: the Epson.') in events
     assert not any(k == "you" for k, _ in events)            # not passed off as the visitor
+
+
+def test_a_partial_that_never_got_its_final_stops_blocking_news():
+    clock, events = Clock(), []
+    loop, stt, spk, heard = make(clock, events)
+    loop._last_busy = 0.0
+    loop._partial = "No."                                   # the recognizer never committed it
+    loop._last_heard = time.monotonic() - 10.0
+    assert loop.announce("task done") is True
+    assert wait(lambda: len(spk.spoken) == 1)
+
+
+def test_news_wakes_a_dormant_character_unless_told_not_to():
+    clock, events = Clock(), []
+    loop, stt, spk, heard = make(clock, events)
+    loop.wake_words = ["clara"]
+    loop._last_busy = 0.0
+    loop.engaged = False
+    loop.announce_wakes = False
+    assert loop.announce("task done") is False               # old behaviour: wait for the wake word
+    loop.announce_wakes = True
+    assert loop.announce('Task a272 "weather" finished. Result: sunny.') is True
+    assert loop.engaged and ("mode", "engaged (news to tell)") in events
+    assert wait(lambda: len(spk.spoken) == 1)
+    assert heard == ['(Event: Task a272 "weather" finished. Result: sunny.)']
 
 
 def test_session_end_fires_once_after_two_turns():

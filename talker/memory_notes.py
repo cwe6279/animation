@@ -24,7 +24,7 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
-STATES = ("not started", "in progress", "done", "failed")
+STATES = ("not started", "in progress", "needs input", "done", "failed")
 
 
 def _now(now: Optional[datetime]) -> datetime:
@@ -107,7 +107,7 @@ class TaskLedger:
     """
 
     FILE = "tasks.md"
-    _LINE = re.compile(r"^- \[(not started|in progress|done|failed)\] (\S+) · (\S+ \S+) · (.*)$")
+    _LINE = re.compile(r"^- \[(not started|in progress|needs input|done|failed)\] (\S+) · (\S+ \S+) · (.*)$")
 
     def __init__(self, face_dir: str, title: str = "Tasks"):
         self.path = os.path.join(face_dir, self.FILE)
@@ -168,7 +168,7 @@ class TaskLedger:
         return next((it for it in self.items if it["id"] == task_id), None)
 
     def open_items(self) -> List[Dict]:
-        return [it for it in self.items if it["state"] in ("not started", "in progress")]
+        return [it for it in self.items if it["state"] in ("not started", "in progress", "needs input")]
 
     def render(self, max_chars: int = 3000) -> str:
         """For the prompt: every open task, then the most recent finished ones that fit."""
@@ -179,7 +179,7 @@ class TaskLedger:
             s = f"- [{it['state']}] {it['id']} · {it['when']} · {it['task']}"
             if it["summary"]:
                 s += f"\n    {it['summary']}"
-            lines.append((it["state"] in ("not started", "in progress"), s))
+            lines.append((it["state"] in ("not started", "in progress", "needs input"), s))
         keep = [s for open_, s in lines if open_]
         budget = max_chars - sum(len(s) + 1 for s in keep)
         closed = [s for open_, s in lines if not open_]
