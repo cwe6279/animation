@@ -255,6 +255,22 @@ def strip_tags(text: str) -> str:
 _SENTENCE_END_RE = re.compile(r"([.!?…]+[\"')\]]*)(\s+)")
 
 
+def _inside_block(text: str, pos: int) -> bool:
+    """True when pos falls inside an unclosed {{...}} action block."""
+    head = text[:pos]
+    return head.rfind("{{") > head.rfind("}}")
+
+
+def _sentence_end_outside_blocks(text: str):
+    """The first sentence end that is not inside a {{...}} block. A note or task block can
+    hold whole sentences; cutting one there would leave halves that are no longer blocks,
+    and they would be spoken."""
+    for m in _SENTENCE_END_RE.finditer(text):
+        if not _inside_block(text, m.start()):
+            return m
+    return None
+
+
 class SentenceSplitter:
     """
     Incrementally splits text into sentence-sized chunks so TTS can start on
@@ -279,7 +295,7 @@ class SentenceSplitter:
         self._buf += text
         out: List[str] = []
         while True:
-            m = _SENTENCE_END_RE.search(self._buf)
+            m = _sentence_end_outside_blocks(self._buf)
             if not m:
                 break
             sentence = self._buf[:m.end(1)]
@@ -290,6 +306,9 @@ class SentenceSplitter:
     def flush(self) -> List[str]:
         out: List[str] = []
         tail = (self._pending + " " + self._buf).strip()
+        if _inside_block(tail, len(tail)):
+            # A {{block}} the brain never closed: drop it rather than read it aloud.
+            tail = tail[:tail.rfind("{{")].strip()
         self._pending = ""
         self._buf = ""
         if tail:

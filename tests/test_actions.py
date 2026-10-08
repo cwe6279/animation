@@ -84,3 +84,18 @@ def test_sfx_waits_for_the_character_to_stop_talking():
     quiet = bank.handler()                               # no hold: the old overlapping behaviour
     quiet(Action("sfx", "hiss", raw="{{sfx hiss}}"))
     assert played == ["meow", "hiss"]
+
+
+def test_a_block_holding_whole_sentences_is_never_spoken():
+    # Clara read her own {{note}} aloud: the splitter cut it at its full stops.
+    from talker.phoneme_scheduler import SentenceSplitter, split_sentences
+    reply = ("[calm] Got it. I'll note the reservation.\n\n{{note User booked a Las Vegas flight; "
+             "dates are now October 20 and 21, 2026. Reservation details are in their email. "
+             "Stop the pending flight search.}}\n\nShould I have the agent read the email?")
+    s = SentenceSplitter()
+    pieces = [p for ch in reply for p in s.feed(ch)] + s.flush()   # streamed one character at a time
+    assert pieces == split_sentences(reply)
+    spoken = " ".join(parse_actions(p)[0] for p in pieces)
+    assert "Las Vegas" not in spoken and "{" not in spoken and "}" not in spoken
+    assert "Got it." in spoken and "read the email?" in spoken
+    assert split_sentences("Sure. {{note never closed. Half a thought") == ["Sure."]
