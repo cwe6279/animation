@@ -107,6 +107,11 @@ class VoiceLoop:
         self.sleep_words = [w.strip().lower() for w in (sleep_words if sleep_words is not None
                                                         else self.DEFAULT_SLEEP_WORDS) if w.strip()]
         self._last_activity = self.clock()
+        # Sleep hours (sleep_hours.SleepHours): nothing is streamed to cloud speech recognition
+        # and the connection is closed, so an empty room at night costs nothing.
+        self.sleep_hours = None
+        self.asleep = False
+        self._sleep_checked = 0.0
         self._lock = threading.Lock()
         self._thinking = False
         self._last_busy = 0.0
@@ -162,7 +167,7 @@ class VoiceLoop:
     def _process(self, pcm: bytes, t_in: Optional[float] = None) -> None:
         t_in = time.monotonic() if t_in is None else t_in     # when the mic heard this frame
         self._last_audio_in = time.monotonic()
-        if self.paused or self.waiting:   # calibration owns the mic, or waiting mode: hear nothing
+        if self.paused or self.waiting or self.check_sleep():   # calibration, waiting mode, sleep hours
             self.stt.reset()
             self._barge_since = None
             return
@@ -477,12 +482,40 @@ class VoiceLoop:
     # ── a turn nobody asked for ─────────────────────────
     PARTIAL_STALE_S = 4.0          # a partial with no newer words for this long is not 'mid-sentence'
 
+    def check_sleep(self) -> bool:
+        """True during sleep hours. On the change: close or reopen cloud hearing, say so in the log."""
+        if self.sleep_hours is None:
+            return False
+        now_m = time.monotonic()
+        if now_m - self._sleep_checked < 1.0:
+            return self.asleep
+        self._sleep_checked = now_m
+        from datetime import datetime
+        now = datetime.now().astimezone()
+        asleep = self.sleep_hours.asleep(now)
+        if asleep != self.asleep:
+            self.asleep = asleep
+            if asleep:
+                if self.engaged and self.wake_words:
+                    self.disengage("sleep hours")
+                if hasattr(self.stt, "pause"):
+                    self.stt.pause()
+                ends = self.sleep_hours.ends(now)
+                self.on_event("mode", f"asleep until {ends:%H:%M} (sleep hours {self.sleep_hours.spec}): "
+                                      "not listening, nothing sent to speech recognition")
+            else:
+                if hasattr(self.stt, "resume"):
+                    self.stt.resume()
+                self.on_event("mode", "awake after sleep hours: dormant, listening for "
+                                      + ", ".join(repr(w) for w in self.wake_words))
+        return asleep
+
     def announce(self, event_text: str) -> bool:
         """Tell the brain something happened and let it speak up, but only when the room is
         quiet: not while it talks or thinks, not while someone is mid-sentence, not within
         a couple of seconds of either. Returns False to say: try again later."""
-        if self.waiting or self.paused or self.dictating:
-            return False
+        if self.waiting or self.paused or self.dictating or self.asleep:
+            return False                  # asleep: the news waits for the morning
         if not self.engaged and not (self.announce_wakes and self.wake_words):
             return False
         if self.speaker.is_busy or self._thinking:
@@ -940,6 +973,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "Default: the face's wake_words, else its name")
     p.add_argument("--idle-timeout", type=float, default=60.0,
                    help="Seconds of silence after the character last spoke before it goes dormant (default 60)")
+    p.add_argument("--sleep-hours", default=None,
+                   help="Hours she does not listen at all, e.g. 23:00-07:00 (the default; 'off' to never "
+                        "sleep). Nothing is sent to cloud speech recognition then. Also set on the control page.")
     p.add_argument("--start-dormant", action="store_true",
                    help="In wake mode, start dormant instead of engaged (kiosk: wait to be called by name)")
     p.add_argument("--sleep-word", default=None,
@@ -1335,6 +1371,17 @@ def main(argv=None) -> int:
     loop = VoiceLoop(stt, always_speaks(handoff_brief(brain)), app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
+    # Sleep hours: on by default in wake mode (a kiosk listening all night); elsewhere only if asked.
+    from . import local_settings as _settings
+    from .sleep_hours import DEFAULT as _SLEEP_DEFAULT, SleepHours
+    sleep_spec = args.sleep_hours or _settings.load().get("sleep_hours") or (_SLEEP_DEFAULT if wake_words else "")
+    if sleep_spec and not text_only:
+        try:
+            loop.sleep_hours = SleepHours(sleep_spec)
+            print(f"[sleep] {'sleep hours ' + loop.sleep_hours.spec if loop.sleep_hours.spec else 'sleep hours off'}"
+                  + (": not listening then, nothing sent to speech recognition" if loop.sleep_hours.spec else ""))
+        except ValueError as e:
+            print(f"[sleep] ignored: {e}")
     loop.vision = watcher
     if watcher is not None:
         watcher.is_dormant = lambda: bool(loop.wake_words) and not loop.engaged
@@ -1638,6 +1685,22 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
                   lambda v: _ls.save("location", str(v).strip() or None),
                   "Where the character is, e.g. 'Bronxville, NY'. Used in time notes and {{tool clock}} at once, and "
                   "in the prompt from the next start. Empty = looked up from the internet address.", kind="str")
+    if loop.sleep_hours is not None:
+        def set_sleep(v):
+            loop.sleep_hours.set(str(v))
+            loop._sleep_checked = 0.0
+            _ls.save("sleep_hours", loop.sleep_hours.spec or "off")
+        panel.tunable("sleep_hours", lambda: loop.sleep_hours.spec or "off", set_sleep,
+                      "Hours she does not listen at all, e.g. 23:00-07:00, or 'off'. Nothing goes to cloud "
+                      "speech recognition then, so a quiet night costs nothing; news waits for the morning.",
+                      kind="str", flag="--sleep-hours")
+
+        def wake_now(_t=""):
+            from datetime import datetime
+            loop.sleep_hours.wake_now(datetime.now().astimezone())
+            loop._sleep_checked = 0.0
+            return ("awake until " + f"{loop.sleep_hours.awake_until:%H:%M}") if loop.sleep_hours.awake_until                 else "not in sleep hours"
+        panel.action("wake_now", wake_now, "Wake her during sleep hours, until they end tonight.")
     panel.tunable("idle_timeout", lambda: loop.idle_timeout, lambda v: setattr(loop, "idle_timeout", v),
                   "Wake mode: seconds of quiet after its own last reply before it goes dormant.", kind="float", unit="s",
                   lo=5, hi=3600, flag="--idle-timeout")

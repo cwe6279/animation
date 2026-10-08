@@ -89,6 +89,8 @@ def test_out_of_credit_is_reported_once_backs_off_and_recovers(monkeypatch):
     stt._results, stt._audio = queue.Queue(), asyncio.Queue()
 
     async def run():
+        stt._awake, stt._ws = asyncio.Event(), None
+        stt._awake.set()
         task = asyncio.ensure_future(stt._session_forever())
         while not recovered:
             await real_sleep(0)

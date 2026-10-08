@@ -323,6 +323,7 @@ class ElevenLabsSTT(STTBackend):
         self.speech_active = False
         # "" when hearing works; "out_of_credit" or "failing" when sessions keep closing at once.
         self.problem = ""
+        self._ws = None
         self.on_problem: Optional[Callable[[str, str], None]] = None     # (kind, detail), once
         self.on_recovered: Optional[Callable[[str], None]] = None        # (previous kind), once
         self._results: "queue.Queue[Transcript]" = queue.Queue()
@@ -345,6 +346,8 @@ class ElevenLabsSTT(STTBackend):
         import asyncio
         asyncio.set_event_loop(self._loop)
         self._audio = asyncio.Queue()
+        self._awake = asyncio.Event()
+        self._awake.set()
         self._ready.set()
         self._loop.run_until_complete(self._session_forever())
 
@@ -354,6 +357,11 @@ class ElevenLabsSTT(STTBackend):
         import aiohttp
         backoff = 1.0
         while True:
+            if not self._awake.is_set():                 # sleep hours: no connection, nothing sent
+                print("[stt] asleep: scribe connection closed")
+                await self._awake.wait()
+                print("[stt] awake: reconnecting")
+                backoff = 1.0
             # A session that closes before hearing anything is a failure, not a reconnect: the
             # server says why in a message (quota_exceeded, auth_error...) and then closes. Treated
             # as a clean reconnect, an out-of-credit account was retried every 1-2 s for 6 hours,
@@ -363,6 +371,7 @@ class ElevenLabsSTT(STTBackend):
                 async with aiohttp.ClientSession() as http:
                     async with http.ws_connect(self._url(), headers={"xi-api-key": self.api_key},
                                                heartbeat=20) as ws:
+                        self._ws = ws
                         if not self.problem:
                             print("[stt] scribe realtime connected")
 
@@ -404,6 +413,9 @@ class ElevenLabsSTT(STTBackend):
                                 why = f"closed {ws.close_code}"
             except Exception as e:
                 why = f"{e.__class__.__name__}: {str(e)[:120]}"
+            self._ws = None
+            if not self._awake.is_set():
+                continue                                 # closed for sleep, not a failure
             lived = time.monotonic() - opened
             if heard or lived > 60:
                 backoff = 1.0                      # a working session: reconnect at once
@@ -417,6 +429,20 @@ class ElevenLabsSTT(STTBackend):
                 print(f"[stt] scribe connection lost ({why}); reconnecting in {backoff:.0f}s")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self.QUOTA_RETRY_S if self.problem == "out_of_credit" else 60.0)
+
+    def pause(self) -> None:
+        """Close the connection and send nothing until resume() (sleep hours)."""
+        def go():
+            self._awake.clear()
+            while not self._audio.empty():
+                self._audio.get_nowait()
+            if self._ws is not None and not self._ws.closed:
+                import asyncio
+                asyncio.ensure_future(self._ws.close())
+        self._loop.call_soon_threadsafe(go)
+
+    def resume(self) -> None:
+        self._loop.call_soon_threadsafe(self._awake.set)
 
     def _set_problem(self, kind: str, detail: str) -> None:
         """Tell the voice loop once when hearing breaks, and once when it works again."""
