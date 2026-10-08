@@ -1360,7 +1360,7 @@ def main(argv=None) -> int:
 
     def on_brain(ok, kind, detail):
         from . import incidents
-        incidents.record("brain_ok" if ok else "brain_failed", kind=kind, detail=detail[:300])
+        incidents.record("brain_ok" if ok else "brain_failed", problem=kind, detail=detail[:300])
     loop.on_brain = on_brain
     loop.add_context = chat.add_context      # a visual question hands her the current scene
     # Resilience: say when the cloud is gone (from a cached local recording: the voice is cloud
@@ -1400,8 +1400,8 @@ def main(argv=None) -> int:
             threading.Thread(target=work, daemon=True, name=f"cue-{key}").start()
 
         def stt_problem(kind, detail):
-            incidents.record("stt_failed", kind=kind, detail=detail[:300])
             play_when_ready("deaf_credit" if kind == "out_of_credit" else "deaf")
+            incidents.record("stt_failed", problem=kind, detail=detail[:300])
 
         def stt_recovered(was):
             incidents.record("stt_ok", was=was)
