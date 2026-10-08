@@ -630,6 +630,26 @@ def brain_problem(e: Exception) -> tuple:
     return "error", "[sad]Sorry, I could not think of an answer just now."
 
 
+def with_clock(reply, add_context, every_s: float = 600.0, clock=None):
+    """The date and time in the system prompt are frozen at launch (rewriting the prompt each
+    turn would throw its cache away). Before a turn, when `every_s` has passed since the last
+    time note or the date has changed, hand the brain the current date, time and place as a
+    context note. A few tokens, now and then; works with every brain."""
+    from datetime import datetime
+    from .launch_facts import now_text
+    clock = clock or (lambda: datetime.now().astimezone())
+    last = {"at": None}
+
+    def wrapped(text, *a, **k):
+        now = clock()
+        prev = last["at"]
+        if prev is None or (now - prev).total_seconds() >= every_s or now.date() != prev.date():
+            add_context(now_text(now))
+            last["at"] = now
+        return reply(text, *a, **k)
+    return wrapped
+
+
 HANDOFF_ACK = {"task": "On it.", "approve": "Okay, going ahead.", "deny": "Alright, I won't."}
 
 
@@ -943,6 +963,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vision-dormant-interval", type=float, default=300.0,
                    help="Seconds between camera looks while dormant (default 300); sound still triggers a look, "
                         "at most once a minute")
+    p.add_argument("--clock-every-min", type=float, default=10.0,
+                   help="Remind the brain of the current date, time and place before a turn when this many "
+                        "minutes have passed since the last reminder, or the date changed (default 10)")
     p.add_argument("--dream-model", default="claude-opus-5-5",
                    help="Model for the nightly self-review (dream.py): claude-opus-5-5, or claude-fable-5-1 for the deepest")
     p.add_argument("--dream-idle-hours", type=float, default=3.0,
@@ -1124,6 +1147,8 @@ def main(argv=None) -> int:
     sounds = SoundBank(os.path.join(face_dir, m.sounds) if face_dir else None)
     body = NullBody((m.body or {}).get("moves", []))
     tools = ToolBox()
+    from .launch_facts import now_text
+    tools.add("clock", "the current date, time, time zone and location", lambda _a: now_text())
     # An assistant: notes she writes herself, and errands for a backend agent (errands.py).
     from .brains.claude_chat import assistant_rules
     memory_on = bool(m.memory) and notebook is not None
@@ -1292,7 +1317,8 @@ def main(argv=None) -> int:
 
     sleep_words = ([w for w in args.sleep_word.split(",")] if args.sleep_word
                    else (m.sleep_words if m.sleep_words else None))
-    loop = VoiceLoop(stt, always_speaks(handoff_brief(chat.reply)), app, barge_in=args.barge_in, wake_words=wake_words,
+    brain = with_clock(chat.reply, chat.add_context, every_s=args.clock_every_min * 60)
+    loop = VoiceLoop(stt, always_speaks(handoff_brief(brain)), app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
     loop.vision = watcher
@@ -1565,6 +1591,11 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("echo_threshold", lambda: loop.echo_threshold, lambda v: setattr(loop, "echo_threshold", v),
                   "Mic/speaker loudness correlation above this is treated as the character's own voice, not a barge-in.",
                   kind="float", lo=0.0, hi=1.0)
+    from . import local_settings as _ls
+    panel.tunable("location", lambda: str(_ls.load().get("location") or ""),
+                  lambda v: _ls.save("location", str(v).strip() or None),
+                  "Where the character is, e.g. 'Bronxville, NY'. Used in time notes and {{tool clock}} at once, and "
+                  "in the prompt from the next start. Empty = looked up from the internet address.", kind="str")
     panel.tunable("idle_timeout", lambda: loop.idle_timeout, lambda v: setattr(loop, "idle_timeout", v),
                   "Wake mode: seconds of quiet after its own last reply before it goes dormant.", kind="float", unit="s",
                   lo=5, hi=3600, flag="--idle-timeout")
