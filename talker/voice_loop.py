@@ -1383,6 +1383,32 @@ def main(argv=None) -> int:
     net = NetWatch(on_offline=net_offline, on_online=net_online)
     net.start()
     loop.net = net
+    # Hearing (cloud STT) can fail while the internet is fine: an out-of-credit account closes
+    # every session at once. Say so once, from a cached line, and again when it works.
+    if stt is not None and hasattr(stt, "on_problem"):
+        cues.prepare({"deaf_credit": "I can't hear right now: my hearing service is out of credit. "
+                                     "I'll keep checking every few minutes.",
+                      "deaf": "I can't hear right now: my hearing service keeps failing. I'll keep trying.",
+                      "hearing": "I can hear again."})
+
+        def play_when_ready(key, wait_s=30.0):     # at boot the line may still be rendering
+            def work():
+                end = time.time() + wait_s
+                while key not in cues._paths and time.time() < end:
+                    time.sleep(0.5)
+                cues.play(key)
+            threading.Thread(target=work, daemon=True, name=f"cue-{key}").start()
+
+        def stt_problem(kind, detail):
+            incidents.record("stt_failed", kind=kind, detail=detail[:300])
+            play_when_ready("deaf_credit" if kind == "out_of_credit" else "deaf")
+
+        def stt_recovered(was):
+            incidents.record("stt_ok", was=was)
+            play_when_ready("hearing")
+        stt.on_problem, stt.on_recovered = stt_problem, stt_recovered
+        if stt.problem:                            # it failed before anyone was listening
+            stt_problem(stt.problem, "at startup")
     # Dream mode (dream.py): once a day, after a few idle hours, a strong model reviews the logs
     # and writes dreams/<date>.md with proposed improvements. Nothing is applied automatically.
     loop.dreams = None

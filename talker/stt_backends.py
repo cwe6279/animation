@@ -28,7 +28,7 @@ import time
 import urllib.request
 import zipfile
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -306,6 +306,8 @@ class ElevenLabsSTT(STTBackend):
     """
     name = "elevenlabs"
     MODEL = "scribe_v2_realtime"
+    FATAL = ("quota_exceeded", "insufficient_funds", "unauthorized", "auth_error")
+    QUOTA_RETRY_S = 300.0          # out of credit: check every 5 minutes, recover on its own
 
     def __init__(self, sample_rate: int = 16000, silence_ms: Optional[int] = None,
                  api_key: Optional[str] = None, language: Optional[str] = None):
@@ -319,6 +321,10 @@ class ElevenLabsSTT(STTBackend):
         if not self.api_key:
             raise RuntimeError("ElevenLabsSTT needs ELEVENLABS_API_KEY in the environment.")
         self.speech_active = False
+        # "" when hearing works; "out_of_credit" or "failing" when sessions keep closing at once.
+        self.problem = ""
+        self.on_problem: Optional[Callable[[str, str], None]] = None     # (kind, detail), once
+        self.on_recovered: Optional[Callable[[str], None]] = None        # (previous kind), once
         self._results: "queue.Queue[Transcript]" = queue.Queue()
         self._audio: Optional[asyncio.Queue] = None
         self._loop = asyncio.new_event_loop()
@@ -348,12 +354,17 @@ class ElevenLabsSTT(STTBackend):
         import aiohttp
         backoff = 1.0
         while True:
+            # A session that closes before hearing anything is a failure, not a reconnect: the
+            # server says why in a message (quota_exceeded, auth_error...) and then closes. Treated
+            # as a clean reconnect, an out-of-credit account was retried every 1-2 s for 6 hours,
+            # 15,684 times, while she heard nothing and said nothing about it.
+            why, opened, heard = "", time.monotonic(), False
             try:
                 async with aiohttp.ClientSession() as http:
                     async with http.ws_connect(self._url(), headers={"xi-api-key": self.api_key},
                                                heartbeat=20) as ws:
-                        print("[stt] scribe realtime connected")
-                        backoff = 1.0
+                        if not self.problem:
+                            print("[stt] scribe realtime connected")
 
                         async def sender():
                             while True:
@@ -366,27 +377,59 @@ class ElevenLabsSTT(STTBackend):
                         try:
                             async for msg in ws:
                                 if msg.type != aiohttp.WSMsgType.TEXT:
+                                    why = why or f"closed {ws.close_code} {msg.extra or ''}".strip()
                                     break
                                 d = json.loads(msg.data)
-                                kind = d.get("message_type")
+                                kind = d.get("message_type") or ""
                                 text = (d.get("text") or "").strip()
                                 if kind == "partial_transcript":
                                     self.speech_active = bool(text)
                                     if text:
+                                        heard = True
                                         self._results.put(Transcript(text, False))
                                 elif kind == "committed_transcript":
                                     self.speech_active = False
                                     if text:
+                                        heard = True
                                         self._results.put(Transcript(text, True))
-                                elif kind and kind.endswith("error"):
-                                    print(f"[stt] scribe: {d}")
+                                elif kind in ("session_started",):
+                                    pass
+                                elif kind.endswith("error") or kind in self.FATAL:
+                                    why = f"{kind}: {d.get('error') or d.get('message') or ''}".strip()
+                                if heard and self.problem:
+                                    self._set_problem("", "")
                         finally:
                             task.cancel()
+                            if not why and ws.close_code is not None:
+                                why = f"closed {ws.close_code}"
             except Exception as e:
-                print(f"[stt] scribe connection lost ({e.__class__.__name__}: {str(e)[:120]}); "
-                      f"reconnecting in {backoff:.0f}s")
+                why = f"{e.__class__.__name__}: {str(e)[:120]}"
+            lived = time.monotonic() - opened
+            if heard or lived > 60:
+                backoff = 1.0                      # a working session: reconnect at once
+            if why and not heard and lived < 60:
+                kind = "out_of_credit" if any(k in why for k in ("quota", "insufficient", "credit")) else "failing"
+                if kind == "out_of_credit":
+                    backoff = max(backoff, self.QUOTA_RETRY_S)
+                self._set_problem(kind, why)
+                print(f"[stt] scribe failed ({why}); retrying in {backoff:.0f}s")
+            elif why:
+                print(f"[stt] scribe connection lost ({why}); reconnecting in {backoff:.0f}s")
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 15.0)
+            backoff = min(backoff * 2, self.QUOTA_RETRY_S if self.problem == "out_of_credit" else 60.0)
+
+    def _set_problem(self, kind: str, detail: str) -> None:
+        """Tell the voice loop once when hearing breaks, and once when it works again."""
+        if kind == self.problem:
+            return
+        was, self.problem = self.problem, kind
+        try:
+            if kind and self.on_problem:
+                self.on_problem(kind, detail)
+            elif not kind and was and self.on_recovered:
+                self.on_recovered(was)
+        except Exception as e:
+            print(f"[stt] problem report failed: {e}")
 
     def feed(self, pcm: bytes) -> Optional[Transcript]:
         if pcm and self._audio is not None:
