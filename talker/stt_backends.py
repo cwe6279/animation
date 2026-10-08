@@ -430,6 +430,11 @@ class ElevenLabsSTT(STTBackend):
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self.QUOTA_RETRY_S if self.problem == "out_of_credit" else 60.0)
 
+    def _queue_audio(self, pcm: bytes) -> None:
+        while self._audio.qsize() >= self.MAX_QUEUED:
+            self._audio.get_nowait()                     # drop the oldest, keep the latest
+        self._audio.put_nowait(pcm)
+
     def pause(self) -> None:
         """Close the connection and send nothing until resume() (sleep hours)."""
         def go():
@@ -457,9 +462,14 @@ class ElevenLabsSTT(STTBackend):
         except Exception as e:
             print(f"[stt] problem report failed: {e}")
 
+    MAX_QUEUED = 50               # ~5 s of 100 ms frames: enough to bridge a reconnect
+
     def feed(self, pcm: bytes) -> Optional[Transcript]:
-        if pcm and self._audio is not None:
-            self._loop.call_soon_threadsafe(self._audio.put_nowait, pcm)
+        # Only while connected, and never more than a few seconds: with the connection down
+        # (out of credit) nothing drains the queue, and 32 KB/s of mic audio piled up until
+        # the Pi ran out of memory and swap (278 MB in 3 hours) and everything stalled.
+        if pcm and self._audio is not None and self._ws is not None:
+            self._loop.call_soon_threadsafe(self._queue_audio, pcm)
         latest: Optional[Transcript] = None
         while not self._results.empty():
             t = self._results.get_nowait()

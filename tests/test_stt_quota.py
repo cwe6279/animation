@@ -101,3 +101,22 @@ def test_out_of_credit_is_reported_once_backs_off_and_recovers(monkeypatch):
     assert waits[0] >= 300 and waits[1] >= 300          # not every second: every five minutes
     assert recovered == ["out_of_credit"] and stt.problem == ""
     assert stt._results.get_nowait().text == "hello Clara"
+
+
+def test_mic_audio_never_piles_up_while_hearing_is_down():
+    # 32 KB/s queued with nothing draining it filled the Pi's memory and swap in 3 hours.
+    import queue
+    stt = stt_backends.ElevenLabsSTT.__new__(stt_backends.ElevenLabsSTT)
+    stt._results, stt._ws = queue.Queue(), None
+    stt._loop = asyncio.new_event_loop()
+    stt._audio = asyncio.Queue()
+    frame = b"\0" * 3200
+    for _ in range(500):
+        stt.feed(frame)                                  # disconnected: dropped
+    stt._loop.run_until_complete(asyncio.sleep(0))
+    assert stt._audio.qsize() == 0
+    stt._ws = object()                                   # connected, but the sender is stuck
+    for _ in range(500):
+        stt.feed(frame)
+    stt._loop.run_until_complete(asyncio.sleep(0))
+    assert stt._audio.qsize() == stt.MAX_QUEUED
