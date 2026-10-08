@@ -716,7 +716,9 @@ def always_speaks(reply):
         full = "".join(said)
         spoken = _re.sub(r"\{\{.*?\}\}|\[[^\]\n]{1,40}\]", "", full, flags=_re.S)
         if full.strip() and not _re.search(r"[A-Za-z0-9]", spoken):
-            yield " Noted."
+            # Say what the blocks do: "Noted." after a look or a clock check claimed a note.
+            kinds = set(_re.findall(r"\{\{\s*([a-z]+)", full))
+            yield " Noted." if kinds <= {"note"} else " On it." if "task" in kinds else " One moment."
     return wrapped
 
 
@@ -1254,7 +1256,8 @@ def main(argv=None) -> int:
         runner = ErrandRunner(agent_url, poll_s=args.errand_poll, sender=m.name,
                               timeout=args.agent_timeout)
         orch = Orchestrator(runner, planner=make_claude_planner(model=args.planner_model, can=m.errands_can),
-                            announce=runner.say_later, mode=args.errand_mode, on_change=on_goal_change)
+                            announce=runner.say_later, mode=args.errand_mode, on_change=on_goal_change,
+                            state_path=os.path.join(face_dir, "goals.json"))
         runner.on_done, runner.on_fail = orch.on_errand_done, orch.on_errand_failed
         runner.on_needs_input = orch.on_errand_needs_input
 
@@ -1276,6 +1279,12 @@ def main(argv=None) -> int:
         actions.register("deny", decision_handler(False))
     if getattr(app, "pipeline", None) is not None:
         app.pipeline.on_action = actions.dispatch
+
+        def on_broken_block(text):                 # never spoken; the person hears it failed
+            from . import incidents
+            print(f"[action] broken block, not spoken: {text[:200]}")
+            incidents.record("block_dropped", block=text[:400])
+        app.pipeline.on_broken_block = on_broken_block
 
     stt = None
     if not text_only:
@@ -1424,8 +1433,10 @@ def main(argv=None) -> int:
         loop.on_event = remember_you
     if runner is not None:
         runner.deliver = loop.announce       # a finished task is told when the room is quiet
-        for it in ledger.open_items():       # goals live in memory: say plainly that a restart cut them off
-            ledger.set_state(it["id"], "failed", summary="interrupted: the character restarted before it finished")
+        resumed = {g.id for g in orch.restore()} if orch is not None else set()
+        for it in ledger.open_items():       # what goals.json could not bring back: say plainly it was cut off
+            if it["id"] not in resumed:
+                ledger.set_state(it["id"], "failed", summary="interrupted: the character restarted before it finished")
         runner.start()
         loop.errands = runner
         print(f"[errands] on: {agent_url or '(no address yet)'}, polled every {args.errand_poll:.0f}s; "

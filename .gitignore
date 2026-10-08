@@ -67,6 +67,7 @@ calibration.json
 # An assistant's working memory (talker/memory_notes.py): your notes and tasks, not the project's
 faces/*/notes.md
 faces/*/tasks.md
+faces/*/goals.json
 
 # Settings changed on the control page (talker/local_settings.py): this machine's, not the project's
 settings.json

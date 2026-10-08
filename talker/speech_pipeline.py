@@ -60,8 +60,14 @@ class SpeechPipeline:
         self.lead = lead_seconds
         self.on_error = on_error or (lambda msg: print(f"[speech] {msg}"))
         # {{move nod}} / {{sfx creak}} / {{tool ...}} blocks in the text: stripped with the
-        # emotion tags and fired at the moment the words before them are spoken.
+        # emotion tags. Body language (timed_kinds) fires when the words before it are spoken;
+        # everything else (task, note, approve, look...) fires as soon as its sentence is parsed,
+        # so being talked over never cancels work. Clara lost tasks that way.
         self.on_action: Optional[Callable[[Action], None]] = None
+        self.timed_kinds = {"move", "sfx"}
+        # A block that did not parse: on_broken_block(text) is told, and this is spoken instead.
+        self.on_broken_block: Optional[Callable[[str], None]] = None
+        self.broken_block_line = "Sorry, I couldn't start that. Say it again?"
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -225,7 +231,17 @@ class SpeechPipeline:
                     return
                 s, sentence_actions = parse_actions(s)
                 for idx, act in sentence_actions:
-                    actions.append((words_in_text + idx, act))
+                    if act.kind in self.timed_kinds:
+                        actions.append((words_in_text + idx, act))
+                    else:
+                        self._fire(act)          # work starts now, and barge-in can't cancel it
+                if "{{" in s or "}}" in s:
+                    # The remains of a block that never closed or never opened: not spoken,
+                    # reported, and the person hears that it didn't happen.
+                    broken = s[s.find("{{"):] if "{{" in s else s
+                    s = s[:s.find("{{")] if "{{" in s else s.replace("}}", "")
+                    self._report_broken(broken.strip())
+                    s = (s + " " + self.broken_block_line).strip()
                 clean, voiced, sentence_tags = parse_tags(s)
                 for idx, emo in sentence_tags:
                     tags.append((words_in_text + idx, emo))
@@ -305,6 +321,15 @@ class SpeechPipeline:
     def _fire_at(self, when: float, act: Action) -> asyncio.TimerHandle:
         delay = max(0.0, when - self.audio.timeline_time())
         return self._loop.call_later(delay, self._fire, act)
+
+    def _report_broken(self, text: str) -> None:
+        try:
+            if self.on_broken_block is None:
+                print(f"[action] broken block, not spoken: {text[:200]}")
+            else:
+                self.on_broken_block(text)
+        except Exception as e:
+            print(f"[action] broken block report failed: {e}")
 
     def _fire(self, act: Action) -> None:
         try:

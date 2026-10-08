@@ -305,10 +305,9 @@ class SentenceSplitter:
 
     def flush(self) -> List[str]:
         out: List[str] = []
+        # A {{block}} the brain never closed stays in the tail: the speech pipeline drops it
+        # from the voice and says the action failed, rather than losing it silently.
         tail = (self._pending + " " + self._buf).strip()
-        if _inside_block(tail, len(tail)):
-            # A {{block}} the brain never closed: drop it rather than read it aloud.
-            tail = tail[:tail.rfind("{{")].strip()
         self._pending = ""
         self._buf = ""
         if tail:

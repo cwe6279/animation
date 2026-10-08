@@ -98,4 +98,50 @@ def test_a_block_holding_whole_sentences_is_never_spoken():
     spoken = " ".join(parse_actions(p)[0] for p in pieces)
     assert "Las Vegas" not in spoken and "{" not in spoken and "}" not in spoken
     assert "Got it." in spoken and "read the email?" in spoken
-    assert split_sentences("Sure. {{note never closed. Half a thought") == ["Sure."]
+    # an unclosed block reaches the pipeline whole, which drops it and says so (test below)
+    assert split_sentences("Sure. {{note never closed. Half a thought") == ["Sure. {{note never closed. Half a thought"]
+
+
+def test_work_blocks_fire_at_once_and_survive_being_talked_over():
+    # A task after 20 words was lost when the person spoke over her before word 20.
+    eng = NullAudioEngine(sample_rate=1000)
+    p = SpeechPipeline(eng, ScheduleReader(), FakeBackend(), lead_seconds=0.0)
+    fired = []
+    p.on_action = lambda a: fired.append(a.kind)
+    p.start()
+    try:
+        words = " ".join(["word"] * 20)
+        p.speak(f"{words}. {{{{task book the flight}}}} {{{{move nod}}}} done.")   # 0.2 s per word
+        assert wait_until(lambda: "task" in fired, timeout=1.0), fired       # long before word 20
+        p.interrupt()
+        time.sleep(0.5)
+    finally:
+        p.stop()
+    assert fired == ["task"]                         # the nod was body language for unspoken words
+
+
+def test_a_broken_block_is_not_spoken_and_she_says_it_failed():
+    eng = NullAudioEngine(sample_rate=1000)
+    p = SpeechPipeline(eng, ScheduleReader(), FakeBackend(), lead_seconds=0.0)
+    broken, fired = [], []
+    p.on_broken_block = broken.append
+    p.on_action = fired.append
+    p.start()
+    try:
+        p.speak("On it. {{task text the summary. Original request: cancel the contract")
+        assert wait_until(lambda: broken and p.backend.seen, timeout=4.0)
+        time.sleep(0.3)
+    finally:
+        p.stop()
+    said = " ".join(p.backend.seen)
+    assert "contract" not in said and "{{" not in said
+    assert "couldn't start that" in said and fired == []
+    assert broken[0].startswith("{{task text the summary")
+
+
+def test_a_blocks_only_reply_says_what_the_blocks_do():
+    from talker.voice_loop import always_speaks
+    say = lambda *chunks: "".join(always_speaks(lambda t: iter(chunks))("x"))
+    assert say("{{note birthday April 2}}").endswith("Noted.")
+    assert say("{{task book it}}").endswith("On it.")
+    assert say("{{look}}").endswith("One moment.") and say("{{tool clock}}").endswith("One moment.")
