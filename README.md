@@ -428,6 +428,16 @@ with `{{tool tasks}}`. The backend is any service that answers three small JSON 
 with `RELAY_ROUNDS=2` for a second pass that critiques and improves the first. How to adapt
 your own harness: [tools/AGENT_RELAY.md](tools/AGENT_RELAY.md).
 
+**Away from home** the agent is a network away, so put both machines on a
+[Tailscale](https://tailscale.com) tailnet: no router changes, nothing exposed to the
+internet, and one address that resolves at home *and* on hotel wifi, so there is nothing to
+switch when a trip starts. Point `AGENT_RELAY_URL` at the tailnet name, set
+`AGENT_RELAY_TOKEN` so the relay can tell her apart from a stranger, and raise
+`--agent-timeout` (10 s) if the tailnet path is relayed rather than direct. Nothing is lost
+when the agent is out of reach: the task waits, and she says so once rather than appearing to
+ignore you, then says again when it goes over. Full steps in
+[tools/AGENT_RELAY.md](tools/AGENT_RELAY.md).
+
 **Dictation** holds her reply until you have really stopped. Normally the endpointer ends
 your turn 600 ms after you pause, which is right for conversation and wrong for dictating
 a paragraph. Say one of the face's `dictation_words` ("take this down"), press `Tab` in the

@@ -1005,6 +1005,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "the person for real decisions; ask: every action the agent wants to take is put to the person")
     p.add_argument("--errand-poll", type=float, default=5.0,
                    help="Seconds between polls of the backend agent for finished tasks (default 5)")
+    p.add_argument("--agent-timeout", type=float, default=10.0,
+                   help="How long each request to the backend agent may take before it counts as "
+                        "unreachable (default 10 s). Raise it when the agent is across a VPN or a "
+                        "slow network: on a LAN nothing waits this long anyway")
     p.add_argument("--dictation-pause", type=float, default=4.0,
                    help="Dictation mode: seconds of quiet before everything you dictated is answered as one "
                         "turn (default 4). Tab in the window or a face's dictation_words switch it on")
@@ -1247,7 +1251,8 @@ def main(argv=None) -> int:
                 ledger.add(g.id, g.text)
             ledger.set_state(g.id, ledger_state.get(g.state, "in progress"), summary=g.progress() or None)
 
-        runner = ErrandRunner(agent_url, poll_s=args.errand_poll, sender=m.name)
+        runner = ErrandRunner(agent_url, poll_s=args.errand_poll, sender=m.name,
+                              timeout=args.agent_timeout)
         orch = Orchestrator(runner, planner=make_claude_planner(model=args.planner_model, can=m.errands_can),
                             announce=runner.say_later, mode=args.errand_mode, on_change=on_goal_change)
         runner.on_done, runner.on_fail = orch.on_errand_done, orch.on_errand_failed
@@ -1620,6 +1625,11 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
         panel.tunable("errand_poll_s", lambda: runner.poll_s, lambda v: setattr(runner, "poll_s", float(v)),
                       "Seconds between polls of the backend agent for finished tasks.",
                       kind="float", unit="s", lo=1, hi=120, flag="--errand-poll")
+        panel.tunable("agent_timeout_s", lambda: runner.timeout,
+                      lambda v: setattr(runner, "timeout", float(v)),
+                      "How long a request to the backend agent may take before it counts as "
+                      "unreachable. Raise it over a VPN or a slow network.",
+                      kind="float", unit="s", lo=2, hi=120, flag="--agent-timeout")
         from . import local_settings
         from .errands import AgentControl
         panel.agent = AgentControl(runner, can=manifest.errands_can, source=agent_source, orch=orch,
