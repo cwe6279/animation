@@ -943,6 +943,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vision-dormant-interval", type=float, default=300.0,
                    help="Seconds between camera looks while dormant (default 300); sound still triggers a look, "
                         "at most once a minute")
+    p.add_argument("--dream-model", default="claude-opus-5-5",
+                   help="Model for the nightly self-review (dream.py): claude-opus-5-5, or claude-fable-5-1 for the deepest")
+    p.add_argument("--dream-idle-hours", type=float, default=3.0,
+                   help="Dream once a day after this many hours dormant with no conversation (default 3)")
+    p.add_argument("--no-dream", action="store_true", help="No nightly self-review")
     p.add_argument("--planner-model", default="claude-sonnet-5",
                    help="Model that plans agent goals into steps (default claude-sonnet-5)")
     p.add_argument("--vision-change", type=float, default=0.035,
@@ -1338,6 +1343,28 @@ def main(argv=None) -> int:
     net = NetWatch(on_offline=net_offline, on_online=net_online)
     net.start()
     loop.net = net
+    # Dream mode (dream.py): once a day, after a few idle hours, a strong model reviews the logs
+    # and writes dreams/<date>.md with proposed improvements. Nothing is applied automatically.
+    loop.dreams = None
+    if not args.no_dream and not text_only:
+        from .dream import DreamScheduler, dream as run_dream
+        talk = {"at": time.time()}
+        prev_talk_event = loop.on_event
+
+        def note_talk(kind, text):
+            if kind in ("you", "bot"):
+                talk["at"] = time.time()
+            prev_talk_event(kind, text)
+        loop.on_event = note_talk
+        extra = {"calibration.json": os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "calibration.json"),
+                 "startup flags (clara-run)": os.path.expanduser("~/.local/bin/clara-run")}
+        loop.dreams = DreamScheduler(
+            run=lambda: run_dream(face_dir=face_dir or "", model=args.dream_model, extra_files=extra),
+            is_dormant=lambda: bool(loop.wake_words) and not loop.engaged,
+            last_activity=lambda: talk["at"], idle_hours=args.dream_idle_hours,
+            online=lambda: net.online)
+        loop.dreams.start()
+        print(f"[dream] on: {args.dream_model}, once a day after {args.dream_idle_hours:g} h idle; reports in dreams/")
     prev_turn_event = loop.on_event
 
     def note_slow_turns(kind, text):
@@ -1497,6 +1524,8 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
                             "skipped": watcher.stats.get("skipped_unchanged", 0),
                             "latest": (n.changes or n.notes) if n else ""}
         st["dictation"] = loop.dictating
+        if getattr(loop, "dreams", None) is not None:
+            st["dreaming"] = loop.dreams.dreaming
         st["brain"] = getattr(loop, "brain", None) or {"ok": True}
         if getattr(loop, "net", None) is not None:
             st["online"] = loop.net.online
@@ -1633,6 +1662,11 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
         panel.action("interrupt", lambda t: (pipeline.interrupt(), "stopped")[1], "Stop speaking now.")
     panel.action("say as visitor", lambda t: (loop.on_user_text(t), "sent")[1] if t.strip() else "type something first",
                  "Send this line to the brain as if a visitor said it.", takes_text=True)
+    if getattr(loop, "dreams", None) is not None:
+        panel.action("dream now", lambda t: loop.dreams.dream_now(),
+                     "Review the logs now and write a report with proposed improvements (Dreams tab). "
+                     "Normally happens once a day after a few idle hours.")
+        panel.dreams_dir = __import__("talker.dream", fromlist=["DREAMS"]).DREAMS
     panel.action("go dormant", lambda t: (loop.disengage("panel"), "dormant")[1], "Wake mode: stop answering until a wake word.")
     if runner is not None:
         panel.action("task", lambda t: f"queued {runner.submit(t).id}" if t.strip() else "type the task first",
