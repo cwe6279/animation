@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import gc
 import os
 import queue
 import re
@@ -115,6 +116,7 @@ class VoiceLoop:
         self._lock = threading.Lock()
         self._thinking = False
         self._last_busy = 0.0
+        self._reply_garbage = False    # a reply ended: collect its connection's cycles once idle
         self.on_reply_start: Callable[[], None] = lambda: None   # e.g. hush the ambience
         self._partial = ""
         self.turns = 0
@@ -177,6 +179,7 @@ class VoiceLoop:
         if busy:
             self._last_busy = now
             self._spoke_at = time.monotonic()
+            self._reply_garbage = True
             if not self.barge_in or self._thinking:
                 self.stt.reset()          # drop echo; nothing to transcribe
                 self._barge_since = None
@@ -226,6 +229,13 @@ class VoiceLoop:
             self._gated = False
         self._barge_since = None
         self._echo_started = None
+        if self._reply_garbage:
+            # Each reply's TTS connection leaves aiohttp/TLS objects in reference cycles that
+            # hold OpenSSL memory the cycle collector does not count; free them once she is
+            # done talking, when a pause cannot stutter her audio. (stt_backends does the same
+            # after every reconnect.)
+            self._reply_garbage = False
+            gc.collect()
         if now - self._last_busy < self.GRACE_AFTER_SPEECH:
             self.stt.reset()
             return
@@ -1058,6 +1068,8 @@ def main(argv=None) -> int:
     load_dotenv()
     from .session_log import start_session_log
     log_path = start_session_log("voice")
+    from .memtrace import start_from_env
+    start_from_env()
     p = build_parser()
     args = p.parse_args(argv)
     if args.profile == "pi":

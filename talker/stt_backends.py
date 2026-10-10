@@ -21,6 +21,7 @@ Both expose `speech_active` so the loop can interrupt playback on barge-in.
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import queue
@@ -414,6 +415,11 @@ class ElevenLabsSTT(STTBackend):
             except Exception as e:
                 why = f"{e.__class__.__name__}: {str(e)[:120]}"
             self._ws = None
+            # A closed session leaves its aiohttp/TLS objects in reference cycles (~78 objects).
+            # The cycle collector counts objects, not bytes, so it rarely gets to them, and each
+            # holds OpenSSL buffers outside Python: a reconnect every minute or so grew the
+            # process ~37 MB/hour until a Pi Zero was deep in swap. Free them now.
+            gc.collect()
             if not self._awake.is_set():
                 continue                                 # closed for sleep, not a failure
             lived = time.monotonic() - opened
