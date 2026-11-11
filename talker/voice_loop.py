@@ -30,7 +30,7 @@ import re
 import sys
 import threading
 import time
-from typing import Callable, Iterable, Iterator, List, Optional, Tuple
+from typing import Callable, Iterable, Iterator, List, Optional, Tuple, Any
 
 from .actions import strip_actions
 from .phoneme_scheduler import strip_tags
@@ -124,6 +124,9 @@ class VoiceLoop:
         # starts talking so the note is fresh when the transcript lands.
         self.vision = None
         self.add_context: Callable[[str], None] = lambda text: None   # wired to the brain
+        # (regex, handler(match)) pairs tried on each utterance before the brain sees it:
+        # a match is handled by the handler alone, silently unless it speaks itself
+        self.quick_commands: List[Tuple[Any, Callable[[Any], None]]] = []
         self._was_speaking = False
         self._vision_ticket: Optional[int] = None
         self._last_heard = 0.0         # last time a partial transcript arrived (someone is talking)
@@ -430,6 +433,16 @@ class VoiceLoop:
         self._start_turn(text)
 
     def _start_turn(self, text: str) -> None:
+        # quick commands: handled here, in full, without a trip through the brain
+        for pattern, handler in self.quick_commands:
+            m = pattern.match(text.strip())
+            if m:
+                self.on_event("you", text)
+                try:
+                    handler(m)
+                except Exception as e:
+                    self.on_event("error", f"quick command: {e}")
+                return
         with self._lock:
             if self._thinking:
                 return
@@ -1589,6 +1602,13 @@ def _wire_satellite(server, audio, loop, app) -> None:
     elif callable(add_context):
         server.on_device_status = lambda line: add_context(f"Your board, which carries your face, voice "
                                                            f"and ears: {line}.")
+    # "look left" and the like go straight to the board, no brain: an orientation test
+    # for the face and the IMU, and later a cheap stage direction.
+    import re as _re
+    look_re = _re.compile(r"^(?:(?:hey|hi)[, ]+)?(?:clara[, ]+)?(?:look|eyes|glance) ?(?:to the |to your )?"
+                          r"(left|right|up|down|ahead|forward|straight|at me|here)[.!? ]*$", _re.I)
+    look_words = {"forward": "ahead", "straight": "ahead", "at me": "ahead", "here": "ahead"}
+    loop.quick_commands.append((look_re, lambda m: server.look(look_words.get(m.group(1).lower(), m.group(1).lower()))))
     orig_event = loop.on_event
 
     def on_event(kind, text):

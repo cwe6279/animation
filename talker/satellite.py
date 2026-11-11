@@ -441,6 +441,10 @@ class SatelliteServer:
             return
         self._loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._send_json(msg)))
 
+    def look(self, where: str, hold_ms: int = 2500) -> None:
+        """Point her gaze: left, right, up, down or ahead (the viewer's left and right)."""
+        self.send_json({"type": "face", "look": where, "hold_ms": hold_ms})
+
     def send_stt(self, text: str) -> None:
         self.send_json({"type": "stt", "text": text})
 

@@ -365,3 +365,19 @@ def test_barge_in_waits_until_the_echo_guard_has_something_to_judge():
     for _ in range(15):                                  # 900 ms in: it can, and it says a person
         t += 0.02; clk.t = t; loop._process(loud, t_in=t)
     assert spk.interrupts == 1
+
+
+def test_quick_command_bypasses_the_brain():
+    """A matching utterance is handled by its handler alone; the brain never sees it."""
+    import re
+    from talker.voice_loop import VoiceLoop
+    asked, handled = [], []
+    loop = VoiceLoop.__new__(VoiceLoop)
+    loop.quick_commands = [(re.compile(r"^look (left|right)$", re.I), lambda m: handled.append(m.group(1)))]
+    loop.on_event = lambda k, t: None
+    loop._lock = __import__("threading").Lock()
+    loop._thinking = False
+    loop.turns = loop._session_turns = 0
+    loop._answer = lambda text: asked.append(text)
+    loop._start_turn("Look left")
+    assert handled == ["left"] and asked == [] and loop._thinking is False
