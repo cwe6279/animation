@@ -207,6 +207,19 @@ Her eyes stay shut from power-on until the wake word is actually listening (Wi-F
 version check, loading the model), then open once: a face with open eyes means "say
 Clara".
 
+Touch (fork 2.5.117): the panel's touch controller feeds the face. A tap is a glance at the
+finger and a "Hm?"; a hold past 350 ms is patience and an "Mmm"; a rub or three quick taps is
+a tickle; a two-second hold closes her eyes and sleeps the panel, and a tap, the wake word or
+USB wakes her. The reactions are a temperament: `CLARA_TOUCH_COMPOSED` (default, Clara: the
+tickle is a half-lidded, faintly annoyed look up) or playful (wide eyes, a contented squint,
+a ha-ha with a giggle). The three clips are in her voice, made with ElevenLabs v3 and its
+audio tags, trimmed, and encoded as 48 kHz mono Opus in OGG (`-frame_duration 60`) into
+`main/assets/common/`, which the build embeds and names (`Lang::Sounds::OGG_HM`). They play
+from the board itself, only while idle and at most once per 8 s each. A tap while the
+panel sleeps on battery hands the power-save timer a wake, so the idle countdown restarts
+rather than being bypassed. Next: the board opens the channel on a touch and sends one
+sampled event, so the brain can react in words as well ("Event: ..."), never a stream.
+
 ## What is next
 
 - The pupil does not dilate and the eyes do not react to emotion beyond a small shift.
