@@ -23,8 +23,9 @@ so a character file can use both.
 
 Filled once, at launch, not per turn: the system prompt is cached by the brain
 and rewriting it every turn would throw that cache away, costing latency on
-every reply. A process left running past midnight keeps the date it started
-with, so restart a long-lived kiosk daily, or give the character a clock tool.
+every reply. A process left running past midnight would keep the date it
+started with, so the voice loop also hands the brain the current clock with
+each turn, as a context note (clock_note below), which leaves the cache alone.
 """
 
 from __future__ import annotations
@@ -60,6 +61,12 @@ def builtin_facts(now: Optional[datetime] = None) -> Dict[str, str]:
         "timezone": now.tzname() or "local time",
         "utc_offset": f"UTC{offset[:3]}:{offset[3:]}",
     }
+
+
+def clock_note(now: Optional[datetime] = None) -> str:
+    """One line for the brain's context notes: the clock right now, in the launch format."""
+    f = builtin_facts(now)
+    return f"the clock says {f['datetime']} {f['timezone']}"
 
 
 def facts(extra: Optional[Dict[str, str]] = None, now: Optional[datetime] = None) -> Dict[str, str]:

@@ -684,6 +684,22 @@ def handoff_brief(reply):
     return wrapped
 
 
+def with_clock(reply, add_context):
+    """Hand the brain the current clock with each turn, as a context note, whenever the
+    minute has changed since the last one: the prompt's clock is from launch and a process
+    that runs for days would otherwise answer "what day is it" with the day it started."""
+    from .launch_facts import clock_note
+    last = [""]
+
+    def wrapped(text, *a, **k):
+        note = clock_note()
+        if note != last[0]:
+            last[0] = note
+            add_context(note)
+        return reply(text, *a, **k)
+    return wrapped
+
+
 def always_speaks(reply):
     """A reply made only of {{blocks}} and [tags] is silence to the listener: add a word."""
     import re as _re
@@ -1360,7 +1376,7 @@ def main(argv=None) -> int:
 
     sleep_words = ([w for w in args.sleep_word.split(",")] if args.sleep_word
                    else (m.sleep_words if m.sleep_words else None))
-    loop = VoiceLoop(stt, always_speaks(handoff_brief(chat.reply)), app, barge_in=args.barge_in, wake_words=wake_words,
+    loop = VoiceLoop(stt, always_speaks(handoff_brief(with_clock(chat.reply, chat.add_context))), app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
     loop.vision = watcher
