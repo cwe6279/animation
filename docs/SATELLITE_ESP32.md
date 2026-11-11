@@ -227,9 +227,11 @@ silent; her tickle line is a throat-clear and "Let's keep it professional.". A t
 panel sleeps on battery hands the power-save timer a wake, so the idle countdown restarts
 rather than being bypassed.
 
-Motion (fork 2.5.125): the QMI8658 IMU is read on its own task at 50 Hz
+Motion (fork 2.5.125): the QMI8658 IMU is read on its own task at 25 Hz (50 Hz made the
+shared I2C bus time out under the power chip's button poll, which aborted the board; the
+common I2C helpers now warn and retry instead of aborting)
 (`clara_motion.cc`). Gravity is low-passed out; what is left is motion. From the two it decides
-picked up (moving after being still), set down (still again for 1.5 s), shaken (eight samples
+picked up (moving after being still), set down (still again for 1.5 s), shaken (five samples
 over 0.9 g within a second) and the orientation (upright, tilted past 35 degrees, face up, face
 down, upside down, each held 0.6 s before it counts). The face reacts at once: a blink and a
 glance up with "Hm?" when picked up, a blink when set down, the tickle look and a throat-clear
