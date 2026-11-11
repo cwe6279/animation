@@ -225,8 +225,28 @@ paused for 3.5 s around the clip: the first time she said "let's keep it profess
 detector took her own voice for her name and opened a channel. Composed Clara's hold is
 silent; her tickle line is a throat-clear and "Let's keep it professional.". A tap while the
 panel sleeps on battery hands the power-save timer a wake, so the idle countdown restarts
-rather than being bypassed. Next: the board opens the channel on a touch and sends one
-sampled event, so the brain can react in words as well ("Event: ..."), never a stream.
+rather than being bypassed.
+
+Motion (fork 2.5.125): the QMI8658 IMU is read on its own task at 50 Hz
+(`clara_motion.cc`). Gravity is low-passed out; what is left is motion. From the two it decides
+picked up (moving after being still), set down (still again for 1.5 s), shaken (eight samples
+over 0.9 g within a second) and the orientation (upright, tilted past 35 degrees, face up, face
+down, upside down, each held 0.6 s before it counts). The face reacts at once: a blink and a
+glance up with "Hm?" when picked up, a blink when set down, the tickle look and a throat-clear
+"Gently, please." when shaken (playful: wide, swimming eyes and "Whoa!"), eyes shut while she
+lies face down, and the gaze drifts toward the side that went up while she is tilted. Being
+picked up wakes her from a hand-made sleep and from the panel sleep on battery. The axes were
+mapped with a tilt test (the log prints the pose every 10 s): standing, the chip's +x is up;
+on her back, its -z is.
+
+Events to the brain: the board also tells the host, with `{"type":"event","kind":"shaken",
+"text":"shaken"}`, opening the channel first if it is closed and she is idle. One event per
+kind, then nothing of that kind for `CLARA_MOTION_COOLDOWN_S` (20 s) and nothing at all for
+5 s: a sample, not a stream. "Upright again" is never sent. The host turns it into an event
+prompt ("you were just picked up; your board is your body") through `announce`, which drops
+it if she is busy talking or listening, since the board already answered in kind. If the brain
+says nothing, the channel closes after the usual 40 s. The first run produced "Whoa, easy
+there, I'm not a snow globe." Both can be turned off: `CLARA_MOTION_EVENTS`.
 
 ## What is next
 

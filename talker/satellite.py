@@ -393,6 +393,12 @@ class SatelliteAudioEngine(BaseAudioEngine):
     def device_abort(self, reason: str) -> None:
         self.on_abort()
 
+    def device_event(self) -> None:
+        """The board opened the channel to report an event: if nothing comes of it, close as
+        after a wake word with nothing said."""
+        if self._idle_deadline is None:
+            self._idle_deadline = self._clock() + self.idle_close_s
+
     def device_closed(self) -> None:
         self.listening = False
         self.speaking = False
@@ -422,6 +428,8 @@ class SatelliteServer:
         self.device: Dict[str, str] = {}
         self.device_status: Dict[str, object] = {}  # battery, network, chip, from the board's status tool
         self.on_device_status: Optional[Callable[[str], None]] = None   # one line, each time it connects
+        # the board was picked up, shaken, tilted: (kind, phrase), already sampled by the board
+        self.on_board_event: Optional[Callable[[str, str], None]] = None
         self._ws = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -590,6 +598,13 @@ class SatelliteServer:
                 eng.device_abort(data.get("reason", ""))
         elif kind == "mcp":
             self._on_mcp(data.get("payload") or {})
+        elif kind == "event":
+            k, text = str(data.get("kind", "")), str(data.get("text") or data.get("kind", ""))
+            self.on_event("satellite", f"board event: {text}")
+            if eng is not None:
+                eng.device_event()
+            if self.on_board_event is not None:
+                self.on_board_event(k, text)
         else:
             self.on_event("satellite", f"device sent {kind}: {json.dumps(data)[:120]}")
 

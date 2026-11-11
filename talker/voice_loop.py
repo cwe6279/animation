@@ -1630,6 +1630,13 @@ def _wire_satellite(server, audio, loop, app, body=None) -> None:
                 server.look(d)
         threading.Thread(target=run, daemon=True, name="look").start()
     loop.quick_commands.append((LookRequest(), do_looks))
+    # The board's IMU: picked up, set down, shaken, tilted. The board reacts on its own at
+    # once (a glance, a clip) and sends one event per kind with a cooldown; here it becomes
+    # an event prompt, dropped if she is busy (the board already answered in kind).
+    def on_board_event(kind, text):
+        if not loop.announce(f"you were just {text}; your board is your body, so this happened to you"):
+            loop.on_event("satellite", f"board event dropped (busy): {text}")
+    server.on_board_event = on_board_event
     # the brain's own {{move look_left}} and friends point the board's gaze as well
     if body is not None:
         plain_move = body.move

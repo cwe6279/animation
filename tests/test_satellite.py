@@ -199,3 +199,24 @@ def test_speaker_shaper_cuts_bass_lifts_speech_and_limits():
     halves = sh.process(t[:len(t) // 2 + 2]) + sh.process(t[len(t) // 2 + 2:])
     assert halves == whole
     assert not SpeakerShaper(rate, hpf_hz=0.0, boost_db=0.0).enabled
+
+
+def test_board_event_reaches_the_loop_and_arms_the_idle_close():
+    import asyncio
+    from talker import satellite as sat
+    server = sat.SatelliteServer.__new__(sat.SatelliteServer)
+    events = []
+    server.on_event = lambda kind, text: events.append((kind, text))
+    got = []
+    server.on_board_event = lambda kind, text: got.append((kind, text))
+
+    class Eng:
+        _idle_deadline = None
+        idle_close_s = 40.0
+        _clock = staticmethod(lambda: 100.0)
+        device_event = sat.SatelliteAudioEngine.device_event
+    server.engine = Eng()
+    asyncio.run(server._on_json(None, {"type": "event", "kind": "picked_up", "text": "picked up"}))
+    assert got == [("picked_up", "picked up")]
+    assert ("satellite", "board event: picked up") in events
+    assert server.engine._idle_deadline == 140.0
