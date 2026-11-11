@@ -172,12 +172,20 @@ Three timing rules the board imposes, each learned the hard way:
 
 Wake word: `python scripts/build.py --wake-word custom waveshare/esp32-s3-touch-amoled-1.8-v2`
 builds with the English speech-command model listening for `CONFIG_CUSTOM_WAKE_WORD`
-("clara" since 2.5.108, "hi clara" before; set in sdkconfig.defaults; `--wake-word custom`
-is a fork addition to the build script). The assets partition must be flashed once
-(0x800000), since the model lives there, and again whenever the phrase changes: the board reads
-the phrase from the assets config, not from the app. A
-one-word wake trips more easily; `CONFIG_CUSTOM_WAKE_WORD_THRESHOLD` (20) goes up to make
-it stricter. The stock detector only knows "Hi ESP".
+(set in sdkconfig.defaults; `--wake-word custom` is a fork addition to the build script).
+The assets partition must be flashed once (0x800000), since the model lives there, and
+again whenever the phrase or threshold changes: the board reads both from the assets
+config, not from the app. The stock detector only knows "Hi ESP".
+
+The speech-command model is weaker than a trained wake-word model, and a single two-syllable
+word is the hard case: a power-on log showed clear "Clara"s scoring 0.21 and 0.30 against a
+0.20 threshold, and the first two of three were missed. So since 2.5.111 the option holds
+several phrases separated by `;` (a fork addition to `build_default_assets.py`): spelling
+variants that cover how the name is said ("clara;klara;clarra;claira") plus "hey clara" and
+"hi clara", which a longer phrase makes reliable; any of them wakes her and all show as
+"Clara". `CONFIG_CUSTOM_WAKE_WORD_THRESHOLD` is 15 (0.15; up for fewer false wakes), and the
+model's recognition window is 8 s instead of 3 (it forgets what it heard at each reset, so a
+word said across one was lost).
 
 Battery behaviour (fork 2.5.109, only while discharging; on USB nothing below happens):
 after `CONFIG_CLARA_SLEEP_SECONDS` (60) of idle the face stops and the panel is put to
