@@ -59,6 +59,24 @@ step with the tools your harness actually exposes on the `/tasks` path.
 Anything else you return is ignored. Anything that raises or times out (5 s) is treated as
 "backend unreachable" and retried next cycle; nothing is lost.
 
+## A harness that speaks the contract itself
+
+fuse-agents does (`talker_tasks.py` on its `web_server.py`, protocol 2: approvals, `needs_input`
+questions, answers, `error_kind`, optional `RELAY_TOKEN`). No shim is needed; start it where the
+tools and credentials live and point `AGENT_RELAY_URL` at it. As run on 2026-11-10, with the
+model on a llama.cpp box on the LAN:
+
+```bash
+cd ~/Projects/fuse-agents
+LLAMACPP_BASE_URL=http://192.168.68.81:8091/v1 FORCE_LOCAL_MODEL=llamacpp_gemma4 \
+LLAMACPP_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}' \
+.venv/bin/python web_server.py --config config/local-llamacpp/agent_config.yaml --port 8080
+```
+
+Two things learned testing it: a `POST /tasks` with an id the harness already has is answered
+idempotently with the old task (so test ids must be fresh), and a thinking model must be told
+not to think or an errand's token budget goes to reasoning.
+
 ## The shim: `tools/agent_relay.py`
 
 A stdlib-only HTTP server that implements the contract by running a command per task:

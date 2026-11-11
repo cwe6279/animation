@@ -313,6 +313,9 @@ first audio). Options:
   forced off so the first token is quick (well under a second on a desktop GPU, after a one-time load).
   `--list-models` shows what the server has; `--ollama-host` or `OLLAMA_HOST` points at a remote server.
 - `--llm openai` — OpenAI as the brain, for side-by-side comparison; `--model` picks the model
+- `--llm openai --llm-base-url http://host:8091/v1 --model <served name>` — any server speaking the OpenAI
+  API as the brain, e.g. llama.cpp on the LAN; the key is not checked, and a thinking model is asked
+  not to think (`--llm-think` lets it), since otherwise it spends the reply budget reasoning and says nothing
 - `--stt openai` — OpenAI batch speech-to-text, for comparison
 
 The pieces are independent: `VoiceLoop` (voice_loop.py) only needs an STT object,
@@ -378,6 +381,16 @@ Cloud stages cost the same on a Pi as on a desktop.
 with the control page when the Pi boots; copy it to `/etc/systemd/system/`, edit the user, path
 and flags, then `sudo systemctl enable --now talker`. `journalctl -u talker -f` shows the log.
 
+### A satellite: an ESP32-S3 board as ears, voice and face
+
+```
+python voice_loop.py --face clara --satellite --tts piper
+```
+
+The board runs the open xiaozhi-esp32 firmware; talker serves its protocol (Opus both
+ways, a few JSON events) on port 8030 and the whole loop, memory and errands included,
+keeps running here. Board, cable lessons, build and flash: `docs/SATELLITE_ESP32.md`.
+
 ### Wake mode (kiosks: wait to be called by name)
 
 ```bash
@@ -426,7 +439,9 @@ the next time the room is quiet, as a turn nobody asked for, and can read the le
 with `{{tool tasks}}`. The backend is any service that answers three small JSON endpoints;
 `tools/agent_relay.py` is one, wrapping any command-line harness (`claude -p` by default),
 with `RELAY_ROUNDS=2` for a second pass that critiques and improves the first. How to adapt
-your own harness: [tools/AGENT_RELAY.md](tools/AGENT_RELAY.md).
+your own harness: [tools/AGENT_RELAY.md](tools/AGENT_RELAY.md). The fuse-agents harness answers the
+contract itself (its `talker_tasks.py`, protocol 2 with approvals and questions), so it needs no relay:
+run its `web_server.py` on port 8080 and point `AGENT_RELAY_URL` at that machine.
 
 **Away from home** the agent is a network away, so put both machines on a
 [Tailscale](https://tailscale.com) tailnet: no router changes, nothing exposed to the

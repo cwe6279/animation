@@ -111,3 +111,14 @@ driver with the same shape as the audio and vision pieces:
 
 - **Setup hotspot.** When the Pi has no network, bring up its own Wi-Fi access point with a captive
   page so the control page's Wi-Fi tab can join the venue network without a keyboard.
+
+## Satellite: the ESP32-S3 AMOLED board (started 2026-11-10)
+- Working: the board runs xiaozhi-esp32 and talker serves it (`--satellite`, docs/SATELLITE_ESP32.md).
+  Clara's face on the AMOLED is a fork of the firmware (branch `clara-face` in ~/esp/xiaozhi-esp32):
+  her glow eyes and six mouths, lip sync riding on the audio frames.
+- Running her on the board alone is possible but would be a different project, since everything
+  she does on the host (memory, task ledger, errands, dictation, vision, control page) would need
+  rewriting in C++. The plan is the Pi Zero 2 W as the permanent host instead.
+- Next: the live textured eye on the board; a `--no-window` flag for a headless host; waking the
+  board for announcements (the protocol is device-initiated, so a firmware change); a custom
+  wake word instead of "Hi ESP".

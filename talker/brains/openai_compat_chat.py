@@ -38,9 +38,14 @@ class OpenAICompatChat:
     def __init__(self, model: str, api_key: Optional[str], base_url: Optional[str] = None,
                  character: Optional[str] = None, max_history: int = 20, client=None,
                  temperature: float = 0.8, name: str = "openai", can_see: bool = False,
-                 wake_mode: bool = False, extra_rules: str = ""):
+                 wake_mode: bool = False, extra_rules: str = "", think: bool = True):
         self.name = name
         self.model, self.speed = self.split_speed(model)
+        # A local server (llama.cpp) serving a thinking model would spend the whole reply
+        # budget reasoning and say nothing; ask it not to. OpenAI itself rejects unknown
+        # fields, so this only goes to servers reached through a base_url.
+        self.extra_body = ({"chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "none"}
+                           if base_url and not think else {})
         self.max_history = max_history
         self.temperature = temperature
         self.system = (load_system_prompt() + VOICE_RULES + (VISION_RULES if can_see else "")
@@ -59,8 +64,13 @@ class OpenAICompatChat:
         self.client = client
 
     @classmethod
-    def openai(cls, model: Optional[str] = None, character: Optional[str] = None, **kw):
-        return cls(model or OPENAI_DEFAULT_MODEL, os.environ.get("OPENAI_API_KEY"), None,
+    def openai(cls, model: Optional[str] = None, character: Optional[str] = None,
+               base_url: Optional[str] = None, **kw):
+        """OpenAI, or any server speaking its API when base_url (or OPENAI_BASE_URL) points
+        at one, e.g. llama.cpp at http://host:8091/v1; such servers ignore the key."""
+        base_url = base_url or os.environ.get("OPENAI_BASE_URL") or None
+        key = os.environ.get("OPENAI_API_KEY") or ("local" if base_url else None)
+        return cls(model or OPENAI_DEFAULT_MODEL, key, base_url,
                    character=character, name="openai", **kw)
 
     def add_context(self, text: str) -> None:
@@ -89,7 +99,7 @@ class OpenAICompatChat:
         r = self.client.chat.completions.create(
             model=self.model, max_tokens=max_tokens, temperature=0.3,
             messages=[{"role": "system", "content": self.system}] + self.messages
-                     + [{"role": "user", "content": instruction}])
+                     + [{"role": "user", "content": instruction}], extra_body=self.extra_body or None)
         return (r.choices[0].message.content or "").strip()
 
     def _stream(self, speed: Optional[str]):
@@ -100,6 +110,7 @@ class OpenAICompatChat:
             max_tokens=256,
             temperature=self.temperature,
             stream=True,
+            extra_body=self.extra_body or None,
             **extra,
         )
 

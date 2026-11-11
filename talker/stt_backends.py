@@ -81,6 +81,29 @@ class STTBackend:
 # ─────────────────────────────────────────────────────
 # ENERGY ENDPOINTER  (shared by Whisper; simple and predictable)
 # ─────────────────────────────────────────────────────
+
+def normalize_level(samples: np.ndarray, peak: float = 0.7, floor: float = 0.02) -> np.ndarray:
+    """Bring an utterance up to a fixed peak so quiet speech (a whisper, a distant
+    voice, a small satellite mic) looks like speech to the voice detector and to
+    the recognizer. Near-silence is left alone: amplifying it only makes noise."""
+    if samples.size == 0:
+        return samples
+    top = float(np.abs(samples).max())
+    if top < floor or top >= peak:
+        return samples
+    return samples * (peak / top)
+
+
+def _save_wav(path: str, pcm: bytes, rate: int) -> None:
+    import wave
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm)
+    except OSError as e:
+        print(f"[stt] could not save {path}: {e}")
+
+
 class EnergyEndpointer:
     """
     Speech start/end from signal energy, robust to room noise:
@@ -247,15 +270,19 @@ class WhisperSTT(STTBackend):
     name = "whisper"
 
     def __init__(self, model_size: str = "base.en", sample_rate: int = 16000,
-                 device: str = "cpu", compute_type: str = "int8", silence_ms: int = 600):
+                 device: str = "cpu", compute_type: str = "int8", silence_ms: int = 600,
+                 min_rms: float = 350.0, vad_filter: bool = True):
         from faster_whisper import WhisperModel
         self.sample_rate = sample_rate
         print(f"[stt] loading faster-whisper {model_size} (endpoint after {silence_ms} ms of silence) ...")
         self._model = WhisperModel(model_size, device=device, compute_type=compute_type,
                                    download_root=os.path.join(CACHE_DIR, "whisper"))
-        self._ep = EnergyEndpointer(sample_rate, silence_ms=silence_ms)
+        self._ep = EnergyEndpointer(sample_rate, silence_ms=silence_ms, min_rms=min_rms)
         self.endpoint_delay_s = silence_ms / 1000.0
         self.speech_active = False
+        # Silero drops whispered speech (no voicing); a quiet, clean mic can do without it
+        # and lean on the confidence filters below.
+        self.vad_filter = vad_filter
 
     def feed(self, pcm: bytes) -> Optional[Transcript]:
         audio = self._ep.feed(pcm)
@@ -267,25 +294,40 @@ class WhisperSTT(STTBackend):
         if len(samples) < self.sample_rate * 0.35:          # a click or a cough, not a sentence
             self.last_transcribe_s = time.monotonic() - t0
             return None
+        raw_peak = float(np.abs(samples).max())
+        raw_rms = float(np.sqrt(np.mean(samples * samples)))
+        samples = normalize_level(samples)                   # a whisper must survive the gates below
+        dump_dir = os.environ.get("TALKER_STT_DUMP")
+        if dump_dir:                                         # keep the clips to inspect what she heard
+            _save_wav(os.path.join(dump_dir, time.strftime("%H%M%S") + ".wav"), audio, self.sample_rate)
         # vad_filter runs Silero VAD first so coughs, chair scrapes and music are
         # dropped before Whisper can turn them into words.
-        segments, _ = self._model.transcribe(samples, language="en", beam_size=1, vad_filter=True,
-                                             vad_parameters={"min_silence_duration_ms": 300,
-                                                             "speech_pad_ms": 200},
-                                             condition_on_previous_text=False)
-        kept = []
+        segments, info = self._model.transcribe(samples, language="en", beam_size=1,
+                                                vad_filter=self.vad_filter,
+                                                vad_parameters={"min_silence_duration_ms": 300,
+                                                                "speech_pad_ms": 200},
+                                                condition_on_previous_text=False)
+        kept, dropped = [], []
         for seg in segments:
             # Whisper invents "You", "Thank you." etc. on noise; drop low-confidence segments.
             if seg.no_speech_prob > 0.45 or seg.avg_logprob < -1.0:
+                dropped.append(f"{seg.text.strip()!r} (no-speech {seg.no_speech_prob:.2f}, logprob {seg.avg_logprob:.2f})")
                 continue
             kept.append(seg.text.strip())
         text = " ".join(kept).strip()
         if _looks_hallucinated(text, len(samples) / self.sample_rate):
+            dropped.append(f"{text!r} (looks invented)")
             text = ""
         self.last_transcribe_s = time.monotonic() - t0
         silence = self._ep.silence_samples / self.sample_rate
-        print(f"[stt] whisper {len(samples)/self.sample_rate:.1f}s audio in {(time.monotonic()-t0)*1000:.0f} ms "
+        seconds = len(samples) / self.sample_rate
+        after_vad = getattr(info, "duration_after_vad", None)
+        print(f"[stt] whisper {seconds:.1f}s audio in {(time.monotonic()-t0)*1000:.0f} ms "
               f"(+{silence*1000:.0f} ms waiting for you to stop)")
+        if not text:
+            why = (f"detector kept {after_vad:.1f} of {seconds:.1f} s" if after_vad is not None else "")
+            print(f"[stt] nothing kept: peak {raw_peak:.3f}, rms {raw_rms:.4f}; {why}"
+                  + ("; dropped " + "; ".join(dropped) if dropped else ""))
         return Transcript(text, True) if text else None
 
     def reset(self) -> None:
@@ -417,12 +459,12 @@ class OpenAICompatSTT(STTBackend):
 
     def __init__(self, model: str, api_key: Optional[str], base_url: Optional[str] = None,
                  sample_rate: int = 16000, silence_ms: Optional[int] = None, name: str = "openai",
-                 client=None):
+                 client=None, min_rms: float = 350.0):
         self.name = name
         self.model = model
         self.sample_rate = sample_rate
         silence_ms = silence_ms or 600
-        self._ep = EnergyEndpointer(sample_rate, silence_ms=silence_ms)
+        self._ep = EnergyEndpointer(sample_rate, silence_ms=silence_ms, min_rms=min_rms)
         self.endpoint_delay_s = silence_ms / 1000.0
         self.speech_active = False
         if client is None:

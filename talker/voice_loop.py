@@ -726,11 +726,12 @@ def stt_kwargs(args) -> dict:
     if args.stt == "vosk":
         return {"model_path": args.vosk_model, "silence_ms": args.silence_ms}
     if args.stt == "whisper":
-        return {"model_size": args.whisper_model, "silence_ms": args.silence_ms}
+        return {"model_size": args.whisper_model, "silence_ms": args.silence_ms, "min_rms": args.mic_min_rms,
+                "vad_filter": args.stt_vad == "on"}
     if args.stt == "elevenlabs":
         return {"silence_ms": args.silence_ms, "language": args.stt_language or None}
     if args.stt == "openai":
-        return {"silence_ms": args.silence_ms}
+        return {"silence_ms": args.silence_ms, "min_rms": args.mic_min_rms}
     return {}
 
 
@@ -850,6 +851,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stt-language", default="en",
                    help="Language code for cloud Scribe (--stt elevenlabs); \"\" lets it auto-detect, which "
                         "drifts into other languages on short or hesitant English. Whisper and OpenAI are always en")
+    p.add_argument("--stt-vad", choices=["on", "off"], default=None,
+                   help="Whisper's Silero voice detector, which drops coughs and chair scrapes but also drops "
+                        "whispered speech. Default on; off with --satellite, whose mic is quiet enough to rely "
+                        "on the confidence filters alone")
+    p.add_argument("--mic-min-rms", type=float, default=None,
+                   help="Quietest level (int16 RMS) that starts a recording for Whisper, whatever the room's noise "
+                        "floor says. Default 350 for a desktop mic; 120 with --satellite, whose mic is quiet and "
+                        "clean, so a whisper gets through")
     p.add_argument("--silence-ms", type=int, default=None,
                    help="Silence that ends an utterance (default 600). Lower = snappier, more mid-sentence cuts")
     p.add_argument("--mic-device", default=None, help="Input device: name fragment (\"samson\") or index")
@@ -880,6 +889,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ollama-host", default=None,
                    help="Ollama server URL for --llm ollama (default OLLAMA_HOST or http://localhost:11434)")
     p.add_argument("--list-models", action="store_true", help="List the models on the Ollama server and exit")
+    p.add_argument("--llm-base-url", default=None,
+                   help="With --llm openai: a server speaking the OpenAI API instead of OpenAI, e.g. llama.cpp "
+                        "at http://192.168.68.81:8091/v1 (also OPENAI_BASE_URL). The key is then not checked.")
+    p.add_argument("--llm-think", action="store_true",
+                   help="Let a thinking model on --llm-base-url reason before answering (default off: it "
+                        "spends the reply budget thinking and says nothing for seconds)")
     p.add_argument("--model", default=None,
                    help="Model id for the chosen --llm; overrides the face's own \"models\" entry "
                         "(defaults: claude-haiku-4-5 for speed; "
@@ -910,6 +925,32 @@ def build_parser() -> argparse.ArgumentParser:
                         "mode switch, no compositor artifacts; the face is scaled in software (about 1 ms a frame)")
     p.add_argument("--sync-offset", type=float, default=0.0)
     p.add_argument("--no-audio", action="store_true", help="No sound device (implies --text-only)")
+    p.add_argument("--satellite", action="store_true",
+                   help="Mic and speaker are a Xiaozhi-protocol device (an ESP32-S3 board) on the network, "
+                        "not this machine: serve its config and audio (see talker/satellite.py)")
+    p.add_argument("--satellite-port", type=int, default=8030, help="Satellite server port (default 8030)")
+    p.add_argument("--satellite-host", default="0.0.0.0", help="Satellite server bind address")
+    p.add_argument("--satellite-advertise", default=None,
+                   help="Host name or IP the device should connect to (default: the one it reached us on)")
+    p.add_argument("--satellite-firmware", default=None,
+                   help="Offer this firmware image (build/xiaozhi.bin) to the device over the air; "
+                        "it installs it when the version is newer than its own")
+    p.add_argument("--satellite-volume", type=int, default=None,
+                   help="Set the device's speaker level (0-100) each time it connects")
+    p.add_argument("--satellite-bass-cut", type=float, default=300.0,
+                   help="Drop speech below this many Hz before it reaches the board's small speaker, "
+                        "which only rattles on bass (0 keeps it)")
+    p.add_argument("--satellite-boost", type=float, default=6.0,
+                   help="Lift the level sent to the board by this many dB under a peak limiter (0 keeps it)")
+    p.add_argument("--satellite-idle", type=float, default=40.0,
+                   help="Seconds the board keeps listening after her reply with nothing said before it goes "
+                        "back to waiting for the wake word")
+    p.add_argument("--satellite-ceiling", type=float, default=0.5,
+                   help="Where the limiter holds peaks, as a fraction of full scale (0.5, half scale, keeps "
+                        "the loud moments from buzzing the board's speaker; 0.9 is plain limiting)")
+    p.add_argument("--no-window", action="store_true",
+                   help="Headless: no face window (a host whose face is a satellite board, or a server). "
+                        "Ctrl+C or SIGTERM ends the session cleanly")
     p.add_argument("--wake", action="store_true",
                    help="Wake mode: stay dormant until the character's name (or --wake-word) is heard; "
                         "go dormant again after --idle-timeout seconds of silence or when the chat ends")
@@ -994,6 +1035,12 @@ def main(argv=None) -> int:
     log_path = start_session_log("voice")
     p = build_parser()
     args = p.parse_args(argv)
+    if args.mic_min_rms is None:
+        args.mic_min_rms = 120.0 if args.satellite else 350.0
+    if args.stt_vad is None:
+        args.stt_vad = "off" if args.satellite else "on"
+    if args.whisper_model is None and args.satellite:
+        args.whisper_model = "small.en"               # soft speech from the board's mic needs the better ears
     if args.profile == "pi":
         apply_pi_profile(args)
     # Slow imports run in the background while the face and devices load: anthropic takes
@@ -1090,6 +1137,8 @@ def main(argv=None) -> int:
     if args.list_devices or args.mic_test or args.calibrate:
         return mic_tools(args)
 
+    if args.no_window:
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")   # pygame surfaces without a screen
     pygame.display.init()
     pygame.font.init()
     pygame.display.set_mode((1, 1), pygame.HIDDEN)
@@ -1150,7 +1199,23 @@ def main(argv=None) -> int:
     except Exception as e:
         print(f"[error] TTS backend '{args.tts}' unavailable: {e}")
         return 1
-    audio = build_audio(args.no_audio, args.sync_offset, args.output_device)
+    satellite = None
+    if args.satellite:
+        from .satellite import SatelliteServer, SatelliteAudioEngine
+        satellite = SatelliteServer(host=args.satellite_host, port=args.satellite_port,
+                                    advertise_host=args.satellite_advertise,
+                                    firmware=args.satellite_firmware, volume=args.satellite_volume)
+        try:
+            audio = SatelliteAudioEngine(satellite, sync_offset=args.sync_offset,
+                                         bass_cut_hz=args.satellite_bass_cut, boost_db=args.satellite_boost,
+                                         ceiling=args.satellite_ceiling)
+            audio.idle_close_s = args.satellite_idle
+        except RuntimeError as e:
+            print(f"[error] {e}")
+            return 1
+        satellite.start()
+    else:
+        audio = build_audio(args.no_audio, args.sync_offset, args.output_device)
     audio.mic_high_pass = max(0.0, args.mic_highpass)
     audio.mic_low_pass = max(0.0, args.mic_lowpass)
     text_only = args.text_only or args.no_audio
@@ -1174,7 +1239,10 @@ def main(argv=None) -> int:
         else:
             from .brains.openai_compat_chat import OpenAICompatChat
             chat = OpenAICompatChat.openai(model=model, character=character, can_see=can_see,
-                                           wake_mode=bool(wake_words), extra_rules=extra_rules)
+                                           wake_mode=bool(wake_words), extra_rules=extra_rules,
+                                           base_url=args.llm_base_url, think=args.llm_think)
+            print(f"[voice] brain: {chat.model} at {args.llm_base_url or os.environ.get('OPENAI_BASE_URL') or 'OpenAI'}"
+                  + ("" if args.llm_think else " (thinking off)"))
     except Exception as e:                   # a wrong model name or a missing key, said plainly
         print(f"[error] brain '{args.llm}' unavailable: {e}")
         print("        python voice_loop.py --setup checks your keys and the models you have")
@@ -1320,7 +1388,7 @@ def main(argv=None) -> int:
 
     def on_brain(ok, kind, detail):
         from . import incidents
-        incidents.record("brain_ok" if ok else "brain_failed", kind=kind, detail=detail[:300])
+        incidents.record("brain_ok" if ok else "brain_failed", reason=kind, detail=detail[:300])
     loop.on_brain = on_brain
     loop.add_context = chat.add_context      # a visual question hands her the current scene
     # Resilience: say when the cloud is gone (from a cached local recording: the voice is cloud
@@ -1427,6 +1495,9 @@ def main(argv=None) -> int:
             loop.on_reply_start = idle.hush          # fade the ambience the moment a reply begins
             print(f"[idle] sounds every {idle.interval[0]:.0f}-{idle.interval[1]:.0f} s when quiet: {', '.join(idle_bank.names)}")
 
+    if satellite is not None:
+        _wire_satellite(satellite, audio, loop, app)
+
     panel = None
     if not args.no_web:
         panel = _start_panel(args, p, loop, app, audio, stt, chat, backend, watcher, m, face_dir, idle,
@@ -1448,7 +1519,10 @@ def main(argv=None) -> int:
         print("[voice] text-only: press Enter in the window, type, Enter to send to Claude.")
 
     try:
-        app.run()
+        if args.no_window:
+            _run_headless(app)
+        else:
+            app.run()
     finally:
         loop.end_session("window closed")        # the memory's session note, if there was a session
         if watcher is not None:
@@ -1462,6 +1536,51 @@ def main(argv=None) -> int:
         for t in note_threads:                   # give the summary up to 10 s, then leave anyway
             t.join(timeout=10)
     return 0
+
+
+def _run_headless(app) -> None:
+    """No window: wait until Ctrl+C or SIGTERM. Everything else runs on its own threads."""
+    import signal
+
+    def stop(*_):
+        app.running = False
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, stop)
+    print("[display] headless: no face window (the satellite board or nothing is her face); Ctrl+C ends")
+    while app.running:
+        time.sleep(0.25)
+
+
+def _wire_satellite(server, audio, loop, app) -> None:
+    """The device is the mic, the speaker and a face: give it what the local face gets."""
+    audio.schedule = app.schedule                  # emotions, timed on the timeline
+    audio.busy = lambda: app.is_busy               # "still speaking" until synthesis and audio end
+    audio.on_abort = app.interrupt                 # its wake word while she talks = barge-in
+    if app.pipeline is not None:
+        app.pipeline.on_sentence = audio.note_sentence
+    server.on_event = loop.on_event
+    # Battery and signal, each time the board connects: kept in her standing instructions, so
+    # it is current whenever she is asked (a one-off note would read as stale later).
+    add_context = getattr(loop, "add_context", None)
+    chat = getattr(add_context, "__self__", None)
+    if chat is not None and isinstance(getattr(chat, "system", None), str):
+        base_system = chat.system
+
+        def on_status(line: str) -> None:
+            chat.system = (base_system + "\n\nYour board, the small device that carries your face, "
+                           f"voice and ears: {line} (as of the moment it last connected).")
+        server.on_device_status = on_status
+    elif callable(add_context):
+        server.on_device_status = lambda line: add_context(f"Your board, which carries your face, voice "
+                                                           f"and ears: {line}.")
+    orig_event = loop.on_event
+
+    def on_event(kind, text):
+        orig_event(kind, text)
+        if kind == "you":                          # what she heard, shown on the device
+            audio.note_user_text()
+            server.send_stt(text)
+    loop.on_event = on_event
 
 
 def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, manifest, face_dir, idle=None,

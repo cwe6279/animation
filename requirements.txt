@@ -38,3 +38,7 @@ opencv-python-headless>=4.9
 
 # Dev
 pytest>=8.0
+
+# Satellite device (voice_loop.py --satellite): Opus audio to/from an ESP32-S3 board running
+# xiaozhi-esp32. Needs libopus (dnf install opus). See docs/SATELLITE_ESP32.md.
+opuslib>=3.0

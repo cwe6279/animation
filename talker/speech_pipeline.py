@@ -56,6 +56,9 @@ class SpeechPipeline:
                  on_error: Optional[Callable[[str], None]] = None):
         self.audio = audio
         self.schedule = schedule
+        # Optional: called as (text, timeline_start) when a sentence's audio has been
+        # placed (a remote device shows it as a subtitle at that moment).
+        self.on_sentence: Optional[Callable[[str, float], None]] = None
         self.backend = backend
         self.lead = lead_seconds
         self.on_error = on_error or (lambda msg: print(f"[speech] {msg}"))
@@ -214,6 +217,7 @@ class SpeechPipeline:
         word_index = 0
         first_audio_at: Optional[float] = None
         text_done = False
+        sentence_t0: Optional[float] = None       # timeline start of the sentence being synthesized
 
         async def strip_tags():
             nonlocal words_in_text, text_done
@@ -256,6 +260,8 @@ class SpeechPipeline:
                     if not ev.pcm:
                         continue
                     chunk_start = self.audio.enqueue_pcm(ev.pcm, self.backend.sample_rate)
+                    if sentence_t0 is None:
+                        sentence_t0 = chunk_start
                     expected = None if session_start is None else session_start + session_frames / self.backend.sample_rate
                     if session_start is None:
                         session_start = chunk_start
@@ -276,7 +282,13 @@ class SpeechPipeline:
                     else:
                         place_word(ev)
                 elif isinstance(ev, SentenceDone):
-                    pass
+                    if self.on_sentence is not None and ev.text:
+                        try:
+                            self.on_sentence(ev.text, sentence_t0 if sentence_t0 is not None
+                                             else self.audio.timeline_time())
+                        except Exception as e:
+                            print(f"[speech] on_sentence failed: {e}")
+                    sentence_t0 = None
             # Tags positioned after the final word (e.g. trailing "[sad]")
             if session_start is not None:
                 end_t = session_start + session_frames / self.backend.sample_rate
