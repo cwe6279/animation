@@ -117,6 +117,8 @@ def test_device_round_trip(server):
     assert any("checked in" in t for k, t in events)
     assert srv.device_status["battery"]["level"] == 73
     assert srv.status_line() == "the board reports battery 73%, charging, wifi signal strong, chip 42 C"
+    srv.device_status = {"battery": {"level": 41, "charging": False, "voltage": 3.812}}
+    assert srv.status_line() == "the board reports battery 41% (3.81 V), on battery"
 
 
 def test_speech_dropped_without_device(server):

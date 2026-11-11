@@ -616,7 +616,8 @@ class SatelliteServer:
         parts = []
         b = st.get("battery") or {}
         if "level" in b:
-            parts.append(f"battery {b['level']}%" + (", charging" if b.get("charging") else ", on battery"))
+            volts = f" ({b['voltage']:.2f} V)" if isinstance(b.get("voltage"), (int, float)) else ""
+            parts.append(f"battery {b['level']}%{volts}" + (", charging" if b.get("charging") else ", on battery"))
         n = st.get("network") or {}
         if n.get("signal"):
             parts.append(f"wifi signal {n['signal']}")

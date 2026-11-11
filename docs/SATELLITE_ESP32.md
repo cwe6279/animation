@@ -179,13 +179,25 @@ the phrase from the assets config, not from the app. A
 one-word wake trips more easily; `CONFIG_CUSTOM_WAKE_WORD_THRESHOLD` (20) goes up to make
 it stricter. The stock detector only knows "Hi ESP".
 
-Battery behaviour (fork 2.5.108, only while discharging; on USB nothing below happens):
-after `CONFIG_CLARA_SLEEP_SECONDS` (60) of idle the face stops and the panel is switched
-off (DISPOFF via `ClaraFaceDisplay::SetPowerSaveMode`) while the wake word keeps running;
-"Clara" brings the panel and the face back. After `CONFIG_CLARA_SHUTDOWN_SECONDS` (240,
-counted from the start of idle) the board powers off and only PWR wakes it. Idle starts when
-the host closes the channel, 40 s after her last reply (`--satellite-idle`). Upstream's
-reduced-CPU sleep is not used: its code disables the wake word.
+Battery behaviour (fork 2.5.109, only while discharging; on USB nothing below happens):
+after `CONFIG_CLARA_SLEEP_SECONDS` (60) of idle the face stops and the panel is put to
+sleep (DISPOFF then SLPIN via `ClaraFaceDisplay::SetPowerSaveMode`) while the wake word
+keeps running; "Clara" brings the panel and the face back. After
+`CONFIG_CLARA_SHUTDOWN_SECONDS` (240, counted from the start of idle) the board powers off
+and only PWR wakes it. Idle starts when the host closes the channel, 40 s after her last
+reply (`--satellite-idle`). Upstream's reduced-CPU sleep is not used: its code disables the
+wake word. The timer is armed by the charger state, polled once a second: 2.5.108 armed it
+at boot and only disarmed it on a battery-to-USB transition, so a board that booted on USB
+switched itself off four minutes after its last reply. The board's status now carries the
+battery voltage next to the percentage (the AXP2101's percentage is a voltage estimate and
+falls fast from a 4.1 V charge), and the serial log says when and at what level it powered
+off. Standby draw with the wake word running is the floor here: Wi-Fi is already in maximum
+modem sleep when idle, the codec output and amplifier switch off after a few seconds of
+silence, and the CPU cannot clock down without stopping the wake word.
+
+Her eyes stay shut from power-on until the wake word is actually listening (Wi-Fi, the
+version check, loading the model), then open once: a face with open eyes means "say
+Clara".
 
 ## What is next
 
