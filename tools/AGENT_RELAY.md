@@ -73,6 +73,16 @@ LLAMACPP_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}' \
 .venv/bin/python web_server.py --config config/local-llamacpp/agent_config.yaml --port 8080
 ```
 
+As run on 2026-11-11, with Qwen3.8 Flash-Next on this machine's own llama.cpp server
+(`scripts/next_llama_server.sh` in fuse-agents, port 8002), after the Gemma box went away:
+
+```bash
+cd ~/Projects/fuse-agents
+LLAMACPP_BASE_URL=http://localhost:8002/v1 FORCE_LOCAL_MODEL=llamacpp_qwen38_next \
+LLAMACPP_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}' \
+.venv/bin/python web_server.py --config config/local-llamacpp-next/agent_config.yaml --port 8080
+```
+
 Two things learned testing it: a `POST /tasks` with an id the harness already has is answered
 idempotently with the old task (so test ids must be fresh), and a thinking model must be told
 not to think or an errand's token budget goes to reasoning.
