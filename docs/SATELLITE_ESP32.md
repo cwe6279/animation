@@ -218,7 +218,10 @@ tickle is a half-lidded, faintly annoyed look up) or playful (wide eyes, a conte
 a ha-ha with a giggle). The three clips are in her voice, made with ElevenLabs v3 and its
 audio tags, trimmed, and encoded as 48 kHz mono Opus in OGG (`-frame_duration 60`) into
 `main/assets/common/`, which the build embeds and names (`Lang::Sounds::OGG_HM`). They play
-from the board itself, only while idle and at most once per 8 s each. A tap while the
+from the board itself, only while idle and at most once per 8 s each, with the wake word
+paused for 3.5 s around the clip: the first time she said "let's keep it professional" the
+detector took her own voice for her name and opened a channel. Composed Clara's hold is
+silent; her tickle line is a throat-clear and "Let's keep it professional.". A tap while the
 panel sleeps on battery hands the power-save timer a wake, so the idle countdown restarts
 rather than being bypassed. Next: the board opens the channel on a touch and sends one
 sampled event, so the brain can react in words as well ("Event: ..."), never a stream.
