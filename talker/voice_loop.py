@@ -1525,7 +1525,7 @@ def main(argv=None) -> int:
             print(f"[idle] sounds every {idle.interval[0]:.0f}-{idle.interval[1]:.0f} s when quiet: {', '.join(idle_bank.names)}")
 
     if satellite is not None:
-        _wire_satellite(satellite, audio, loop, app)
+        _wire_satellite(satellite, audio, loop, app, body)
 
     panel = None
     if not args.no_web:
@@ -1580,7 +1580,24 @@ def _run_headless(app) -> None:
         time.sleep(0.25)
 
 
-def _wire_satellite(server, audio, loop, app) -> None:
+_LOOK_RE = re.compile(r"\b(?:look|eyes|glance)\s*(?:to the |to your |at the )?"
+                      r"(left|right|up|down|ahead|forward|straight|at me|here)\b", re.I)
+_LOOK_WORDS = {"forward": "ahead", "straight": "ahead", "at me": "ahead", "here": "ahead"}
+
+
+class LookRequest:
+    """A quick command: a short utterance asking for one or more looks ("Clara, look left",
+    "look left, then look right"). Longer sentences go to the brain, which may still
+    answer with {{move look_left}}."""
+
+    def match(self, text: str):
+        if len(text.split()) > 12:
+            return None
+        found = [_LOOK_WORDS.get(m.group(1).lower(), m.group(1).lower()) for m in _LOOK_RE.finditer(text)]
+        return found or None
+
+
+def _wire_satellite(server, audio, loop, app, body=None) -> None:
     """The device is the mic, the speaker and a face: give it what the local face gets."""
     audio.schedule = app.schedule                  # emotions, timed on the timeline
     audio.busy = lambda: app.is_busy               # "still speaking" until synthesis and audio end
@@ -1604,11 +1621,24 @@ def _wire_satellite(server, audio, loop, app) -> None:
                                                            f"and ears: {line}.")
     # "look left" and the like go straight to the board, no brain: an orientation test
     # for the face and the IMU, and later a cheap stage direction.
-    import re as _re
-    look_re = _re.compile(r"^(?:(?:hey|hi)[, ]+)?(?:clara[, ]+)?(?:look|eyes|glance) ?(?:to the |to your )?"
-                          r"(left|right|up|down|ahead|forward|straight|at me|here)[.!? ]*$", _re.I)
-    look_words = {"forward": "ahead", "straight": "ahead", "at me": "ahead", "here": "ahead"}
-    loop.quick_commands.append((look_re, lambda m: server.look(look_words.get(m.group(1).lower(), m.group(1).lower()))))
+    def do_looks(dirs):
+        def run():
+            for i, d in enumerate(dirs):
+                if i:
+                    time.sleep(2.0)
+                print(f"[satellite] look {d}")
+                server.look(d)
+        threading.Thread(target=run, daemon=True, name="look").start()
+    loop.quick_commands.append((LookRequest(), do_looks))
+    # the brain's own {{move look_left}} and friends point the board's gaze as well
+    if body is not None:
+        plain_move = body.move
+
+        def move_and_look(name, params):
+            plain_move(name, params)
+            if name.startswith("look_") and name[5:] in ("left", "right", "up", "down", "ahead"):
+                server.look(name[5:])
+        body.move = move_and_look
     orig_event = loop.on_event
 
     def on_event(kind, text):

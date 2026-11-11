@@ -381,3 +381,14 @@ def test_quick_command_bypasses_the_brain():
     loop._answer = lambda text: asked.append(text)
     loop._start_turn("Look left")
     assert handled == ["left"] and asked == [] and loop._thinking is False
+
+
+def test_look_request_matches_short_asks_only():
+    from talker.voice_loop import LookRequest
+    m = LookRequest()
+    assert m.match("No, Clara look left.") == ["left"]
+    assert m.match("Can you look left?") == ["left"]
+    assert m.match("Look left, look right, look up, look down.") == ["left", "right", "up", "down"]
+    assert m.match("look straight at me") == ["ahead"]
+    assert m.match("Looking back on it, the left side of the garden was always the better one for lettuce") is None
+    assert m.match("what time is it") is None
