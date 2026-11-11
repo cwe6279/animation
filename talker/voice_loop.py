@@ -127,6 +127,8 @@ class VoiceLoop:
         # (regex, handler(match)) pairs tried on each utterance before the brain sees it:
         # a match is handled by the handler alone, silently unless it speaks itself
         self.quick_commands: List[Tuple[Any, Callable[[Any], None]]] = []
+        # noise gates: each returns a reason to drop the transcript, or None to keep it
+        self.turn_filters: List[Callable[[str], Optional[str]]] = []
         self._was_speaking = False
         self._vision_ticket: Optional[int] = None
         self._last_heard = 0.0         # last time a partial transcript arrived (someone is talking)
@@ -433,6 +435,11 @@ class VoiceLoop:
         self._start_turn(text)
 
     def _start_turn(self, text: str) -> None:
+        for gate in self.turn_filters:
+            why = gate(text)
+            if why:
+                self.on_event("stt", f"dropped {text!r}: {why}")
+                return
         # quick commands: handled here, in full, without a trip through the brain
         for pattern, handler in self.quick_commands:
             m = pattern.match(text.strip())
@@ -971,7 +978,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "which only rattles on bass (0 keeps it)")
     p.add_argument("--satellite-boost", type=float, default=6.0,
                    help="Lift the level sent to the board by this many dB under a peak limiter (0 keeps it)")
-    p.add_argument("--satellite-idle", type=float, default=40.0,
+    p.add_argument("--satellite-idle", type=float, default=30.0,
                    help="Seconds the board keeps listening after her reply with nothing said before it goes "
                         "back to waiting for the wake word")
     p.add_argument("--satellite-ceiling", type=float, default=0.5,
@@ -1597,8 +1604,24 @@ class LookRequest:
         return found or None
 
 
+# One word on its own is mostly noise the recognizer made a word of ("Rome.", "stuff"),
+# unless it is one of the words people actually say alone.
+_LONE_WORDS = {"yes", "no", "yeah", "yep", "nope", "ok", "okay", "sure", "thanks", "thank", "sorry",
+               "right", "stop", "wait", "why", "what", "hello", "hi", "hey", "please", "bye",
+               "goodbye", "continue", "go", "again", "repeat", "pardon", "fine", "good", "great",
+               "cool", "nice", "wow", "exactly", "correct", "wrong", "help", "clara"}
+
+
+def lone_word_gate(text: str) -> Optional[str]:
+    words = re.findall(r"[a-z']+", text.lower())
+    if len(words) == 1 and words[0] not in _LONE_WORDS:
+        return "a lone word, taken for noise"
+    return None
+
+
 def _wire_satellite(server, audio, loop, app, body=None) -> None:
     """The device is the mic, the speaker and a face: give it what the local face gets."""
+    loop.turn_filters.append(lone_word_gate)   # the board's mic hears the room; a stray word is not a turn
     audio.schedule = app.schedule                  # emotions, timed on the timeline
     audio.busy = lambda: app.is_busy               # "still speaking" until synthesis and audio end
     audio.on_abort = app.interrupt                 # its wake word while she talks = barge-in

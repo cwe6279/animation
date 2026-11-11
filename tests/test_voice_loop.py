@@ -374,6 +374,7 @@ def test_quick_command_bypasses_the_brain():
     asked, handled = [], []
     loop = VoiceLoop.__new__(VoiceLoop)
     loop.quick_commands = [(re.compile(r"^look (left|right)$", re.I), lambda m: handled.append(m.group(1)))]
+    loop.turn_filters = []
     loop.on_event = lambda k, t: None
     loop._lock = __import__("threading").Lock()
     loop._thinking = False
@@ -392,3 +393,24 @@ def test_look_request_matches_short_asks_only():
     assert m.match("look straight at me") == ["ahead"]
     assert m.match("Looking back on it, the left side of the garden was always the better one for lettuce") is None
     assert m.match("what time is it") is None
+
+
+def test_lone_word_gate_drops_stray_words_but_keeps_real_answers():
+    from talker.voice_loop import lone_word_gate
+    assert lone_word_gate("Rome.") is not None
+    assert lone_word_gate("stuff") is not None
+    assert lone_word_gate("Sorry.") is None
+    assert lone_word_gate("No.") is None
+    assert lone_word_gate("look left") is None
+    assert lone_word_gate("what time is it") is None
+
+
+def test_turn_filters_run_before_the_brain():
+    from talker.voice_loop import VoiceLoop
+    loop = VoiceLoop.__new__(VoiceLoop)
+    loop.turn_filters = [lambda t: "nope" if t == "zap" else None]
+    loop.quick_commands = []
+    events = []
+    loop.on_event = lambda k, t: events.append((k, t))
+    loop._start_turn("zap")
+    assert events == [("stt", "dropped 'zap': nope")]

@@ -27,7 +27,7 @@ Protocol: `docs/websocket.md` in the firmware repo. Summary: the board opens a
 WebSocket after its wake word, sends `hello`, streams Opus (16 kHz mono, 60 ms) while
 listening; we answer with `tts start`, Opus frames (24 kHz, so TTS audio is not
 resampled), `tts sentence_start` for its subtitle line, `llm emotion` for its face,
-`tts stop`. Then it listens again; after 40 s (`--satellite-idle`) with nothing said we close the channel
+`tts stop`. Then it listens again; after 30 s (`--satellite-idle`) with nothing said we close the channel
 and it goes back to waiting for the wake word. The board cannot be woken from the
 server side, so an announcement while it is idle is dropped (noted in the log).
 
@@ -194,7 +194,7 @@ after `CONFIG_CLARA_SLEEP_SECONDS` (60) of idle the face stops and the panel is 
 sleep (DISPOFF then SLPIN via `ClaraFaceDisplay::SetPowerSaveMode`) while the wake word
 keeps running; "Clara" brings the panel and the face back. After
 `CONFIG_CLARA_SHUTDOWN_SECONDS` (240, counted from the start of idle) the board powers off
-and only PWR wakes it. Idle starts when the host closes the channel, 40 s after her last
+and only PWR wakes it. Idle starts when the host closes the channel, 30 s after her last
 reply (`--satellite-idle`). Upstream's reduced-CPU sleep is not used: its code disables the
 wake word. The timer is armed by the charger state, polled once a second: 2.5.108 armed it
 at boot and only disarmed it on a battery-to-USB transition, so a board that booted on USB
@@ -247,8 +247,19 @@ kind, then nothing of that kind for `CLARA_MOTION_COOLDOWN_S` (20 s) and nothing
 5 s: a sample, not a stream. "Upright again" is never sent. The host turns it into an event
 prompt ("you were just picked up; your board is your body") through `announce`, which drops
 it if she is busy talking or listening, since the board already answered in kind. If the brain
-says nothing, the channel closes after the usual 40 s. The first run produced "Whoa, easy
+says nothing, the channel closes after the usual 30 s. The first run produced "Whoa, easy
 there, I'm not a snow globe." Both can be turned off: `CLARA_MOTION_EVENTS`.
+
+Wait mode (fork 2.5.126): carried about, she never rested. Every pick-up and set-down
+opened a channel, the brain answered, the board listened on, and the room's noises became
+words and more answers. So: an event reaches the host only while a conversation is already
+open (`CLARA_MOTION_EVENTS_OPEN` makes them open one again); between conversations she
+reacts to handling on her own and waits for her name. Ten seconds after the channel closes
+with nothing happening (`CLARA_DOZE_SECONDS`; no touch, no motion) she dozes off: the
+hand-made sleep, eyes closed and screen black, wake word still listening, and a tap, her name
+or a pick-up wakes her. With the host's 30 s that is 40 s from her last word to sleep. On the
+host, a lone word that is not something people say alone ("Rome.", "stuff") is dropped as
+noise before it can become a turn (`lone_word_gate`); "Sorry." and "No." still count.
 
 ## What is next
 

@@ -189,7 +189,7 @@ class SatelliteAudioEngine(BaseAudioEngine):
         self.on_abort: Callable[[], None] = lambda: None
         self.on_wake: Callable[[str], None] = lambda text: None
         self.device_face = False                   # the board draws Clara's face: send mouth shapes
-        self.idle_close_s = 40.0                   # listening with nothing said -> close, device idles
+        self.idle_close_s = 30.0                   # listening with nothing said -> close, device idles
         self.mic_mute_s = 0.4                      # after the device resumes listening: her own tail
         self._mic_mute_until = 0.0
         self._idle_deadline: Optional[float] = None
