@@ -209,8 +209,11 @@ Clara".
 
 Touch (fork 2.5.117): the panel's touch controller feeds the face. A tap is a glance at the
 finger and a "Hm?"; a hold past 350 ms is patience and an "Mmm"; a rub or three quick taps is
-a tickle; a two-second hold closes her eyes and sleeps the panel, and a tap, the wake word or
-USB wakes her. The reactions are a temperament: `CLARA_TOUCH_COMPOSED` (default, Clara: the
+a tickle; a two-second hold closes her eyes and blacks the screen, and a tap, the wake word or
+USB wakes her. That sleep leaves the panel driver awake on purpose: with the panel in SLPIN
+the touch controller reports nothing, so a tap could never wake her (found with the serial
+log: no touch events at all while dark), and a black AMOLED draws next to nothing anyway.
+The battery timer's deep panel sleep stays, where the wake word and USB are the wakers. The reactions are a temperament: `CLARA_TOUCH_COMPOSED` (default, Clara: the
 tickle is a half-lidded, faintly annoyed look up) or playful (wide eyes, a contented squint,
 a ha-ha with a giggle). The three clips are in her voice, made with ElevenLabs v3 and its
 audio tags, trimmed, and encoded as 48 kHz mono Opus in OGG (`-frame_duration 60`) into
