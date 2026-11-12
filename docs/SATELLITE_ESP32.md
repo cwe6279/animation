@@ -34,7 +34,8 @@ Three pieces, in the order to get them working: the board (firmware, flashing: t
 [clara-esp32](https://github.com/cwe6279/clara-esp32) repo), the host (this page and
 `docs/RPI_ZERO_2W.md`), and last the agent server that errands go to (`tools/AGENT_RELAY.md`).
 A basic character, one that talks, remembers and reacts, needs only the first two; without
-an agent server she just says a task is something she cannot do yet.
+an agent server, any task she takes on waits in the ledger until an address is set (the
+control page's Agent tab, `--agent-url`, or `AGENT_RELAY_URL` in `.env`).
 
 ```
 python voice_loop.py --face clara --satellite --tts piper
