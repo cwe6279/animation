@@ -30,6 +30,12 @@ and the board already does the wake word. Install as in `docs/RPI_ZERO_2W.md`, p
 the Pi's address. Measured so far only with the desktop as host; the Zero 2 W's own numbers
 for recognition and voice are in `docs/RPI_ZERO_2W.md`.
 
+Three pieces, in the order to get them working: the board (firmware, flashing: the
+[clara-esp32](https://github.com/cwe6279/clara-esp32) repo), the host (this page and
+`docs/RPI_ZERO_2W.md`), and last the agent server that errands go to (`tools/AGENT_RELAY.md`).
+A basic character, one that talks, remembers and reacts, needs only the first two; without
+an agent server she just says a task is something she cannot do yet.
+
 ```
 python voice_loop.py --face clara --satellite --tts piper
 ```
