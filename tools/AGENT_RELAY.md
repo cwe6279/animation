@@ -83,6 +83,16 @@ LLAMACPP_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}' \
 .venv/bin/python web_server.py --config config/local-llamacpp-next/agent_config.yaml --port 8080
 ```
 
+And as run later that day on Gemma 4 26B-A4B (a 4B-active MoE on local Ollama, 18 GB; alone on
+the box it prompt-processes at ~900 tok/s and generates at ~60 tok/s; the harness sends
+`think=false` to Ollama itself, and the window must be set or Ollama's small default applies):
+
+```bash
+cd ~/Projects/fuse-agents
+FORCE_LOCAL_MODEL=ollama_gemma4_26b_a4b OLLAMA_NUM_CTX=65536 \
+.venv/bin/python web_server.py --config config/local-ollama/agent_config.yaml --port 8080
+```
+
 Two things learned testing it: a `POST /tasks` with an id the harness already has is answered
 idempotently with the old task (so test ids must be fresh), and a thinking model must be told
 not to think or an errand's token budget goes to reasoning.
