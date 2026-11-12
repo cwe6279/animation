@@ -389,7 +389,8 @@ python voice_loop.py --face clara --satellite --tts piper
 
 The board runs the open xiaozhi-esp32 firmware; talker serves its protocol (Opus both
 ways, a few JSON events) on port 8030 and the whole loop, memory and errands included,
-keeps running here. Board, cable lessons, build and flash: `docs/SATELLITE_ESP32.md`.
+keeps running here, on the desktop or a headless Pi Zero 2 W (`--no-window`; `docs/RPI_ZERO_2W.md`).
+Board, cable lessons, build and flash: `docs/SATELLITE_ESP32.md`.
 
 ### Wake mode (kiosks: wait to be called by name)
 

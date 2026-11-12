@@ -11,7 +11,24 @@ board  <--Opus 24 kHz, events-----  (tts start/stop, subtitles, stt text, emotio
 ```
 
 Everything else is the usual voice loop: Clara's memory, errands, notes and the local
-face window all keep working. The host can be the desktop or a Pi.
+face window all keep working. The host can be the desktop or a Raspberry Pi.
+
+**The host on a Pi Zero 2 W.** The permanent host is meant to be a Pi Zero 2 W (the
+quad-core one; the original single-core Pi Zero W cannot run talker), headless: the board
+is her face, so the host draws nothing. The satellite server itself is light (a WebSocket,
+Opus in and out, no sound device). Recognition is the heavy part, and local Whisper is out
+on the Zero, so it goes to the cloud:
+
+```
+python voice_loop.py --face clara --satellite --no-window --stt elevenlabs \
+    --tts elevenlabs --tts-model flash --web-host 0.0.0.0
+```
+
+Not `--profile pi`: that profile turns on talker's own wake mode and a fullscreen window,
+and the board already does the wake word. Install as in `docs/RPI_ZERO_2W.md`, plus
+`sudo apt install libopus0` and `pip install opuslib`; point the board's `CONFIG_OTA_URL` at
+the Pi's address. Measured so far only with the desktop as host; the Zero 2 W's own numbers
+for recognition and voice are in `docs/RPI_ZERO_2W.md`.
 
 ```
 python voice_loop.py --face clara --satellite --tts piper

@@ -205,6 +205,25 @@ TALKER_FPS=20 python voice_loop.py --profile pi --face eve --tts elevenlabs --tt
 - **Settings page:** `http://<pi-ip>:8020` while `voice_loop.py` is running. It's only reachable from other machines with `--web-host 0.0.0.0`.
 - **Memory:** booting to the console instead of the desktop frees about 100 MB. Keep VS Code Remote-SSH disconnected while the face runs, because its server uses 200–300 MB.
 
+## Satellite host
+
+The Zero 2 W is the intended permanent host for the ESP32-S3 satellite board
+(`docs/SATELLITE_ESP32.md`): the board does the wake word, mic, speaker and face,
+and the Pi runs the loop headless. On top of the install above:
+
+```bash
+sudo apt install -y libopus0
+. ~/animation/.venv/bin/activate && pip install opuslib
+python voice_loop.py --face clara --satellite --no-window --stt elevenlabs \
+    --tts elevenlabs --tts-model flash --web-host 0.0.0.0
+```
+
+Not `--profile pi` here: it turns on talker's own wake mode and a fullscreen window, and
+the board already waits for its name. No mic or speaker is needed on the Pi, and the frame
+rate notes above do not apply. The board finds the Pi through its `CONFIG_OTA_URL`
+(`http://<pi-ip>:8030/xiaozhi/ota/`). Not yet measured on the Zero; the desktop is the
+host so far.
+
 ## Known issues
 
 - **`tests/test_edge_live.py` fails:** it asserts that the first audio arrives within 2 s. On the Zero, the first edge-tts line takes 2.7–8 s while ffmpeg starts up.
