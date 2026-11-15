@@ -391,6 +391,7 @@ class ElevenLabsSTT(STTBackend):
         self._audio = asyncio.Queue()
         self._awake = asyncio.Event()
         self._awake.set()
+        self._want = asyncio.Event()                     # audio is waiting to be sent
         self._ready.set()
         self._loop.run_until_complete(self._session_forever())
 
@@ -405,11 +406,14 @@ class ElevenLabsSTT(STTBackend):
                 await self._awake.wait()
                 print("[stt] awake: reconnecting")
                 backoff = 1.0
+            if self._audio.empty():                      # nothing to send: connect when audio arrives
+                self._want.clear()
+                await self._want.wait()
             # A session that closes before hearing anything is a failure, not a reconnect: the
             # server says why in a message (quota_exceeded, auth_error...) and then closes. Treated
             # as a clean reconnect, an out-of-credit account was retried every 1-2 s for 6 hours,
             # 15,684 times, while she heard nothing and said nothing about it.
-            why, opened, heard = "", time.monotonic(), False
+            why, opened, heard, sent = "", time.monotonic(), False, False
             try:
                 async with aiohttp.ClientSession() as http:
                     async with http.ws_connect(self._url(), headers={"xi-api-key": self.api_key},
@@ -419,8 +423,10 @@ class ElevenLabsSTT(STTBackend):
                             print("[stt] scribe realtime connected")
 
                         async def sender():
+                            nonlocal sent
                             while True:
                                 pcm = await self._audio.get()
+                                sent = True
                                 await ws.send_json({"message_type": "input_audio_chunk",
                                                     "audio_base_64": base64.b64encode(pcm).decode(),
                                                     "commit": False, "sample_rate": self.sample_rate})
@@ -465,9 +471,13 @@ class ElevenLabsSTT(STTBackend):
             if not self._awake.is_set():
                 continue                                 # closed for sleep, not a failure
             lived = time.monotonic() - opened
-            if heard or lived > 60:
-                backoff = 1.0                      # a working session: reconnect at once
-            if why and not heard and lived < 60:
+            idle_close = why.startswith("closed 1000") or (why == "" and not heard)
+            if heard or lived > 60 or idle_close:
+                backoff = 1.0                      # a working session, or an idle one: reconnect at once
+            if idle_close and not heard:
+                if sent:
+                    print("[stt] scribe closed an idle session; it reopens when audio arrives")
+            elif why and not heard and lived < 60:
                 kind = "out_of_credit" if any(k in why for k in ("quota", "insufficient", "credit")) else "failing"
                 if kind == "out_of_credit":
                     backoff = max(backoff, self.QUOTA_RETRY_S)
@@ -482,6 +492,7 @@ class ElevenLabsSTT(STTBackend):
         while self._audio.qsize() >= self.MAX_QUEUED:
             self._audio.get_nowait()                     # drop the oldest, keep the latest
         self._audio.put_nowait(pcm)
+        self._want.set()
 
     def pause(self) -> None:
         """Close the connection and send nothing until resume() (sleep hours)."""
@@ -513,10 +524,12 @@ class ElevenLabsSTT(STTBackend):
     MAX_QUEUED = 50               # ~5 s of 100 ms frames: enough to bridge a reconnect
 
     def feed(self, pcm: bytes) -> Optional[Transcript]:
-        # Only while connected, and never more than a few seconds: with the connection down
-        # (out of credit) nothing drains the queue, and 32 KB/s of mic audio piled up until
-        # the Pi ran out of memory and swap (278 MB in 3 hours) and everything stalled.
-        if pcm and self._audio is not None and self._ws is not None:
+        # Never more than a few seconds of audio: with the connection down (out of credit)
+        # nothing drains the queue, and 32 KB/s of mic audio once piled up until the Pi ran
+        # out of memory and swap (278 MB in 3 hours). Queued audio also wakes the connection:
+        # a satellite host sends nothing while the board is idle, and the socket opens on
+        # the first frames rather than being kept alive through 20 s idle closes.
+        if pcm and self._audio is not None:
             self._loop.call_soon_threadsafe(self._queue_audio, pcm)
         latest: Optional[Transcript] = None
         while not self._results.empty():
