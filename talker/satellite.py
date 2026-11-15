@@ -657,8 +657,15 @@ class SatelliteServer:
             print(f"[satellite] send failed: {e}")
 
     async def _ticker(self) -> None:
+        last = time.monotonic()
         while True:
             await asyncio.sleep(0.02)
+            now = time.monotonic()
+            # A tick that comes late means the host stalled (paging, the GIL held by something
+            # heavy): frames reach the board late and, past its lead, a gap is heard.
+            if now - last > 0.25 and self.engine is not None and self.engine.speaking:
+                self.on_event("satellite", f"host stalled {now - last:.2f} s while she was speaking")
+            last = now
             eng, ws = self.engine, self._ws
             if eng is None or ws is None or ws.closed:
                 continue
