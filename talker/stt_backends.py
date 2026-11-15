@@ -364,6 +364,10 @@ class ElevenLabsSTT(STTBackend):
         if not self.api_key:
             raise RuntimeError("ElevenLabsSTT needs ELEVENLABS_API_KEY in the environment.")
         self.speech_active = False
+        # When a full garbage collection may run (see _session_forever): the voice loop points
+        # this at "she is not speaking", since on a Pi Zero the collection takes seconds and
+        # holds the GIL, which the audio pacing feels as a gap mid-sentence.
+        self.gc_ok: Callable[[], bool] = lambda: True
         # "" when hearing works; "out_of_credit" or "failing" when sessions keep closing at once.
         self.problem = ""
         self._ws = None
@@ -466,7 +470,12 @@ class ElevenLabsSTT(STTBackend):
             # A closed session leaves its aiohttp/TLS objects in reference cycles (~78 objects).
             # The cycle collector counts objects, not bytes, so it rarely gets to them, and each
             # holds OpenSSL buffers outside Python: a reconnect every minute or so grew the
-            # process ~37 MB/hour until a Pi Zero was deep in swap. Free them now.
+            # process ~37 MB/hour until a Pi Zero was deep in swap. Free them, at a quiet
+            # moment: a full collection took 2.85 s on a Zero and stalled her mid-sentence.
+            for _ in range(60):
+                if self.gc_ok():
+                    break
+                await asyncio.sleep(0.5)
             gc.collect()
             if not self._awake.is_set():
                 continue                                 # closed for sleep, not a failure

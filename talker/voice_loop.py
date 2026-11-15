@@ -1472,6 +1472,8 @@ def main(argv=None) -> int:
     sleep_words = ([w for w in args.sleep_word.split(",")] if args.sleep_word
                    else (m.sleep_words if m.sleep_words else None))
     brain = with_clock(chat.reply, chat.add_context, every_s=args.clock_every_min * 60)
+    if hasattr(stt, "gc_ok"):                 # heavy housekeeping waits until she has finished a reply
+        stt.gc_ok = lambda: not getattr(audio, "speaking", False)
     loop = VoiceLoop(stt, always_speaks(handoff_brief(brain)), app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
