@@ -96,16 +96,26 @@ connected: at login, after drops, and after the speaker is switched off and on.
 
 ```bash
 #!/bin/bash
+# Keep the saved Bluetooth speaker connected: connect at login, reconnect after
+# drops or a speaker power-cycle. The MAC lives in ~/.config/talker/bt-speaker.
+# Paging a speaker that is off or out of range holds the radio Wi-Fi shares for
+# about 5 s and stalls Wi-Fi for as long, so after a failed attempt the wait
+# grows to a minute. Never run this on a satellite host: the board is the speaker.
 CONF="$HOME/.config/talker/bt-speaker"
+wait=10
 while true; do
     MAC=$(tr -d '[:space:]' < "$CONF" 2>/dev/null)
     if [ -n "$MAC" ]; then
-        bluetoothctl power on >/dev/null 2>&1
-        if ! bluetoothctl info "$MAC" 2>/dev/null | grep -q "Connected: yes"; then
-            bluetoothctl connect "$MAC" >/dev/null 2>&1 && echo "connected $MAC"
+        bluetoothctl show | grep -q "Powered: yes" || bluetoothctl power on >/dev/null 2>&1
+        if bluetoothctl info "$MAC" 2>/dev/null | grep -q "Connected: yes"; then
+            wait=10
+        elif bluetoothctl connect "$MAC" >/dev/null 2>&1; then
+            echo "connected $MAC"; wait=10
+        else
+            wait=60
         fi
     fi
-    sleep 10
+    sleep "$wait"
 done
 ```
 
@@ -134,7 +144,7 @@ systemctl --user enable --now bt-speaker.service
 ```
 
 Tested: after a deliberate disconnect the speaker reconnects within about
-15 seconds, and after a full reboot it is connected and set as the default
+15 seconds (within a minute if it was switched off for a while), and after a full reboot it is connected and set as the default
 output. This relies on the desktop auto-login, which starts PipeWire and the
 user services. For a headless setup without auto-login, enable linger:
 `sudo loginctl enable-linger $USER`.
@@ -143,6 +153,13 @@ A Bluetooth speaker adds roughly 150–250 ms of delay (A2DP with the SBC
 codec). Compensate with `--sync-offset` (see [Tuning](#tuning)). On the Zero
 2 W, Wi-Fi and Bluetooth share one radio, so streaming audio can slow the
 Wi-Fi that every cloud call depends on.
+
+**On a satellite host, disable this service** (`systemctl --user disable --now
+bt-speaker`). The board is the speaker there, and a keepalive paging for a
+speaker that isn't present takes the shared radio for 4 to 5 s every 10 s.
+Measured on 2026-11-15: 16 % of pings to the router lost, round trips up to
+5 s, and the board's audio running dry mid-sentence; with the service stopped,
+0 % lost and 83 ms worst case.
 
 ## Benchmarks
 
@@ -226,18 +243,22 @@ rate notes above do not apply. The board finds the Pi through its `CONFIG_OTA_UR
 Running since 2026-11-14 (a user service: `clara.service` runs `~/.local/bin/clara-run`). What
 the first evening taught:
 
-- **Gaps mid-sentence come from the host stalling, not the network.** The Pi-to-board round
-  trip is 8 ms. A stall longer than the lead empties the board's buffer, so the lead is 0.9 s
-  here (`--satellite-lookahead`; the board holds about 1.2 s). The log says
-  `host stalled 2.85 s while she was speaking` when it happens.
+- **Gaps mid-sentence had two causes, found in this order.** First the host stalling: a stall
+  longer than the lead empties the board's buffer, so the lead is 0.9 s here
+  (`--satellite-lookahead`; the board holds about 1.2 s), and the log says
+  `host stalled 2.85 s while she was speaking` when it happens. Then, with the host clean, the
+  kiosk's Bluetooth keepalive: paging for an absent speaker silenced the Pi's Wi-Fi for 4 to 5 s
+  every 10 s (both the TTS stream in and the board's frames out). The Pi-to-board round trip is
+  8 ms when the radio is free. `ping -D` to the router from the Pi shows such stalls as
+  packets held for seconds and released in a burst.
 - **The biggest stall was a full garbage collection** (the fix for the TLS leak) running at the
   end of a reply, holding the GIL for nearly 3 s on this CPU. It now waits until she has
   stopped speaking.
 - **Cloud hearing opens on demand.** The Scribe socket closes after ~20 s without audio, and in
   satellite mode audio flows only during a conversation; counting those closes as failures
   grew the retry delay to 60 s and the first words after a wake went unheard.
-- **Memory is the limit**: the process is ~250 MB with ~100 MB in zram swap. Bluetooth (unused
-  here, one radio shared with Wi-Fi) and the camera are off for now; vision added 2 to 6 s to
+- **Memory is the limit**: the process is ~250 MB with ~100 MB in zram swap. Bluetooth is off and
+  `bt-speaker` disabled (see [Bluetooth speaker](#bluetooth-speaker)); the camera is off for now; vision added 2 to 6 s to
   a conversation's first turn on top of the 2.2 to 2.7 s the brain takes to its first word.
 
 ## Known issues

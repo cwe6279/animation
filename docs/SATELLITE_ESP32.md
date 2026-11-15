@@ -28,8 +28,10 @@ Not `--profile pi`: that profile turns on talker's own wake mode and a fullscree
 and the board already does the wake word. Install as in `docs/RPI_ZERO_2W.md`, plus
 `sudo apt install libopus0` and `pip install opuslib`; point the board's `CONFIG_OTA_URL` at
 the Pi's address. The Zero 2 W has been the host since 2026-11-14; what it needed (the
-lead, hearing that opens on demand, housekeeping off the speaking path) is in
-`docs/RPI_ZERO_2W.md` under "Satellite host".
+lead, hearing that opens on demand, housekeeping off the speaking path, and the kiosk's
+Bluetooth speaker keepalive disabled, since paging for a speaker that isn't there takes the
+radio Wi-Fi shares for seconds at a time and her words drop out) is in `docs/RPI_ZERO_2W.md`
+under "Satellite host".
 
 Three pieces, in the order to get them working: the board (firmware, flashing: the
 [clara-esp32](https://github.com/cwe6279/clara-esp32) repo), the host (this page and
