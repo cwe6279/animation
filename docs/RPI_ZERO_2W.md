@@ -214,15 +214,31 @@ and the Pi runs the loop headless. On top of the install above:
 ```bash
 sudo apt install -y libopus0
 . ~/animation/.venv/bin/activate && pip install opuslib
-python voice_loop.py --face clara --satellite --no-window --stt elevenlabs \
-    --tts elevenlabs --tts-model flash --web-host 0.0.0.0
+python voice_loop.py --face clara --satellite --satellite-lookahead 0.9 --no-window \
+    --stt elevenlabs --tts elevenlabs --tts-model flash --web-host 0.0.0.0
 ```
 
 Not `--profile pi` here: it turns on talker's own wake mode and a fullscreen window, and
 the board already waits for its name. No mic or speaker is needed on the Pi, and the frame
 rate notes above do not apply. The board finds the Pi through its `CONFIG_OTA_URL`
-(`http://<pi-ip>:8030/xiaozhi/ota/`). Not yet measured on the Zero; the desktop is the
-host so far.
+(`http://<pi-ip>:8030/xiaozhi/ota/`), so give the Pi a DHCP reservation.
+
+Running since 2026-11-14 (a user service: `clara.service` runs `~/.local/bin/clara-run`). What
+the first evening taught:
+
+- **Gaps mid-sentence come from the host stalling, not the network.** The Pi-to-board round
+  trip is 8 ms. A stall longer than the lead empties the board's buffer, so the lead is 0.9 s
+  here (`--satellite-lookahead`; the board holds about 1.2 s). The log says
+  `host stalled 2.85 s while she was speaking` when it happens.
+- **The biggest stall was a full garbage collection** (the fix for the TLS leak) running at the
+  end of a reply, holding the GIL for nearly 3 s on this CPU. It now waits until she has
+  stopped speaking.
+- **Cloud hearing opens on demand.** The Scribe socket closes after ~20 s without audio, and in
+  satellite mode audio flows only during a conversation; counting those closes as failures
+  grew the retry delay to 60 s and the first words after a wake went unheard.
+- **Memory is the limit**: the process is ~250 MB with ~100 MB in zram swap. Bluetooth (unused
+  here, one radio shared with Wi-Fi) and the camera are off for now; vision added 2 to 6 s to
+  a conversation's first turn on top of the 2.2 to 2.7 s the brain takes to its first word.
 
 ## Known issues
 

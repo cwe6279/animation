@@ -20,15 +20,16 @@ Opus in and out, no sound device). Recognition is the heavy part, and local Whis
 on the Zero, so it goes to the cloud:
 
 ```
-python voice_loop.py --face clara --satellite --no-window --stt elevenlabs \
-    --tts elevenlabs --tts-model flash --web-host 0.0.0.0
+python voice_loop.py --face clara --satellite --satellite-lookahead 0.9 --no-window \
+    --stt elevenlabs --tts elevenlabs --tts-model flash --web-host 0.0.0.0
 ```
 
 Not `--profile pi`: that profile turns on talker's own wake mode and a fullscreen window,
 and the board already does the wake word. Install as in `docs/RPI_ZERO_2W.md`, plus
 `sudo apt install libopus0` and `pip install opuslib`; point the board's `CONFIG_OTA_URL` at
-the Pi's address. Measured so far only with the desktop as host; the Zero 2 W's own numbers
-for recognition and voice are in `docs/RPI_ZERO_2W.md`.
+the Pi's address. The Zero 2 W has been the host since 2026-11-14; what it needed (the
+lead, hearing that opens on demand, housekeeping off the speaking path) is in
+`docs/RPI_ZERO_2W.md` under "Satellite host".
 
 Three pieces, in the order to get them working: the board (firmware, flashing: the
 [clara-esp32](https://github.com/cwe6279/clara-esp32) repo), the host (this page and
