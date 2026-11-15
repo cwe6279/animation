@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import gc
 import os
 import queue
 import re
@@ -107,9 +108,15 @@ class VoiceLoop:
         self.sleep_words = [w.strip().lower() for w in (sleep_words if sleep_words is not None
                                                         else self.DEFAULT_SLEEP_WORDS) if w.strip()]
         self._last_activity = self.clock()
+        # Sleep hours (sleep_hours.SleepHours): nothing is streamed to cloud speech recognition
+        # and the connection is closed, so an empty room at night costs nothing.
+        self.sleep_hours = None
+        self.asleep = False
+        self._sleep_checked = 0.0
         self._lock = threading.Lock()
         self._thinking = False
         self._last_busy = 0.0
+        self._reply_garbage = False    # a reply ended: collect its connection's cycles once idle
         self.on_reply_start: Callable[[], None] = lambda: None   # e.g. hush the ambience
         self._partial = ""
         self.turns = 0
@@ -167,7 +174,7 @@ class VoiceLoop:
     def _process(self, pcm: bytes, t_in: Optional[float] = None) -> None:
         t_in = time.monotonic() if t_in is None else t_in     # when the mic heard this frame
         self._last_audio_in = time.monotonic()
-        if self.paused or self.waiting:   # calibration owns the mic, or waiting mode: hear nothing
+        if self.paused or self.waiting or self.check_sleep():   # calibration, waiting mode, sleep hours
             self.stt.reset()
             self._barge_since = None
             return
@@ -177,6 +184,7 @@ class VoiceLoop:
         if busy:
             self._last_busy = now
             self._spoke_at = time.monotonic()
+            self._reply_garbage = True
             if not self.barge_in or self._thinking:
                 self.stt.reset()          # drop echo; nothing to transcribe
                 self._barge_since = None
@@ -226,6 +234,13 @@ class VoiceLoop:
             self._gated = False
         self._barge_since = None
         self._echo_started = None
+        if self._reply_garbage:
+            # Each reply's TTS connection leaves aiohttp/TLS objects in reference cycles that
+            # hold OpenSSL memory the cycle collector does not count; free them once she is
+            # done talking, when a pause cannot stutter her audio. (stt_backends does the same
+            # after every reconnect.)
+            self._reply_garbage = False
+            gc.collect()
         if now - self._last_busy < self.GRACE_AFTER_SPEECH:
             self.stt.reset()
             return
@@ -497,12 +512,40 @@ class VoiceLoop:
     # ── a turn nobody asked for ─────────────────────────
     PARTIAL_STALE_S = 4.0          # a partial with no newer words for this long is not 'mid-sentence'
 
+    def check_sleep(self) -> bool:
+        """True during sleep hours. On the change: close or reopen cloud hearing, say so in the log."""
+        if self.sleep_hours is None:
+            return False
+        now_m = time.monotonic()
+        if now_m - self._sleep_checked < 1.0:
+            return self.asleep
+        self._sleep_checked = now_m
+        from datetime import datetime
+        now = datetime.now().astimezone()
+        asleep = self.sleep_hours.asleep(now)
+        if asleep != self.asleep:
+            self.asleep = asleep
+            if asleep:
+                if self.engaged and self.wake_words:
+                    self.disengage("sleep hours")
+                if hasattr(self.stt, "pause"):
+                    self.stt.pause()
+                ends = self.sleep_hours.ends(now)
+                self.on_event("mode", f"asleep until {ends:%H:%M} (sleep hours {self.sleep_hours.spec}): "
+                                      "not listening, nothing sent to speech recognition")
+            else:
+                if hasattr(self.stt, "resume"):
+                    self.stt.resume()
+                self.on_event("mode", "awake after sleep hours: dormant, listening for "
+                                      + ", ".join(repr(w) for w in self.wake_words))
+        return asleep
+
     def announce(self, event_text: str) -> bool:
         """Tell the brain something happened and let it speak up, but only when the room is
         quiet: not while it talks or thinks, not while someone is mid-sentence, not within
         a couple of seconds of either. Returns False to say: try again later."""
-        if self.waiting or self.paused or self.dictating:
-            return False
+        if self.waiting or self.paused or self.dictating or self.asleep:
+            return False                  # asleep: the news waits for the morning
         if not self.engaged and not (self.announce_wakes and self.wake_words):
             return False
         if self.speaker.is_busy or self._thinking:
@@ -650,6 +693,26 @@ def brain_problem(e: Exception) -> tuple:
     return "error", "[sad]Sorry, I could not think of an answer just now."
 
 
+def with_clock(reply, add_context, every_s: float = 600.0, clock=None):
+    """The date and time in the system prompt are frozen at launch (rewriting the prompt each
+    turn would throw its cache away). Before a turn, when `every_s` has passed since the last
+    time note or the date has changed, hand the brain the current date, time and place as a
+    context note. A few tokens, now and then; works with every brain."""
+    from datetime import datetime
+    from .launch_facts import now_text
+    clock = clock or (lambda: datetime.now().astimezone())
+    last = {"at": None}
+
+    def wrapped(text, *a, **k):
+        now = clock()
+        prev = last["at"]
+        if prev is None or (now - prev).total_seconds() >= every_s or now.date() != prev.date():
+            add_context(now_text(now))
+            last["at"] = now
+        return reply(text, *a, **k)
+    return wrapped
+
+
 HANDOFF_ACK = {"task": "On it.", "approve": "Okay, going ahead.", "deny": "Alright, I won't."}
 
 
@@ -704,22 +767,6 @@ def handoff_brief(reply):
     return wrapped
 
 
-def with_clock(reply, add_context):
-    """Hand the brain the current clock with each turn, as a context note, whenever the
-    minute has changed since the last one: the prompt's clock is from launch and a process
-    that runs for days would otherwise answer "what day is it" with the day it started."""
-    from .launch_facts import clock_note
-    last = [""]
-
-    def wrapped(text, *a, **k):
-        note = clock_note()
-        if note != last[0]:
-            last[0] = note
-            add_context(note)
-        return reply(text, *a, **k)
-    return wrapped
-
-
 def always_speaks(reply):
     """A reply made only of {{blocks}} and [tags] is silence to the listener: add a word."""
     import re as _re
@@ -732,7 +779,9 @@ def always_speaks(reply):
         full = "".join(said)
         spoken = _re.sub(r"\{\{.*?\}\}|\[[^\]\n]{1,40}\]", "", full, flags=_re.S)
         if full.strip() and not _re.search(r"[A-Za-z0-9]", spoken):
-            yield " Noted."
+            # Say what the blocks do: "Noted." after a look or a clock check claimed a note.
+            kinds = set(_re.findall(r"\{\{\s*([a-z]+)", full))
+            yield " Noted." if kinds <= {"note"} else " On it." if "task" in kinds else " One moment."
     return wrapped
 
 
@@ -995,6 +1044,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "Default: the face's wake_words, else its name")
     p.add_argument("--idle-timeout", type=float, default=60.0,
                    help="Seconds of silence after the character last spoke before it goes dormant (default 60)")
+    p.add_argument("--sleep-hours", default=None,
+                   help="Hours she does not listen at all, e.g. 23:00-07:00 (the default; 'off' to never "
+                        "sleep). Nothing is sent to cloud speech recognition then. Also set on the control page.")
     p.add_argument("--start-dormant", action="store_true",
                    help="In wake mode, start dormant instead of engaged (kiosk: wait to be called by name)")
     p.add_argument("--sleep-word", default=None,
@@ -1020,6 +1072,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vision-dormant-interval", type=float, default=300.0,
                    help="Seconds between camera looks while dormant (default 300); sound still triggers a look, "
                         "at most once a minute")
+    p.add_argument("--clock-every-min", type=float, default=10.0,
+                   help="Remind the brain of the current date, time and place before a turn when this many "
+                        "minutes have passed since the last reminder, or the date changed (default 10)")
+    p.add_argument("--dream-model", default="claude-opus-5-5",
+                   help="Model for the nightly self-review (dream.py): claude-opus-5-5, or claude-fable-5-1 for the deepest")
+    p.add_argument("--dream-idle-hours", type=float, default=3.0,
+                   help="Dream once a day after this many hours dormant with no conversation (default 3)")
+    p.add_argument("--no-dream", action="store_true", help="No nightly self-review")
     p.add_argument("--planner-model", default="claude-sonnet-5",
                    help="Model that plans agent goals into steps (default claude-sonnet-5)")
     p.add_argument("--vision-change", type=float, default=0.035,
@@ -1069,6 +1129,8 @@ def main(argv=None) -> int:
     load_dotenv()
     from .session_log import start_session_log
     log_path = start_session_log("voice")
+    from .memtrace import start_from_env
+    start_from_env()
     p = build_parser()
     args = p.parse_args(argv)
     if args.mic_min_rms is None:
@@ -1208,6 +1270,8 @@ def main(argv=None) -> int:
     sounds = SoundBank(os.path.join(face_dir, m.sounds) if face_dir else None)
     body = NullBody((m.body or {}).get("moves", []))
     tools = ToolBox()
+    from .launch_facts import now_text
+    tools.add("clock", "the current date, time, time zone and location", lambda _a: now_text())
     # An assistant: notes she writes herself, and errands for a backend agent (errands.py).
     from .brains.claude_chat import assistant_rules
     memory_on = bool(m.memory) and notebook is not None
@@ -1328,7 +1392,8 @@ def main(argv=None) -> int:
         runner = ErrandRunner(agent_url, poll_s=args.errand_poll, sender=m.name,
                               timeout=args.agent_timeout)
         orch = Orchestrator(runner, planner=make_claude_planner(model=args.planner_model, can=m.errands_can),
-                            announce=runner.say_later, mode=args.errand_mode, on_change=on_goal_change)
+                            announce=runner.say_later, mode=args.errand_mode, on_change=on_goal_change,
+                            state_path=os.path.join(face_dir, "goals.json"))
         runner.on_done, runner.on_fail = orch.on_errand_done, orch.on_errand_failed
         runner.on_needs_input = orch.on_errand_needs_input
 
@@ -1350,6 +1415,12 @@ def main(argv=None) -> int:
         actions.register("deny", decision_handler(False))
     if getattr(app, "pipeline", None) is not None:
         app.pipeline.on_action = actions.dispatch
+
+        def on_broken_block(text):                 # never spoken; the person hears it failed
+            from . import incidents
+            print(f"[action] broken block, not spoken: {text[:200]}")
+            incidents.record("block_dropped", block=text[:400])
+        app.pipeline.on_broken_block = on_broken_block
 
     stt = None
     if not text_only:
@@ -1396,9 +1467,21 @@ def main(argv=None) -> int:
 
     sleep_words = ([w for w in args.sleep_word.split(",")] if args.sleep_word
                    else (m.sleep_words if m.sleep_words else None))
-    loop = VoiceLoop(stt, always_speaks(handoff_brief(with_clock(chat.reply, chat.add_context))), app, barge_in=args.barge_in, wake_words=wake_words,
+    brain = with_clock(chat.reply, chat.add_context, every_s=args.clock_every_min * 60)
+    loop = VoiceLoop(stt, always_speaks(handoff_brief(brain)), app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
+    # Sleep hours: on by default in wake mode (a kiosk listening all night); elsewhere only if asked.
+    from . import local_settings as _settings
+    from .sleep_hours import DEFAULT as _SLEEP_DEFAULT, SleepHours
+    sleep_spec = args.sleep_hours or _settings.load().get("sleep_hours") or (_SLEEP_DEFAULT if wake_words else "")
+    if sleep_spec and not text_only:
+        try:
+            loop.sleep_hours = SleepHours(sleep_spec)
+            print(f"[sleep] {'sleep hours ' + loop.sleep_hours.spec if loop.sleep_hours.spec else 'sleep hours off'}"
+                  + (": not listening then, nothing sent to speech recognition" if loop.sleep_hours.spec else ""))
+        except ValueError as e:
+            print(f"[sleep] ignored: {e}")
     loop.vision = watcher
     if watcher is not None:
         watcher.is_dormant = lambda: bool(loop.wake_words) and not loop.engaged
@@ -1424,7 +1507,7 @@ def main(argv=None) -> int:
 
     def on_brain(ok, kind, detail):
         from . import incidents
-        incidents.record("brain_ok" if ok else "brain_failed", reason=kind, detail=detail[:300])
+        incidents.record("brain_ok" if ok else "brain_failed", problem=kind, detail=detail[:300])
     loop.on_brain = on_brain
     loop.add_context = chat.add_context      # a visual question hands her the current scene
     # Resilience: say when the cloud is gone (from a cached local recording: the voice is cloud
@@ -1447,6 +1530,54 @@ def main(argv=None) -> int:
     net = NetWatch(on_offline=net_offline, on_online=net_online)
     net.start()
     loop.net = net
+    # Hearing (cloud STT) can fail while the internet is fine: an out-of-credit account closes
+    # every session at once. Say so once, from a cached line, and again when it works.
+    if stt is not None and hasattr(stt, "on_problem"):
+        cues.prepare({"deaf_credit": "I can't hear right now: my hearing service is out of credit. "
+                                     "I'll keep checking every few minutes.",
+                      "deaf": "I can't hear right now: my hearing service keeps failing. I'll keep trying.",
+                      "hearing": "I can hear again."})
+
+        def play_when_ready(key, wait_s=30.0):     # at boot the line may still be rendering
+            def work():
+                end = time.time() + wait_s
+                while key not in cues._paths and time.time() < end:
+                    time.sleep(0.5)
+                cues.play(key)
+            threading.Thread(target=work, daemon=True, name=f"cue-{key}").start()
+
+        def stt_problem(kind, detail):
+            play_when_ready("deaf_credit" if kind == "out_of_credit" else "deaf")
+            incidents.record("stt_failed", problem=kind, detail=detail[:300])
+
+        def stt_recovered(was):
+            incidents.record("stt_ok", was=was)
+            play_when_ready("hearing")
+        stt.on_problem, stt.on_recovered = stt_problem, stt_recovered
+        if stt.problem:                            # it failed before anyone was listening
+            stt_problem(stt.problem, "at startup")
+    # Dream mode (dream.py): once a day, after a few idle hours, a strong model reviews the logs
+    # and writes dreams/<date>.md with proposed improvements. Nothing is applied automatically.
+    loop.dreams = None
+    if not args.no_dream and not text_only:
+        from .dream import DreamScheduler, dream as run_dream
+        talk = {"at": time.time()}
+        prev_talk_event = loop.on_event
+
+        def note_talk(kind, text):
+            if kind in ("you", "bot"):
+                talk["at"] = time.time()
+            prev_talk_event(kind, text)
+        loop.on_event = note_talk
+        extra = {"calibration.json": os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "calibration.json"),
+                 "startup flags (clara-run)": os.path.expanduser("~/.local/bin/clara-run")}
+        loop.dreams = DreamScheduler(
+            run=lambda: run_dream(face_dir=face_dir or "", model=args.dream_model, extra_files=extra),
+            is_dormant=lambda: bool(loop.wake_words) and not loop.engaged,
+            last_activity=lambda: talk["at"], idle_hours=args.dream_idle_hours,
+            online=lambda: net.online)
+        loop.dreams.start()
+        print(f"[dream] on: {args.dream_model}, once a day after {args.dream_idle_hours:g} h idle; reports in dreams/")
     prev_turn_event = loop.on_event
 
     def note_slow_turns(kind, text):
@@ -1475,8 +1606,10 @@ def main(argv=None) -> int:
         loop.on_event = remember_you
     if runner is not None:
         runner.deliver = loop.announce       # a finished task is told when the room is quiet
-        for it in ledger.open_items():       # goals live in memory: say plainly that a restart cut them off
-            ledger.set_state(it["id"], "failed", summary="interrupted: the character restarted before it finished")
+        resumed = {g.id for g in orch.restore()} if orch is not None else set()
+        for it in ledger.open_items():       # what goals.json could not bring back: say plainly it was cut off
+            if it["id"] not in resumed:
+                ledger.set_state(it["id"], "failed", summary="interrupted: the character restarted before it finished")
         runner.start()
         loop.errands = runner
         print(f"[errands] on: {agent_url or '(no address yet)'}, polled every {args.errand_poll:.0f}s; "
@@ -1717,6 +1850,8 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
                             "skipped": watcher.stats.get("skipped_unchanged", 0),
                             "latest": (n.changes or n.notes) if n else ""}
         st["dictation"] = loop.dictating
+        if getattr(loop, "dreams", None) is not None:
+            st["dreaming"] = loop.dreams.dreaming
         st["brain"] = getattr(loop, "brain", None) or {"ok": True}
         if getattr(loop, "net", None) is not None:
             st["online"] = loop.net.online
@@ -1756,6 +1891,27 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
     panel.tunable("echo_threshold", lambda: loop.echo_threshold, lambda v: setattr(loop, "echo_threshold", v),
                   "Mic/speaker loudness correlation above this is treated as the character's own voice, not a barge-in.",
                   kind="float", lo=0.0, hi=1.0)
+    from . import local_settings as _ls
+    panel.tunable("location", lambda: str(_ls.load().get("location") or ""),
+                  lambda v: _ls.save("location", str(v).strip() or None),
+                  "Where the character is, e.g. 'Bronxville, NY'. Used in time notes and {{tool clock}} at once, and "
+                  "in the prompt from the next start. Empty = looked up from the internet address.", kind="str")
+    if loop.sleep_hours is not None:
+        def set_sleep(v):
+            loop.sleep_hours.set(str(v))
+            loop._sleep_checked = 0.0
+            _ls.save("sleep_hours", loop.sleep_hours.spec or "off")
+        panel.tunable("sleep_hours", lambda: loop.sleep_hours.spec or "off", set_sleep,
+                      "Hours she does not listen at all, e.g. 23:00-07:00, or 'off'. Nothing goes to cloud "
+                      "speech recognition then, so a quiet night costs nothing; news waits for the morning.",
+                      kind="str", flag="--sleep-hours")
+
+        def wake_now(_t=""):
+            from datetime import datetime
+            loop.sleep_hours.wake_now(datetime.now().astimezone())
+            loop._sleep_checked = 0.0
+            return ("awake until " + f"{loop.sleep_hours.awake_until:%H:%M}") if loop.sleep_hours.awake_until                 else "not in sleep hours"
+        panel.action("wake_now", wake_now, "Wake her during sleep hours, until they end tonight.")
     panel.tunable("idle_timeout", lambda: loop.idle_timeout, lambda v: setattr(loop, "idle_timeout", v),
                   "Wake mode: seconds of quiet after its own last reply before it goes dormant.", kind="float", unit="s",
                   lo=5, hi=3600, flag="--idle-timeout")
@@ -1858,6 +2014,11 @@ def _start_panel(args, parser, loop, app, audio, stt, chat, backend, watcher, ma
         panel.action("interrupt", lambda t: (pipeline.interrupt(), "stopped")[1], "Stop speaking now.")
     panel.action("say as visitor", lambda t: (loop.on_user_text(t), "sent")[1] if t.strip() else "type something first",
                  "Send this line to the brain as if a visitor said it.", takes_text=True)
+    if getattr(loop, "dreams", None) is not None:
+        panel.action("dream now", lambda t: loop.dreams.dream_now(),
+                     "Review the logs now and write a report with proposed improvements (Dreams tab). "
+                     "Normally happens once a day after a few idle hours.")
+        panel.dreams_dir = __import__("talker.dream", fromlist=["DREAMS"]).DREAMS
     panel.action("go dormant", lambda t: (loop.disengage("panel"), "dormant")[1], "Wake mode: stop answering until a wake word.")
     if runner is not None:
         panel.action("task", lambda t: f"queued {runner.submit(t).id}" if t.strip() else "type the task first",

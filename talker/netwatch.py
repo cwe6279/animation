@@ -6,8 +6,10 @@ quietly when the network does: the character goes deaf and nobody is told. One
 daemon thread opens a TCP connection to the services it depends on every
 `interval` seconds. After `fails_to_offline` misses in a row it calls on_offline()
 once; when a check succeeds again it calls on_online(seconds_down). While offline
-it runs `heal_cmd` (by default `nmcli device reconnect wlan0`) every `heal_after`
-seconds and logs what came back.
+it runs `heal_cmd` (by default `nmcli device connect wlan0`, which re-activates the
+best saved network) every `heal_after` seconds and logs what came back. (It used to
+be `nmcli device reconnect`, which nmcli does not have: every heal failed with
+"argument 'reconnect' not understood", including through a 31-minute outage.)
 
     net = NetWatch(on_offline=lambda: ..., on_online=lambda s: ...)
     net.start()
@@ -28,7 +30,7 @@ class NetWatch:
     def __init__(self, hosts: Sequence[Tuple[str, int]] = DEFAULT_HOSTS, interval: float = 10.0,
                  fails_to_offline: int = 2, on_offline: Optional[Callable[[], None]] = None,
                  on_online: Optional[Callable[[float], None]] = None, heal_after: float = 120.0,
-                 heal_cmd: Optional[Sequence[str]] = ("nmcli", "device", "reconnect", "wlan0"),
+                 heal_cmd: Optional[Sequence[str]] = ("nmcli", "--wait", "25", "device", "connect", "wlan0"),
                  probe: Optional[Callable[[], bool]] = None, clock: Callable[[], float] = time.monotonic):
         self.hosts = list(hosts)
         self.interval = interval

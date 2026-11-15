@@ -149,6 +149,19 @@ def make_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(default_headers=headers or None)
 
 
+def thinking_off(model: str) -> dict:
+    """Request fields that turn the reasoning pass off, per model. Sonnet 5.5 rejects
+    {type: disabled} and takes {type: between_tools} instead; Opus 5.5 and Fable can't turn
+    thinking off at all (low effort keeps it short); older models take {type: disabled}."""
+    if model.startswith("claude-haiku-4"):
+        return {}                                  # Haiku 4.5 rejects a thinking setting
+    if model.startswith("claude-sonnet-5-5"):
+        return {"thinking": {"type": "between_tools"}}
+    if model.startswith(("claude-opus-5-5", "claude-fable-5", "claude-mythos-5")):
+        return {}
+    return {"thinking": {"type": "disabled"}}
+
+
 class ClaudeChat:
     FAST_PAUSE_S = 300.0             # after three fast-mode rate limits in a row, wait this long
 
@@ -200,9 +213,7 @@ class ClaudeChat:
         msgs = self.messages + [{"role": "user", "content": instruction}]
         if not self.messages:
             return ""
-        extra = {}
-        if not self.model.startswith("claude-haiku"):
-            extra["thinking"] = {"type": "disabled"}
+        extra = thinking_off(self.model)
         with self.client.beta.messages.stream(model=self.model, max_tokens=max_tokens, **extra,
                                               system=self.system, messages=msgs) as stream:
             return "".join(stream.text_stream).strip()
@@ -210,12 +221,14 @@ class ClaudeChat:
     def _stream(self, speed: Optional[str]):
         extra = {}
         haiku = self.model.startswith("claude-haiku")
-        if not haiku:   # Haiku 4.5 rejects effort, thinking-disabled and fallbacks
+        old_haiku = self.model.startswith("claude-haiku-4")
+        if not old_haiku:   # Haiku 4.5 rejects effort, thinking-disabled and fallbacks
             extra["output_config"] = {"effort": self.effort}
-            extra["betas"] = ["server-side-fallback-2026-07-01"]
-            extra["fallbacks"] = "default"
+            if not haiku:   # server-side fallbacks: the larger models only
+                extra["betas"] = ["server-side-fallback-2026-07-01"]
+                extra["fallbacks"] = "default"
             if not self.thinking:
-                extra["thinking"] = {"type": "disabled"}
+                extra.update(thinking_off(self.model))
         client = self.client
         if speed == "fast":
             extra["speed"] = "fast"

@@ -231,6 +231,7 @@ class WebPanel:
         self.calibrator: Optional[Callable[[Callable[[str], None]], Dict]] = None
         self.pause: Callable[[bool], None] = lambda on: None
         self.agent = None                 # errands.AgentControl when the face hands work to an agent
+        self.dreams_dir: Optional[str] = None   # dream.py reports, listed on the Dreams tab
         self.wifi = WifiControl()
         self.calib: Dict[str, Any] = {"state": "idle", "prompt": "", "result": None, "error": ""}
         self._calib_go = threading.Event()
@@ -291,6 +292,18 @@ class WebPanel:
                         if st.get("available") and parse_qs(u.query).get("scan"):
                             st["networks"] = panel.wifi.scan()
                         self._json(st)
+                    elif u.path == "/api/dreams":
+                        from .dream import list_reports
+                        self._json({"reports": list_reports(panel.dreams_dir) if panel.dreams_dir else []})
+                    elif u.path.startswith("/api/dreams/"):
+                        import os as _os
+                        name = _os.path.basename(u.path)
+                        path = _os.path.join(panel.dreams_dir or "", name)
+                        if not panel.dreams_dir or not name.endswith(".md") or not _os.path.isfile(path):
+                            self._json({"error": "no such report"}, 404)
+                        else:
+                            with open(path, encoding="utf-8") as f:
+                                self._send(200, f.read().encode(), "text/plain; charset=utf-8")
                     elif u.path == "/api/agent":
                         self._json(panel.agent.info() if panel.agent else
                                    {"error": "this face does not hand work to an agent (no \"errands\" in its face.json)"})
@@ -488,7 +501,7 @@ h2{font-size:1.05rem;margin:1.2rem 0 .6rem}#toast{position:fixed;bottom:1rem;rig
 img.snap{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 </style></head><body>
 <header><h1>Talker control</h1><span class="sub" id="who">connecting…</span><span class="sub" id="up"></span></header>
-<nav><button class="on" data-t="status">Status</button><button data-t="tune">Tune</button><button data-t="test">Test setup</button><button data-t="ref">Reference</button><button data-t="wifi">Wi-Fi</button><button data-t="agent">Agent</button></nav>
+<nav><button class="on" data-t="status">Status</button><button data-t="tune">Tune</button><button data-t="test">Test setup</button><button data-t="ref">Reference</button><button data-t="wifi">Wi-Fi</button><button data-t="agent">Agent</button><button data-t="dreams">Dreams</button></nav>
 <main>
 <section id="status" class="on">
   <div class="grid" id="cards"></div>
@@ -527,6 +540,11 @@ img.snap{max-width:100%;border-radius:8px;border:1px solid var(--line)}
   <div class="wrap"><table id="nets"><tr><th>network</th><th>signal</th><th>security</th><th></th></tr></table></div>
   <div class="row"><input type="text" id="ssid" placeholder="network name"><input type="password" id="pw" placeholder="password"><button class="act primary" onclick="join()">Join</button><span id="wifimsg" class="help"></span></div>
 </section>
+<section id="dreams">
+  <p class="help">Once a day, after a few idle hours, a strong model reviews her logs and writes proposed improvements. Nothing is applied automatically. "dream now" on Test setup runs one at once.</p>
+  <div class="row" id="dreamlist"></div>
+  <div class="log" id="dreamtext" style="max-height:none">Pick a report.</div>
+</section>
 <section id="agent">
   <p class="help">Where this character's <code>{{task ...}}</code> errands go: <code>tools/agent_relay.py</code> on the machine with your agent harness (see <code>tools/AGENT_RELAY.md</code>). Changes apply at once; tasks asked for while no address is set wait and are sent when one is. Saved to <code>settings.json</code> for the next start.</p>
   <div id="agentoff" class="help" style="display:none"></div>
@@ -550,7 +568,9 @@ img.snap{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 <div id="toast"></div>
 <script>
 const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));if(b.dataset.t==='ref')loadRef();if(b.dataset.t==='wifi')wifi(false);if(b.dataset.t==='agent')agent(true);});
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));if(b.dataset.t==='ref')loadRef();if(b.dataset.t==='wifi')wifi(false);if(b.dataset.t==='agent')agent(true);if(b.dataset.t==='dreams')dreams();});
+async function dreams(){const r=await (await fetch('/api/dreams')).json();$('#dreamlist').innerHTML=(r.reports||[]).length?r.reports.map(n=>`<button class="act" onclick="dreamOpen('${esc(n)}')">${esc(n.replace('.md',''))}</button>`).join(''):'<span class="help">No dreams yet.</span>';if((r.reports||[]).length)dreamOpen(r.reports[0])}
+async function dreamOpen(n){const r=await fetch('/api/dreams/'+encodeURIComponent(n));$('#dreamtext').textContent=r.ok?await r.text():'could not load '+n}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._h);t._h=setTimeout(()=>t.style.opacity=0,2200)}
 async function post(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return r.json()}
 let built=false;

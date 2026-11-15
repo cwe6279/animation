@@ -21,6 +21,7 @@ Both expose `speech_active` so the loop can interrupt playback on barge-in.
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import queue
@@ -28,7 +29,7 @@ import time
 import urllib.request
 import zipfile
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -348,6 +349,8 @@ class ElevenLabsSTT(STTBackend):
     """
     name = "elevenlabs"
     MODEL = "scribe_v2_realtime"
+    FATAL = ("quota_exceeded", "insufficient_funds", "unauthorized", "auth_error")
+    QUOTA_RETRY_S = 300.0          # out of credit: check every 5 minutes, recover on its own
 
     def __init__(self, sample_rate: int = 16000, silence_ms: Optional[int] = None,
                  api_key: Optional[str] = None, language: Optional[str] = None):
@@ -361,6 +364,11 @@ class ElevenLabsSTT(STTBackend):
         if not self.api_key:
             raise RuntimeError("ElevenLabsSTT needs ELEVENLABS_API_KEY in the environment.")
         self.speech_active = False
+        # "" when hearing works; "out_of_credit" or "failing" when sessions keep closing at once.
+        self.problem = ""
+        self._ws = None
+        self.on_problem: Optional[Callable[[str, str], None]] = None     # (kind, detail), once
+        self.on_recovered: Optional[Callable[[str], None]] = None        # (previous kind), once
         self._results: "queue.Queue[Transcript]" = queue.Queue()
         self._audio: Optional[asyncio.Queue] = None
         self._loop = asyncio.new_event_loop()
@@ -381,6 +389,8 @@ class ElevenLabsSTT(STTBackend):
         import asyncio
         asyncio.set_event_loop(self._loop)
         self._audio = asyncio.Queue()
+        self._awake = asyncio.Event()
+        self._awake.set()
         self._ready.set()
         self._loop.run_until_complete(self._session_forever())
 
@@ -390,12 +400,23 @@ class ElevenLabsSTT(STTBackend):
         import aiohttp
         backoff = 1.0
         while True:
+            if not self._awake.is_set():                 # sleep hours: no connection, nothing sent
+                print("[stt] asleep: scribe connection closed")
+                await self._awake.wait()
+                print("[stt] awake: reconnecting")
+                backoff = 1.0
+            # A session that closes before hearing anything is a failure, not a reconnect: the
+            # server says why in a message (quota_exceeded, auth_error...) and then closes. Treated
+            # as a clean reconnect, an out-of-credit account was retried every 1-2 s for 6 hours,
+            # 15,684 times, while she heard nothing and said nothing about it.
+            why, opened, heard = "", time.monotonic(), False
             try:
                 async with aiohttp.ClientSession() as http:
                     async with http.ws_connect(self._url(), headers={"xi-api-key": self.api_key},
                                                heartbeat=20) as ws:
-                        print("[stt] scribe realtime connected")
-                        backoff = 1.0
+                        self._ws = ws
+                        if not self.problem:
+                            print("[stt] scribe realtime connected")
 
                         async def sender():
                             while True:
@@ -408,31 +429,95 @@ class ElevenLabsSTT(STTBackend):
                         try:
                             async for msg in ws:
                                 if msg.type != aiohttp.WSMsgType.TEXT:
+                                    why = why or f"closed {ws.close_code} {msg.extra or ''}".strip()
                                     break
                                 d = json.loads(msg.data)
-                                kind = d.get("message_type")
+                                kind = d.get("message_type") or ""
                                 text = (d.get("text") or "").strip()
                                 if kind == "partial_transcript":
                                     self.speech_active = bool(text)
                                     if text:
+                                        heard = True
                                         self._results.put(Transcript(text, False))
                                 elif kind == "committed_transcript":
                                     self.speech_active = False
                                     if text:
+                                        heard = True
                                         self._results.put(Transcript(text, True))
-                                elif kind and kind.endswith("error"):
-                                    print(f"[stt] scribe: {d}")
+                                elif kind in ("session_started",):
+                                    pass
+                                elif kind.endswith("error") or kind in self.FATAL:
+                                    why = f"{kind}: {d.get('error') or d.get('message') or ''}".strip()
+                                if heard and self.problem:
+                                    self._set_problem("", "")
                         finally:
                             task.cancel()
+                            if not why and ws.close_code is not None:
+                                why = f"closed {ws.close_code}"
             except Exception as e:
-                print(f"[stt] scribe connection lost ({e.__class__.__name__}: {str(e)[:120]}); "
-                      f"reconnecting in {backoff:.0f}s")
+                why = f"{e.__class__.__name__}: {str(e)[:120]}"
+            self._ws = None
+            # A closed session leaves its aiohttp/TLS objects in reference cycles (~78 objects).
+            # The cycle collector counts objects, not bytes, so it rarely gets to them, and each
+            # holds OpenSSL buffers outside Python: a reconnect every minute or so grew the
+            # process ~37 MB/hour until a Pi Zero was deep in swap. Free them now.
+            gc.collect()
+            if not self._awake.is_set():
+                continue                                 # closed for sleep, not a failure
+            lived = time.monotonic() - opened
+            if heard or lived > 60:
+                backoff = 1.0                      # a working session: reconnect at once
+            if why and not heard and lived < 60:
+                kind = "out_of_credit" if any(k in why for k in ("quota", "insufficient", "credit")) else "failing"
+                if kind == "out_of_credit":
+                    backoff = max(backoff, self.QUOTA_RETRY_S)
+                self._set_problem(kind, why)
+                print(f"[stt] scribe failed ({why}); retrying in {backoff:.0f}s")
+            elif why:
+                print(f"[stt] scribe connection lost ({why}); reconnecting in {backoff:.0f}s")
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 15.0)
+            backoff = min(backoff * 2, self.QUOTA_RETRY_S if self.problem == "out_of_credit" else 60.0)
+
+    def _queue_audio(self, pcm: bytes) -> None:
+        while self._audio.qsize() >= self.MAX_QUEUED:
+            self._audio.get_nowait()                     # drop the oldest, keep the latest
+        self._audio.put_nowait(pcm)
+
+    def pause(self) -> None:
+        """Close the connection and send nothing until resume() (sleep hours)."""
+        def go():
+            self._awake.clear()
+            while not self._audio.empty():
+                self._audio.get_nowait()
+            if self._ws is not None and not self._ws.closed:
+                import asyncio
+                asyncio.ensure_future(self._ws.close())
+        self._loop.call_soon_threadsafe(go)
+
+    def resume(self) -> None:
+        self._loop.call_soon_threadsafe(self._awake.set)
+
+    def _set_problem(self, kind: str, detail: str) -> None:
+        """Tell the voice loop once when hearing breaks, and once when it works again."""
+        if kind == self.problem:
+            return
+        was, self.problem = self.problem, kind
+        try:
+            if kind and self.on_problem:
+                self.on_problem(kind, detail)
+            elif not kind and was and self.on_recovered:
+                self.on_recovered(was)
+        except Exception as e:
+            print(f"[stt] problem report failed: {e}")
+
+    MAX_QUEUED = 50               # ~5 s of 100 ms frames: enough to bridge a reconnect
 
     def feed(self, pcm: bytes) -> Optional[Transcript]:
-        if pcm and self._audio is not None:
-            self._loop.call_soon_threadsafe(self._audio.put_nowait, pcm)
+        # Only while connected, and never more than a few seconds: with the connection down
+        # (out of credit) nothing drains the queue, and 32 KB/s of mic audio piled up until
+        # the Pi ran out of memory and swap (278 MB in 3 hours) and everything stalled.
+        if pcm and self._audio is not None and self._ws is not None:
+            self._loop.call_soon_threadsafe(self._queue_audio, pcm)
         latest: Optional[Transcript] = None
         while not self._results.empty():
             t = self._results.get_nowait()

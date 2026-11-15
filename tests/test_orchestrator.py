@@ -216,3 +216,58 @@ def test_parse_plan_falls_back_to_one_step_and_cleans_dependencies():
     assert [s.n for s in steps] == [1, 2] and steps[1].after == [1] and steps[1].approved
     info_approved = parse_plan('{"steps": [{"n": 1, "do": "read", "kind": "info", "approved": true}]}', "g")
     assert info_approved[0].approved is False                 # only actions carry approval
+
+
+def test_a_restart_resumes_open_goals_instead_of_losing_them(tmp_path):
+    # Six goals were lost to restarts, flight searches among them, while the agent kept working.
+    path = str(tmp_path / "goals.json")
+    agent, said = Agent(), []
+    steps = [dict(n=1, do="find nonstop flights to Las Vegas Oct 20"),
+             dict(n=2, do="text the best one to +12125550199", after=[1], kind="action", approved=True)]
+
+    def build():
+        runner = ErrandRunner("http://agent:8080", fetch=agent.fetch)
+        plan = lambda goal, ctx: ([Step(n=1, do=goal)] if goal == "already finished"
+                                  else [Step(**s) for s in steps])
+        orch = Orchestrator(runner, planner=plan, announce=said.append, state_path=path)
+        runner.on_done, runner.on_fail = orch.on_errand_done, orch.on_errand_failed
+        return runner, orch
+
+    runner, orch = build()
+    g = orch.start_goal("flights to Vegas, text me the best", plan_now=True)
+    spin(runner)
+    assert agent.order == ["t1"]
+    finished = orch.start_goal("already finished", plan_now=True)
+    spin(runner)
+    agent.end("t2", summary="done earlier")
+    spin(runner)
+    del runner, orch                                          # the service restarts
+
+    agent.end("t1", summary="Southwest 1234, 9:05 am, $129.")  # the agent finished meanwhile
+    runner, orch = build()
+    resumed = orch.restore()
+    assert [r.id for r in resumed] == [g.id]                  # the finished goal is not resumed
+    spin(runner)
+    assert len(agent.order) == 3                              # step 2 went out, with step 1's result
+    assert "Southwest 1234" in agent.last()["task"]
+    agent.end(summary="Texted.")
+    spin(runner)
+    assert orch.goals[g.id].state == "done" and any("finished" in s and g.id in s for s in said)
+
+
+def test_a_step_that_never_reached_the_agent_is_sent_again(tmp_path):
+    path = str(tmp_path / "goals.json")
+    agent = Agent()
+    agent.down = True
+    runner = ErrandRunner("http://agent:8080", fetch=agent.fetch)
+    orch = Orchestrator(runner, planner=lambda goal, ctx: [Step(n=1, do="look it up")],
+                        announce=lambda t: None, state_path=path)
+    orch.start_goal("look it up", plan_now=True)
+    spin(runner)                                              # the agent is down: never posted
+    assert agent.order == []
+    agent.down = False
+    runner2 = ErrandRunner("http://agent:8080", fetch=agent.fetch)
+    orch2 = Orchestrator(runner2, planner=lambda goal, ctx: [], announce=lambda t: None, state_path=path)
+    assert len(orch2.restore()) == 1
+    spin(runner2)
+    assert agent.order == ["t1"] and agent.last()["task"].startswith("look it up")

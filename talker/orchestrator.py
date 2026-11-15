@@ -32,11 +32,12 @@ and when it is finished, plus a question only when a decision is really theirs.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Callable, Dict, List, Optional
 
 RETRIES = 2                  # quiet retries for an unreachable / timed-out agent
@@ -64,6 +65,7 @@ class Step:
     result: str = ""
     question: str = ""
     action: Optional[dict] = None    # protocol 2: the agent's exact pending tool call
+    remote_id: Optional[str] = None  # the agent's task id, saved so a restart can resume polling
 
 
 @dataclass
@@ -187,7 +189,8 @@ class Orchestrator:
 
     def __init__(self, runner, planner: Callable[[str, str], List[Step]],
                  announce: Callable[[str], None], mode: str = "auto",
-                 on_change: Optional[Callable[[Goal], None]] = None):
+                 on_change: Optional[Callable[[Goal], None]] = None,
+                 state_path: Optional[str] = None):
         self.runner = runner
         self.planner = planner
         self.announce = announce
@@ -196,6 +199,74 @@ class Orchestrator:
         self.goals: Dict[str, Goal] = {}
         self._by_errand: Dict[str, tuple] = {}
         self._lock = threading.RLock()
+        # goals.json: every goal and step, written on each change, so a restart resumes the
+        # work instead of losing it (six goals were lost that way, flight searches among them).
+        self.state_path = state_path
+
+    # ── saved state ───────────────────────────────────
+    OPEN = ("planning", "running", "needs_input")
+    KEEP_FINISHED_S = 24 * 3600
+
+    def _changed(self, g: Goal) -> None:
+        self.save()
+        self.on_change(g)
+
+    def save(self) -> None:
+        if not self.state_path:
+            return
+        try:
+            with self._lock:
+                now = time.time()
+                keep = [g for g in self.goals.values()
+                        if g.state in self.OPEN or now - g.created < self.KEEP_FINISHED_S]
+                for g in keep:
+                    for st in g.steps:
+                        e = getattr(self.runner, "errands", {}).get(st.errand_id) if st.errand_id else None
+                        if e is not None and getattr(e, "remote_id", None):
+                            st.remote_id = e.remote_id
+                data = {"goals": [asdict(g) for g in sorted(keep, key=lambda g: g.created)]}
+            tmp = self.state_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self.state_path)
+        except Exception as e:                         # saving must never break the work itself
+            print(f"[plan] could not save goals: {e}")
+
+    def restore(self) -> List[Goal]:
+        """Load goals.json and pick up every goal that was still open: steps the agent is
+        working on are polled again, steps never posted are sent again, goals that were
+        still being planned are planned again. Returns the goals resumed."""
+        if not self.state_path or not os.path.exists(self.state_path):
+            return []
+        try:
+            with open(self.state_path, encoding="utf-8") as f:
+                raw = json.load(f).get("goals") or []
+        except Exception as e:
+            print(f"[plan] could not read {self.state_path}: {e}")
+            return []
+        resumed = []
+        with self._lock:
+            for d in raw:
+                steps = [Step(**st) for st in d.pop("steps", [])]
+                g = Goal(steps=steps, **d)
+                self.goals[g.id] = g
+                if g.state not in self.OPEN:
+                    continue
+                for st in g.steps:
+                    if st.state in ("running", "needs_input") and st.remote_id:
+                        e = self.runner.resume(st.remote_id, st.do)
+                        st.errand_id, st.state = e.id, "running"   # a pending question is asked again
+                        self._by_errand[e.id] = (g.id, st.n)
+                    elif st.state in ("running", "needs_input"):
+                        st.state = "waiting"                       # never reached the agent: send again
+                resumed.append(g)
+        for g in resumed:
+            print(f"[plan] {g.id} resumed after a restart: {g.text[:80]}")
+            if g.state == "planning" or not g.steps:
+                threading.Thread(target=self._plan, args=(g,), daemon=True, name=f"plan-{g.id}").start()
+            else:
+                self._advance(g)
+        return resumed
 
     # ── from the character ─────────────────────────────
     def start_goal(self, text: str, context: str = "", plan_now: bool = False) -> Goal:
@@ -203,7 +274,7 @@ class Orchestrator:
         g = Goal(id="g" + secrets.token_hex(2), text=" ".join(text.split()), context=context)
         with self._lock:
             self.goals[g.id] = g
-        self.on_change(g)
+        self._changed(g)
         if plan_now:
             self._plan(g)
         else:
@@ -264,7 +335,7 @@ class Orchestrator:
             elif "failed" in states and not ({"running", "waiting", "needs_input"} & states) and not g.reported:
                 g.state, g.reported = "failed", True
                 self._report_failed(g)
-        self.on_change(g)
+        self._changed(g)
 
     def _send(self, g: Goal, s: Step, approval: bool = False) -> None:
         parts = [s.do]
@@ -315,7 +386,7 @@ class Orchestrator:
                               f'{s.question[-400:]} Ask in a few words; when they answer, write '
                               f'{{{{approve {g.id}}}}} or {{{{deny {g.id}}}}}'
                               + (" (or pass on their own words if it is an open question)." if not e.options else "."))
-        self.on_change(g)
+        self._changed(g)
 
     def on_errand_failed(self, e) -> None:
         g, s = self._lookup(e.id)

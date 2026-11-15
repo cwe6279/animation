@@ -40,13 +40,13 @@ def test_heal_command_runs_while_offline_at_most_once_per_interval(monkeypatch):
     class R:
         stdout, stderr, returncode = "Device 'wlan0' successfully activated.", "", 0
     monkeypatch.setattr(nw.subprocess, "run", lambda cmd, **k: runs.append(cmd) or R())
-    net = NetWatch(probe=lambda: False, heal_after=120, heal_cmd=("nmcli", "device", "reconnect", "wlan0"),
-                   clock=clock)
+    net = NetWatch(probe=lambda: False, heal_after=120, clock=clock)   # the default heal command
     net.check(); net.check()                            # offline now
     clock.t += 60; net.check()
     assert runs == []
     clock.t += 61; net.check()
-    assert runs == [["nmcli", "device", "reconnect", "wlan0"]]
+    # nmcli has no "device reconnect" (every heal failed); "device connect" re-activates wlan0
+    assert runs == [["nmcli", "--wait", "25", "device", "connect", "wlan0"]]
     clock.t += 10; net.check()
     assert len(runs) == 1
 

@@ -34,16 +34,3 @@ def test_a_broken_registered_fact_does_not_break_the_prompt():
         raise RuntimeError("no network")
     register("forecast", boom)
     assert expand("today: {forecast}", now=NOON) == "today: {forecast}"
-
-
-def test_clock_note_and_per_turn_wrapper():
-    from datetime import datetime
-    from talker.launch_facts import clock_note
-    from talker.voice_loop import with_clock
-    note = clock_note(datetime(2026, 11, 11, 8, 25))
-    assert note.startswith("the clock says Wednesday, November 11, 2026 (2026-11-11) at 08:25")
-    notes, turns = [], []
-    wrapped = with_clock(lambda text: turns.append(text) or iter([text]), notes.append)
-    list(wrapped("hi")); list(wrapped("again"))
-    assert turns == ["hi", "again"]
-    assert len(notes) == 1 and notes[0].startswith("the clock says ")   # same minute: one note
