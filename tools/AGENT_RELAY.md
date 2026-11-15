@@ -93,6 +93,12 @@ FORCE_LOCAL_MODEL=ollama_gemma4_26b_a4b OLLAMA_NUM_CTX=65536 \
 .venv/bin/python web_server.py --config config/local-ollama/agent_config.yaml --port 8080
 ```
 
+Since 2026-11-14 that command is a user systemd unit on the desktop, `fuse-agents.service`
+(`~/.config/systemd/user/`, enabled, linger on, so it starts with the machine and listens on the LAN
+at :8080). The desktop also publishes the mDNS alias `agent.local`, so talker's `.env` holds
+`AGENT_RELAY_URL=http://agent.local:8080` on every host. `systemctl --user status fuse-agents` and
+`journalctl --user -u fuse-agents -f` are the knobs.
+
 Two things learned testing it: a `POST /tasks` with an id the harness already has is answered
 idempotently with the old task (so test ids must be fresh), and a thinking model must be told
 not to think or an errand's token budget goes to reasoning.
