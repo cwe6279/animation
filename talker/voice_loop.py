@@ -1027,6 +1027,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "which only rattles on bass (0 keeps it)")
     p.add_argument("--satellite-boost", type=float, default=6.0,
                    help="Lift the level sent to the board by this many dB under a peak limiter (0 keeps it)")
+    p.add_argument("--satellite-lookahead", type=float, default=0.5,
+                   help="Seconds of audio sent to the board ahead of playback (it holds about 1.2 s and drops "
+                        "the rest). A slow host that stalls for longer than this leaves gaps mid-sentence: "
+                        "0.9 on a Pi Zero")
     p.add_argument("--satellite-idle", type=float, default=30.0,
                    help="Seconds the board keeps listening after her reply with nothing said before it goes "
                         "back to waiting for the wake word")
@@ -1308,7 +1312,7 @@ def main(argv=None) -> int:
         try:
             audio = SatelliteAudioEngine(satellite, sync_offset=args.sync_offset,
                                          bass_cut_hz=args.satellite_bass_cut, boost_db=args.satellite_boost,
-                                         ceiling=args.satellite_ceiling)
+                                         ceiling=args.satellite_ceiling, lookahead=args.satellite_lookahead)
             audio.idle_close_s = args.satellite_idle
         except RuntimeError as e:
             print(f"[error] {e}")
