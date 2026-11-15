@@ -590,8 +590,11 @@ class VoiceLoop:
         if buf:
             yield buf
 
-    VISUAL_RE = re.compile(r"\b(see|look|watch|holding|hold|wearing|wear|this|that|these|expression|"
-                           r"face|colou?r|what am i|who am i|how many|show|showing|picture|drawing)\b", re.I)
+    # Words that ask her to use her eyes: see / look / read something nearby, what someone holds
+    # or wears, "what is this". Bare "this" and "that" are not here: they are in most sentences.
+    VISUAL_RE = re.compile(r"\b(see|look|watch|read|reading|written|label|sign|holding|hold|wearing|wear|"
+                           r"expression|face|colou?r|what am i|who am i|how many|show|showing|picture|drawing|"
+                           r"what(?:'s| is| are) (?:this|that|these|those)|is (?:this|that)|can you see)\b", re.I)
 
     def brain_health(self, ok: bool, kind: str = "", detail: str = "") -> None:
         """Track whether the brain answers; a change of state is logged and recorded once."""
@@ -1066,6 +1069,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vision-mode", choices=["on_demand", "periodic"], default="on_demand",
                    help="on_demand: look at startup, on waking from dormant, and when she decides to ({{look}} or a "
                         "visual question); periodic: every --vision-interval seconds while awake")
+    p.add_argument("--no-look-on-wake", action="store_true",
+                   help="With on_demand: no look when she wakes from dormant, only at startup, on {{look}} and on a "
+                        "visual question (see, look, read ...). For a slow host where that look delayed every first answer")
     p.add_argument("--vision-backend", choices=["auto", "ollama", "anthropic"], default="anthropic",
                    help="Who describes the camera: ollama (a local vision model, free per look), anthropic "
                         "(Claude; ANTHROPIC_VISION_API_KEY gives it its own key), auto = local first, Claude fallback")
@@ -1460,7 +1466,8 @@ def main(argv=None) -> int:
                                    interval=args.vision_interval, burst=args.vision_frames,
                                    change_threshold=args.vision_change, on_note=on_note)
             watcher.start()
-            when = ("on demand (startup, waking up, {{look}}, visual questions)" if args.vision_mode == "on_demand"
+            when = (("on demand (startup, {{look}}, visual questions)" if args.no_look_on_wake else
+             "on demand (startup, waking up, {{look}}, visual questions)") if args.vision_mode == "on_demand"
                     else f"every {args.vision_interval:.0f}s, every {args.vision_dormant_interval:.0f}s while dormant")
             local = args.vision_local_model or os.environ.get("VISION_OLLAMA_MODEL", "qwen3.8:27b")
             print(f"[vision] on: camera {cam_index}, {args.vision_frames} frames {when}; {args.vision_backend} "
@@ -1493,14 +1500,15 @@ def main(argv=None) -> int:
         watcher.is_dormant = lambda: bool(loop.wake_words) and not loop.engaged
         if watcher.on_demand:
             watcher.request(force=True)                 # one look at startup: the scene she starts from
-            plain_engage = loop.engage
+            if not args.no_look_on_wake:
+                plain_engage = loop.engage
 
-            def engage_and_look(reason=""):
-                was = loop.engaged
-                plain_engage(reason)
-                if not was:
-                    watcher.request(force=True)         # coming out of dormant: who is here now?
-            loop.engage = engage_and_look
+                def engage_and_look(reason=""):
+                    was = loop.engaged
+                    plain_engage(reason)
+                    if not was:
+                        watcher.request(force=True)     # coming out of dormant: who is here now?
+                loop.engage = engage_and_look
 
             def look_handler(a):
                 def work():

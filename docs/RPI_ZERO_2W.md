@@ -258,9 +258,10 @@ the first evening taught:
   satellite mode audio flows only during a conversation; counting those closes as failures
   grew the retry delay to 60 s and the first words after a wake went unheard.
 - **Memory is the limit**: the process is ~250 MB with ~100 MB in zram swap. Bluetooth is off and
-  `bt-speaker` disabled (see [Bluetooth speaker](#bluetooth-speaker)); the camera is off for now; vision added 2 to 6 s to
-  a conversation's first turn on top of the 2.2 to 2.7 s the brain takes to its first word.
-
+  `bt-speaker` disabled (see [Bluetooth speaker](#bluetooth-speaker)); the camera is on with `--camera picam --no-look-on-wake`: she looks once
+  at startup and when asked (see, look, read ...), not at every wake, because the wake look's
+  capture, encode and vision call added 2 to 6 s to a conversation's first turn on top of
+  the 2.2 to 2.7 s the brain takes to its first word.
 ## Known issues
 
 - **`tests/test_edge_live.py` fails:** it asserts that the first audio arrives within 2 s. On the Zero, the first edge-tts line takes 2.7–8 s while ffmpeg starts up.
