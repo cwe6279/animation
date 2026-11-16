@@ -220,3 +220,47 @@ def test_board_event_reaches_the_loop_and_arms_the_idle_close():
     assert got == [("picked_up", "picked up")]
     assert ("satellite", "board event: picked up") in events
     assert server.engine._idle_deadline == 140.0
+
+
+def _bare_engine(now):
+    from talker import satellite as sat
+    server = sat.SatelliteServer.__new__(sat.SatelliteServer)
+    server.on_event = lambda kind, text: None
+    return sat.SatelliteAudioEngine(server, clock=lambda: now[0])
+
+
+def test_end_conversation_while_quiet_closes_at_once():
+    """'Stop listening' after she has finished: the board goes back to its wake word now,
+    not after the 30 s idle timeout."""
+    now = [100.0]
+    eng = _bare_engine(now)
+    eng.end_conversation()
+    now[0] += 0.01
+    assert ("close", None) in eng.tick()
+
+
+def test_end_conversation_waits_for_her_last_words():
+    now = [100.0]
+    eng = _bare_engine(now)
+    eng.speaking = True                       # her farewell is still playing
+    eng.end_conversation()
+    eng.busy = lambda: True
+    now[0] += 5.0
+    assert ("close", None) not in eng.tick()   # never cut her off mid-word
+    eng.busy = lambda: False
+    out = eng.tick()                           # the farewell has played: tts stop ...
+    assert ("json", {"type": "tts", "state": "stop"}) in out
+    now[0] += 0.01
+    assert ("close", None) in eng.tick()       # ... and the channel closes right after
+
+
+def test_without_end_the_usual_idle_timeout_applies():
+    now = [100.0]
+    eng = _bare_engine(now)
+    eng.speaking = True
+    out = eng.tick()
+    assert ("json", {"type": "tts", "state": "stop"}) in out
+    now[0] += 1.0
+    assert ("close", None) not in eng.tick()
+    now[0] += eng.idle_close_s
+    assert ("close", None) in eng.tick()

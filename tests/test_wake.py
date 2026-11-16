@@ -97,3 +97,15 @@ def test_sleep_words_ignored_without_wake_mode():
     loop, spk, events, _ = make(None)
     loop.on_user_text("stop")
     assert loop.engaged and wait(lambda: spk.spoken)
+
+
+def test_end_marker_tells_a_satellite_board_to_idle():
+    """With a board, the board does the wake word: the host has none, but [end] must still
+    reach the board so it stops listening ("stop listening", "go to sleep", goodbye)."""
+    llm = lambda t: iter(["Okay, I'll be quiet. [end]"])
+    loop, spk, events, _ = make(None, llm=llm)
+    ended = []
+    loop.on_conversation_end = lambda: ended.append(True)
+    loop.on_user_text("stop listening please")
+    assert wait(lambda: spk.spoken) and wait(lambda: ended)
+    assert spk.spoken[0] == "Okay, I'll be quiet. "

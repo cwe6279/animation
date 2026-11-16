@@ -60,7 +60,10 @@ VOICE_RULES = (
 WAKE_RULES = (
     "\n\nVisitors start a conversation by saying your name. When a visitor says goodbye, thanks you "
     "and leaves, or the conversation is clearly finished, say a short farewell and end your reply "
-    "with the exact marker [end] (it is not spoken). Otherwise never use that marker."
+    "with the exact marker [end] (it is not spoken). Do the same when asked to stop listening, be "
+    "quiet, go to sleep, go idle or leave them alone: a few words at most, then [end]. After [end] "
+    "you hear nothing until someone says your name again, so never promise to stay quiet without "
+    "it. Otherwise never use that marker."
 )
 
 VISION_RULES = (

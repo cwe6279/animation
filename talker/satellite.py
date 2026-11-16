@@ -193,6 +193,7 @@ class SatelliteAudioEngine(BaseAudioEngine):
         self.mic_mute_s = 0.4                      # after the device resumes listening: her own tail
         self._mic_mute_until = 0.0
         self._idle_deadline: Optional[float] = None
+        self._end_after_speech = False             # the conversation ended: idle once she has finished
         self._dropped = 0
         self.shaper = SpeakerShaper(sample_rate, hpf_hz=bass_cut_hz, boost_db=boost_db, ceiling=ceiling)
         server.engine = self
@@ -357,14 +358,24 @@ class SatelliteAudioEngine(BaseAudioEngine):
             self.speaking = False
             self.server.on_event("satellite", f"tts stop (played {self._queue_end / self.sample_rate:.1f} s on the timeline)")
             out.append(("json", {"type": "tts", "state": "stop"}))
-            self._idle_deadline = self._clock() + self.idle_close_s
+            self._idle_deadline = self._clock() + (0.0 if self._end_after_speech else self.idle_close_s)
         if self._idle_deadline is not None and self._clock() > self._idle_deadline and not self.busy():
             self._idle_deadline = None
+            self._end_after_speech = False
             out.append(("close", None))
         if self._dropped:
             print(f"[satellite] no device connected: dropped {self._dropped / self.sample_rate:.1f} s of speech")
             self._dropped = 0
         return out
+
+    def end_conversation(self) -> None:
+        """The brain ended the conversation (goodbye, "stop listening", "go to sleep"): close the
+        channel as soon as her last words have played, so the board goes back to waiting for its
+        wake word instead of listening on for the usual idle timeout."""
+        with self._lock:
+            self._end_after_speech = True
+            if not self.speaking and not self._pending:
+                self._idle_deadline = self._clock()
 
     def _face_header(self, t: float, emo_id: int) -> bytes:
         """Mouth shape for each 20 ms of the frame starting at timeline time t."""
@@ -403,6 +414,7 @@ class SatelliteAudioEngine(BaseAudioEngine):
         self.listening = False
         self.speaking = False
         self._idle_deadline = None
+        self._end_after_speech = False
         with self._lock:
             self._pending.clear()
             self._carry = b""

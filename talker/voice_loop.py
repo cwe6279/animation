@@ -608,6 +608,10 @@ class VoiceLoop:
         self.brain = {"ok": ok, "kind": "" if ok else kind, "since": was.get("since") if ok == was.get("ok", True)
                       else time.strftime("%H:%M:%S")}
 
+    def on_conversation_end(self) -> None:
+        """Hook: the brain ended the conversation ([end]). A satellite closes its channel here,
+        so the board waits for its wake word again."""
+
     def on_brain(self, ok: bool, kind: str, detail: str) -> None:
         """Hook: replaced in main() to record incidents."""
 
@@ -671,6 +675,10 @@ class VoiceLoop:
                 self._last_said = "".join(reply)
                 self.on_event("bot", "".join(reply).strip())
                 if self._ended:
+                    try:
+                        self.on_conversation_end()
+                    except Exception as e:
+                        print(f"[loop] on_conversation_end: {e}")
                     self.disengage("the conversation ended")
 
 
@@ -1338,18 +1346,18 @@ def main(argv=None) -> int:
     try:
         if args.llm == "claude":
             chat = ClaudeChat(model=model or "claude-haiku-4-5", effort=args.effort, character=character,
-                              thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words),
+                              thinking=bool(args.thinking), can_see=can_see, wake_mode=bool(wake_words) or bool(args.satellite),
                               extra_rules=extra_rules)
         elif args.llm == "ollama":
             from .brains.ollama_chat import OllamaChat
             chat = OllamaChat(model=model, character=character, host=args.ollama_host,
-                              can_see=can_see, wake_mode=bool(wake_words), extra_rules=extra_rules)
+                              can_see=can_see, wake_mode=bool(wake_words) or bool(args.satellite), extra_rules=extra_rules)
             print(f"[voice] loading {chat.model} on {chat.host} ...")
             chat.warm_up()                   # load the weights now, not on the first question
         else:
             from .brains.openai_compat_chat import OpenAICompatChat
             chat = OpenAICompatChat.openai(model=model, character=character, can_see=can_see,
-                                           wake_mode=bool(wake_words), extra_rules=extra_rules,
+                                           wake_mode=bool(wake_words) or bool(args.satellite), extra_rules=extra_rules,
                                            base_url=args.llm_base_url, think=args.llm_think)
             print(f"[voice] brain: {chat.model} at {args.llm_base_url or os.environ.get('OPENAI_BASE_URL') or 'OpenAI'}"
                   + ("" if args.llm_think else " (thinking off)"))
@@ -1484,6 +1492,8 @@ def main(argv=None) -> int:
     loop = VoiceLoop(stt, always_speaks(handoff_brief(brain)), app, barge_in=args.barge_in, wake_words=wake_words,
                      idle_timeout=args.idle_timeout, start_engaged=not args.start_dormant,
                      sleep_words=sleep_words, barge_in_ms=args.barge_in_ms, barge_in_boost=args.barge_in_boost)
+    if hasattr(audio, "end_conversation"):
+        loop.on_conversation_end = audio.end_conversation   # the board idles until its wake word
     # Sleep hours: on by default in wake mode (a kiosk listening all night); elsewhere only if asked.
     from . import local_settings as _settings
     from .sleep_hours import DEFAULT as _SLEEP_DEFAULT, SleepHours
