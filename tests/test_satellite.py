@@ -264,3 +264,59 @@ def test_without_end_the_usual_idle_timeout_applies():
     assert ("close", None) not in eng.tick()
     now[0] += eng.idle_close_s
     assert ("close", None) in eng.tick()
+
+
+def test_board_photo_upload_is_described_and_answered():
+    """The board posts its camera photo as multipart (question + file); the host's describer
+    answers, and that text goes back to the board as the tool's result."""
+    from talker.satellite import PHOTO_PATH
+    port = _free_port()
+    srv = SatelliteServer(host="127.0.0.1", port=port, on_event=lambda k, t: None)
+    seen = []
+    srv.photo_handler = lambda jpeg, q: seen.append((jpeg, q)) or "PEOPLE: one person"
+    srv.start()
+    for _ in range(100):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                break
+        except OSError:
+            time.sleep(0.05)
+
+    async def upload():
+        form = aiohttp.FormData()
+        form.add_field("question", "what am I holding?")
+        form.add_field("file", b"\xff\xd8fakejpeg\xff\xd9", filename="camera.jpg", content_type="image/jpeg")
+        async with aiohttp.ClientSession() as s:
+            async with s.post(f"http://127.0.0.1:{port}{PHOTO_PATH}", data=form) as r:
+                return r.status, await r.json()
+    status, body = asyncio.run(upload())
+    assert status == 200 and body == {"success": True, "text": "PEOPLE: one person"}
+    assert seen == [(b"\xff\xd8fakejpeg\xff\xd9", "what am I holding?")]
+
+
+def test_board_eyes_waits_for_the_photo_and_gives_up_without_a_board():
+    import threading
+    from talker.board_eyes import BoardEyes
+
+    class Srv:
+        photo_handler = photo_failed = None
+        def __init__(self, connected): self.connected, self.asked = connected, []
+        def take_photo(self, q):
+            if not self.connected:
+                return False
+            self.asked.append(q)
+            # the board uploads a moment later, from the server's thread
+            threading.Timer(0.05, lambda: self.photo_handler(b"jpg", q)).start()
+            return True
+
+    srv = Srv(True)
+    eyes = BoardEyes(srv, lambda jpeg, q: "OBJECTS: a mug", timeout=2.0)
+    assert eyes.look_now(timeout=0.1) == "OBJECTS: a mug"          # the longer wait applies
+    assert eyes.latest() == "OBJECTS: a mug" and eyes.last_jpeg == b"jpg"
+    assert BoardEyes(Srv(False), lambda j, q: "x").look_now() == ""   # no board: nothing, at once
+
+    failing = Srv(True)
+    failing.take_photo = lambda q: (threading.Timer(0.05, lambda: failing.photo_failed("no camera")).start(), True)[1]
+    eyes2 = BoardEyes(failing, lambda j, q: "x", timeout=2.0, on_error=lambda m: None)
+    t0 = time.monotonic()
+    assert eyes2.look_now() == "" and time.monotonic() - t0 < 1.0   # a failure ends the wait early

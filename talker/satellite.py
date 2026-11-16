@@ -45,6 +45,7 @@ FRAME_MS = 60
 OTA_PATH = "/xiaozhi/ota/"
 WS_PATH = "/xiaozhi/v1/"
 FIRMWARE_PATH = "/xiaozhi/firmware.bin"
+PHOTO_PATH = "/xiaozhi/vision/explain"   # the board uploads its camera photos here
 
 # talker emotions -> names the xiaozhi display knows
 EMOTION_MAP = {
@@ -442,6 +443,12 @@ class SatelliteServer:
         self.on_device_status: Optional[Callable[[str], None]] = None   # one line, each time it connects
         # the board was picked up, shaken, tilted: (kind, phrase), already sampled by the board
         self.on_board_event: Optional[Callable[[str, str], None]] = None
+        # The board's camera (board_eyes.BoardEyes wires these): describe(jpeg, question) -> text,
+        # and a call when the board says it could not take the photo.
+        self.photo_handler: Optional[Callable[[bytes, str], str]] = None
+        self.photo_failed: Optional[Callable[[str], None]] = None
+        self.device_camera = False               # the board listed a camera tool
+        self._ws_host = ""                        # host:port the board reached us on
         self._ws = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
@@ -468,6 +475,16 @@ class SatelliteServer:
     def send_stt(self, text: str) -> None:
         self.send_json({"type": "stt", "text": text})
 
+    def take_photo(self, question: str = "") -> bool:
+        """Ask the board's camera for a photo (from any thread). The photo arrives at PHOTO_PATH
+        and goes to photo_handler. False when no board is connected."""
+        if not self.connected:
+            return False
+        self.send_json({"type": "mcp", "session_id": self.session_id, "payload": {
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "self.camera.take_photo", "arguments": {"question": question or "What do you see?"}}}})
+        return True
+
     # -- the loop ----------------------------------------------------------------
     def _run(self) -> None:
         from aiohttp import web
@@ -478,6 +495,7 @@ class SatelliteServer:
         app.router.add_get(OTA_PATH, self._ota)
         app.router.add_get(WS_PATH, self._websocket)
         app.router.add_get(FIRMWARE_PATH, self._firmware)
+        app.router.add_post(PHOTO_PATH, self._photo)
         app.router.add_get("/", self._index)
         runner = web.AppRunner(app, access_log=None)
         self._loop.run_until_complete(runner.setup())
@@ -547,6 +565,7 @@ class SatelliteServer:
         if self._ws is not None and not self._ws.closed:
             await self._ws.close()
         self._ws = ws
+        self._ws_host = request.host
         self.session_id = uuid.uuid4().hex[:8]
         eng = self.engine
         try:
@@ -590,6 +609,13 @@ class SatelliteServer:
                 await ws.send_json({"type": "mcp", "session_id": self.session_id, "payload": {
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                     "params": {"name": "self.audio_speaker.set_volume", "arguments": {"volume": int(self.volume)}}}})
+            if self.photo_handler is not None:
+                # MCP handshake: tells the board where to upload camera photos (and asks for its tools)
+                host = f"{self.advertise_host}:{self.port}" if self.advertise_host else self._ws_host
+                await ws.send_json({"type": "mcp", "session_id": self.session_id, "payload": {
+                    "jsonrpc": "2.0", "id": 4, "method": "initialize",
+                    "params": {"protocolVersion": "2024-11-05",
+                               "capabilities": {"vision": {"url": f"http://{host}{PHOTO_PATH}", "token": self.token}}}}})
             # battery, signal, temperature: the answer arrives as an "mcp" message (id 2)
             await ws.send_json({"type": "mcp", "session_id": self.session_id, "payload": {
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -621,7 +647,13 @@ class SatelliteServer:
             self.on_event("satellite", f"device sent {kind}: {json.dumps(data)[:120]}")
 
     def _on_mcp(self, payload: dict) -> None:
-        """A reply to one of our tool calls (id 2 = device status)."""
+        """A reply to one of our tool calls (id 2 = device status, 3 = a photo, 4 = the handshake)."""
+        if payload.get("id") == 3:
+            res = payload.get("result") or {}
+            err = payload.get("error") or (res if isinstance(res, dict) and res.get("isError") else None)
+            if err and self.photo_failed is not None:
+                self.photo_failed(json.dumps(err)[:200])
+            return
         if payload.get("id") != 2:
             return
         result = payload.get("result")
@@ -640,6 +672,27 @@ class SatelliteServer:
                 self.on_device_status(line)
             except Exception as e:
                 print(f"[satellite] on_device_status failed: {e}")
+
+    async def _photo(self, request):
+        """The board's camera upload: multipart 'question' + 'file' (JPEG). The answer text becomes
+        the take_photo tool's result on the board."""
+        from aiohttp import web
+        question, jpeg = "", b""
+        try:
+            reader = await request.multipart()
+            async for part in reader:
+                if part.name == "question":
+                    question = (await part.read(decode=True)).decode(errors="replace")
+                elif part.name == "file":
+                    jpeg = bytes(await part.read(decode=False))
+        except Exception as e:
+            self.on_event("satellite", f"photo upload failed: {e}")
+            return web.json_response({"success": False, "message": "bad upload"}, status=400)
+        self.on_event("satellite", f"photo from the board: {len(jpeg) // 1024} KB")
+        if not jpeg or self.photo_handler is None:
+            return web.json_response({"success": False, "message": "no photo handler"}, status=503)
+        text = await asyncio.get_running_loop().run_in_executor(None, self.photo_handler, jpeg, question)
+        return web.json_response({"success": True, "text": text})
 
     def status_line(self) -> str:
         """One sentence about the board, for the log and for her context."""

@@ -1042,6 +1042,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Seconds of audio sent to the board ahead of playback (it holds about 1.2 s and drops "
                         "the rest). A slow host that stalls for longer than this leaves gaps mid-sentence: "
                         "0.9 on a Pi Zero")
+    p.add_argument("--satellite-camera", action="store_true",
+                   help="The board has a camera (XIAO ESP32S3 Sense): she looks through it on {{look}} and on visual "
+                        "questions; one 1600x1200 photo per look, described on the host with --vision-backend")
     p.add_argument("--satellite-idle", type=float, default=30.0,
                    help="Seconds the board keeps listening after her reply with nothing said before it goes "
                         "back to waiting for the wake word")
@@ -1338,7 +1341,7 @@ def main(argv=None) -> int:
     audio.mic_low_pass = max(0.0, args.mic_lowpass)
     text_only = args.text_only or args.no_audio
 
-    can_see = args.camera is not None and not args.no_vision
+    can_see = (args.camera is not None or (bool(args.satellite) and args.satellite_camera)) and not args.no_vision
     wake_words = None
     if args.wake or args.wake_word:
         wake_words = ([w for w in args.wake_word.split(",")] if args.wake_word
@@ -1528,6 +1531,26 @@ def main(argv=None) -> int:
                 threading.Thread(target=work, daemon=True, name="look").start()
                 return None
             actions.register("look", look_handler)
+    elif satellite is not None and args.satellite_camera and not args.no_vision:
+        # The board's own camera: one photo per look, described here (board_eyes.py).
+        from .board_eyes import BoardEyes, make_photo_describer
+        describe_photo = make_photo_describer(
+            args.vision_backend, claude_model=args.vision_model,
+            ollama_url=args.vision_url or os.environ.get("VISION_OLLAMA_URL", "http://localhost:11434"),
+            ollama_model=args.vision_local_model or os.environ.get("VISION_OLLAMA_MODEL", "gemma4:31b"))
+        eyes = BoardEyes(satellite, describe_photo)
+        loop.vision = eyes
+        print(f"[vision] on: the board's camera, a photo on {{{{look}}}} and on visual questions; "
+              f"described by {args.vision_backend} ({args.vision_model if args.vision_backend == 'anthropic' else (args.vision_local_model or os.environ.get('VISION_OLLAMA_MODEL', 'gemma4:31b'))})")
+
+        def board_look_handler(a):
+            def work():
+                seen = eyes.look_now()
+                if seen:
+                    loop.announce(f"You looked: {seen}. Say what matters about it, briefly.")
+            threading.Thread(target=work, daemon=True, name="look").start()
+            return None
+        actions.register("look", board_look_handler)
 
     def on_brain(ok, kind, detail):
         from . import incidents
