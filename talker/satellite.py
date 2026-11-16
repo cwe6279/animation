@@ -422,6 +422,17 @@ class SatelliteAudioEngine(BaseAudioEngine):
             self._subtitles.clear()
 
 
+def with_port(host: str, port: int) -> str:
+    """host:port for an address the board can reach. The board's websocket request names the host
+    without a port, and an upload URL without one goes to port 80."""
+    host = (host or "").strip()
+    if not host:
+        return ""
+    if host.startswith("["):                       # [ipv6] or [ipv6]:port
+        return host if "]:" in host else f"{host}:{port}"
+    return host if ":" in host else f"{host}:{port}"
+
+
 class SatelliteServer:
     """HTTP (OTA config) + WebSocket (audio + events) for one xiaozhi device."""
 
@@ -565,7 +576,7 @@ class SatelliteServer:
         if self._ws is not None and not self._ws.closed:
             await self._ws.close()
         self._ws = ws
-        self._ws_host = request.host
+        self._ws_host = with_port(request.host, self.port)
         self.session_id = uuid.uuid4().hex[:8]
         eng = self.engine
         try:

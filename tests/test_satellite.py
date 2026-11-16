@@ -321,3 +321,11 @@ def test_board_eyes_waits_for_the_photo_and_gives_up_without_a_board():
     eyes2 = BoardEyes(failing, lambda j, q: "x", timeout=2.0, on_error=lambda m: None)
     t0 = time.monotonic()
     assert eyes2.look_now() == "" and time.monotonic() - t0 < 1.0   # a failure ends the wait early
+
+
+def test_upload_address_always_names_the_port():
+    from talker.satellite import with_port
+    assert with_port("192.168.68.79", 8030) == "192.168.68.79:8030"     # what the board sends
+    assert with_port("192.168.68.79:8030", 8030) == "192.168.68.79:8030"
+    assert with_port("[fe80::1]", 8030) == "[fe80::1]:8030"
+    assert with_port("", 8030) == ""
