@@ -196,5 +196,10 @@ class BoardEyes:
                 self._done.wait(left)
             return self._latest
 
+    def pending(self) -> bool:
+        """A photo has been asked for and not yet described: keep the board's channel open."""
+        with self._lock:
+            return self._answered < self._asked
+
     def latest(self) -> str:
         return self._latest

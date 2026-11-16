@@ -1543,9 +1543,12 @@ def main(argv=None) -> int:
         print(f"[vision] on: the board's camera, a photo on {{{{look}}}} and on visual questions; "
               f"described by {args.vision_backend} ({args.vision_model if args.vision_backend == 'anthropic' else (args.vision_local_model or os.environ.get('VISION_OLLAMA_MODEL', 'gemma4:31b'))})")
 
+        # A look she asked for waits as long as the upload takes (a weak signal can make it tens of
+        # seconds); the channel stays open meanwhile (audio.busy below).
+
         def board_look_handler(a):
             def work():
-                seen = eyes.look_now()
+                seen = eyes.look_now(timeout=60.0)
                 if seen:
                     loop.announce(f"You looked: {seen}. Say what matters about it, briefly.")
             threading.Thread(target=work, daemon=True, name="look").start()
@@ -1574,7 +1577,8 @@ def main(argv=None) -> int:
             print(f"[eyes] voice command: {key}")
 
             def work():
-                seen = eyes.look_now(question="" if mode == "scene" else "Scan this document", mode=mode, save=prefix)
+                seen = eyes.look_now(timeout=60.0, question="" if mode == "scene" else "Scan this document",
+                                     mode=mode, save=prefix)
                 if not seen or not eyes.last_saved:
                     say_when_quiet(f"You were asked to {key}, but the camera did not deliver a photo. Say so in a few words.")
                 elif mode == "document":
@@ -1838,7 +1842,9 @@ def _wire_satellite(server, audio, loop, app, body=None) -> None:
     """The device is the mic, the speaker and a face: give it what the local face gets."""
     loop.turn_filters.append(lone_word_gate)   # the board's mic hears the room; a stray word is not a turn
     audio.schedule = app.schedule                  # emotions, timed on the timeline
-    audio.busy = lambda: app.is_busy               # "still speaking" until synthesis and audio end
+    # "still speaking" until synthesis and audio end; a satellite also stays open while a photo
+    # from the board's camera is on its way
+    audio.busy = lambda: app.is_busy or bool(getattr(loop.vision, "pending", lambda: False)())
     audio.on_abort = app.interrupt                 # its wake word while she talks = barge-in
     if app.pipeline is not None:
         app.pipeline.on_sentence = audio.note_sentence
