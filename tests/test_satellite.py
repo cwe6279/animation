@@ -329,3 +329,28 @@ def test_upload_address_always_names_the_port():
     assert with_port("192.168.68.79:8030", 8030) == "192.168.68.79:8030"
     assert with_port("[fe80::1]", 8030) == "[fe80::1]:8030"
     assert with_port("", 8030) == ""
+
+
+def test_scan_command_keeps_the_photo_and_its_text(tmp_path):
+    import threading
+    from talker.board_eyes import BoardEyes
+
+    class Srv:
+        photo_handler = photo_failed = None
+        connected = True
+        def take_photo(self, q):
+            threading.Timer(0.05, lambda: self.photo_handler(b"\xff\xd8page\xff\xd9", q)).start()
+            return True
+
+    modes = []
+    def describe(jpeg, question, mode="scene"):
+        modes.append(mode)
+        return "Dear Clara,\nSUMMARY: a letter" if mode == "document" else "OBJECTS: a mug"
+    eyes = BoardEyes(Srv(), describe, timeout=2.0, save_dir=str(tmp_path))
+    assert eyes.look_now(mode="document", save="scan").startswith("Dear Clara")
+    assert modes == ["document"]
+    saved = eyes.last_saved
+    assert saved and saved.endswith(".jpg") and open(saved, "rb").read() == b"\xff\xd8page\xff\xd9"
+    assert open(saved[:-4] + ".txt").read().startswith("Dear Clara")
+    eyes.last_saved = None
+    assert eyes.look_now() == "OBJECTS: a mug" and eyes.last_saved is None   # a plain look keeps nothing

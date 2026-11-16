@@ -74,3 +74,6 @@ settings.json
 
 # Nightly self-review reports (dream.py): they quote conversations
 dreams/
+
+# "Take a photo" and "scan this document" from the board camera: photos of people and papers.
+captures/

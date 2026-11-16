@@ -30,19 +30,28 @@ PHOTO_PROMPT = (
 )
 
 
-def _prompt(question: str) -> str:
+DOCUMENT_PROMPT = (
+    "This photo shows a document, page, label or screen. Transcribe all readable text exactly as "
+    "written, keeping its line breaks, headings and lists; mark anything unreadable as [unclear]. "
+    "Do not add or correct anything. Then one last line starting SUMMARY: saying what the document is."
+)
+
+
+def _prompt(question: str, mode: str = "scene") -> str:
+    if mode == "document":
+        return DOCUMENT_PROMPT
     q = (question or "").strip()
     return PHOTO_PROMPT + (f"\nThe person asked: {q}\nAnswer that too, on a last line starting ANSWER:." if q else "")
 
 
 def make_photo_describer(backend: str = "anthropic", claude_model: str = "claude-haiku-4-5",
                          ollama_url: str = "http://localhost:11434", ollama_model: str = "gemma4:31b",
-                         timeout: float = 60.0) -> Callable[[bytes, str], str]:
-    """describe(jpeg, question) -> text, for --vision-backend 'anthropic' or 'ollama' ('auto' tries
+                         timeout: float = 60.0) -> Callable[..., str]:
+    """describe(jpeg, question, mode="scene"|"document") -> text, for --vision-backend 'anthropic' or 'ollama' ('auto' tries
     the local model first). Claude uses ANTHROPIC_VISION_API_KEY when set, as talker's vision does."""
     client = {"c": None}
 
-    def claude(jpeg: bytes, question: str) -> str:
+    def claude(jpeg: bytes, question: str, mode: str = "scene") -> str:
         if client["c"] is None:
             key = os.environ.get("ANTHROPIC_VISION_API_KEY", "").strip()
             if key:
@@ -52,17 +61,17 @@ def make_photo_describer(backend: str = "anthropic", claude_model: str = "claude
                 from .brains.claude_chat import make_client
                 client["c"] = make_client()
         resp = client["c"].messages.create(
-            model=claude_model, max_tokens=500,
+            model=claude_model, max_tokens=1500 if mode == "document" else 500,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                              "data": base64.b64encode(jpeg).decode()}},
-                {"type": "text", "text": _prompt(question)}]}])
+                {"type": "text", "text": _prompt(question, mode)}]}])
         return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
 
-    def local(jpeg: bytes, question: str) -> str:
+    def local(jpeg: bytes, question: str, mode: str = "scene") -> str:
         body = {"model": ollama_model, "stream": False, "think": False, "keep_alive": "30m",
                 "options": {"temperature": 0.2},
-                "messages": [{"role": "user", "content": _prompt(question),
+                "messages": [{"role": "user", "content": _prompt(question, mode),
                               "images": [base64.b64encode(jpeg).decode()]}]}
         req = urllib.request.Request(ollama_url.rstrip("/") + "/api/chat", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
@@ -72,12 +81,12 @@ def make_photo_describer(backend: str = "anthropic", claude_model: str = "claude
     if backend == "ollama":
         return local
     if backend == "auto":
-        def auto(jpeg: bytes, question: str) -> str:
+        def auto(jpeg: bytes, question: str, mode: str = "scene") -> str:
             try:
-                return local(jpeg, question)
+                return local(jpeg, question, mode)
             except Exception as e:
                 print(f"[eyes] local model unreachable ({str(e)[:80]}); using Claude")
-                return claude(jpeg, question)
+                return claude(jpeg, question, mode)
         return auto
     return claude
 
@@ -88,8 +97,8 @@ class BoardEyes:
 
     on_demand = True
 
-    def __init__(self, server, describe: Callable[[bytes, str], str], timeout: float = 15.0,
-                 on_error: Optional[Callable[[str], None]] = None):
+    def __init__(self, server, describe: Callable[..., str], timeout: float = 15.0,
+                 on_error: Optional[Callable[[str], None]] = None, save_dir: Optional[str] = None):
         self.server = server
         self.describe = describe
         self.timeout = timeout
@@ -99,6 +108,10 @@ class BoardEyes:
         self._asked = 0          # photos requested
         self._answered = 0       # photos described (or failed)
         self._latest = ""
+        self._mode = "scene"       # the pending request's mode: "scene" or "document"
+        self._save = ""            # the pending request's file prefix ("photo", "scan"), "" = not kept
+        self.save_dir = save_dir   # where "take a photo" and "scan this" keep their files
+        self.last_saved: Optional[str] = None
         self.last_jpeg: Optional[bytes] = None
         self.stats = {"described": 0, "failed": 0, "last_ms": 0}
         server.photo_handler = self._on_photo
@@ -107,14 +120,18 @@ class BoardEyes:
     # -- called by the satellite server (its thread) --------------------------------
     def _on_photo(self, jpeg: bytes, question: str) -> str:
         t0 = time.monotonic()
+        with self._lock:
+            mode, save = self._mode, self._save
         try:
-            text = self.describe(jpeg, question)
+            text = self.describe(jpeg, question, mode) if mode != "scene" else self.describe(jpeg, question)
             self.stats["described"] += 1
         except Exception as e:
             text = ""
             self.stats["failed"] += 1
             self.on_error(f"describing the photo failed: {str(e)[:160]}")
         self.stats["last_ms"] = round((time.monotonic() - t0) * 1000)
+        if save and self.save_dir:
+            self.last_saved = self._keep(jpeg, text, save)
         with self._done:
             self.last_jpeg = jpeg
             if text:
@@ -138,14 +155,33 @@ class BoardEyes:
         are taken on {{look}} and on visual questions only."""
         return None
 
-    def look_now(self, timeout: Optional[float] = None, question: str = "") -> str:
-        """A fresh photo's description. The voice loop's own timeout (meant for a local camera
-        that is already running) is too short for capture + upload + description, so the
-        longer of the two applies."""
-        wait = max(timeout or 0.0, self.timeout)
+    def _keep(self, jpeg: bytes, text: str, prefix: str) -> Optional[str]:
+        """Save the photo (and its description or transcription) as <prefix>-<time>.jpg/.txt."""
+        try:
+            os.makedirs(self.save_dir, exist_ok=True)
+            base = os.path.join(self.save_dir, f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}")
+            with open(base + ".jpg", "wb") as f:
+                f.write(jpeg)
+            if text:
+                with open(base + ".txt", "w") as f:
+                    f.write(text.strip() + "\n")
+            print(f"[eyes] saved {base}.jpg" + (" and .txt" if text else ""))
+            return base + ".jpg"
+        except OSError as e:
+            self.on_error(f"could not save the photo: {e}")
+            return None
+
+    def look_now(self, timeout: Optional[float] = None, question: str = "", mode: str = "scene",
+                 save: str = "") -> str:
+        """A fresh photo's description (mode "document": its text, transcribed). The voice loop's
+        own timeout (meant for a local camera that is already running) is too short for capture +
+        upload + description, so the longer of the two applies. save: a file prefix to keep the
+        photo and its text in save_dir ("photo", "scan"); "" keeps nothing."""
+        wait = max(timeout or 0.0, self.timeout + (20.0 if mode == "document" else 0.0))
         with self._done:
             self._asked += 1
             ticket = self._asked
+            self._mode, self._save = mode, save
         if not self.server.take_photo(question):
             with self._done:
                 self._answered = max(self._answered, ticket)

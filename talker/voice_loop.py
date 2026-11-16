@@ -1538,7 +1538,7 @@ def main(argv=None) -> int:
             args.vision_backend, claude_model=args.vision_model,
             ollama_url=args.vision_url or os.environ.get("VISION_OLLAMA_URL", "http://localhost:11434"),
             ollama_model=args.vision_local_model or os.environ.get("VISION_OLLAMA_MODEL", "gemma4:31b"))
-        eyes = BoardEyes(satellite, describe_photo)
+        eyes = BoardEyes(satellite, describe_photo, save_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "captures"))
         loop.vision = eyes
         print(f"[vision] on: the board's camera, a photo on {{{{look}}}} and on visual questions; "
               f"described by {args.vision_backend} ({args.vision_model if args.vision_backend == 'anthropic' else (args.vision_local_model or os.environ.get('VISION_OLLAMA_MODEL', 'gemma4:31b'))})")
@@ -1551,6 +1551,41 @@ def main(argv=None) -> int:
             threading.Thread(target=work, daemon=True, name="look").start()
             return None
         actions.register("look", board_look_handler)
+
+        # Voice commands the board hears itself (its phrase list labels them): no LLM before the
+        # shutter. "take a photo" keeps a photo, "scan this document" keeps a photo and its text,
+        # both in captures/; then she says, briefly, what she got.
+        BOARD_COMMANDS = {"take a photo": ("scene", "photo"), "scan this document": ("document", "scan"),
+                          "scan this": ("document", "scan")}
+
+        def say_when_quiet(text, within=15.0):
+            deadline = time.monotonic() + within
+            while time.monotonic() < deadline:
+                if loop.announce(text):
+                    return
+                time.sleep(0.3)
+            print(f"[eyes] could not get a word in: {text[:80]}")
+
+        def on_board_wake(label):
+            key = (label or "").strip().lower()
+            if key not in BOARD_COMMANDS:
+                return
+            mode, prefix = BOARD_COMMANDS[key]
+            print(f"[eyes] voice command: {key}")
+
+            def work():
+                seen = eyes.look_now(question="" if mode == "scene" else "Scan this document", mode=mode, save=prefix)
+                if not seen or not eyes.last_saved:
+                    say_when_quiet(f"You were asked to {key}, but the camera did not deliver a photo. Say so in a few words.")
+                elif mode == "document":
+                    say_when_quiet("You just scanned a document as asked and saved the photo and its text. "
+                                   f"The transcription: {seen[:1500]}\nSay in one short sentence that it is scanned "
+                                   "and saved and what the document is, and offer to read it out or send it on.")
+                else:
+                    say_when_quiet("You just took a photo as asked and saved it. What it shows: "
+                                   f"{seen[:800]}\nSay in one short sentence that the photo is saved and what is in it.")
+            threading.Thread(target=work, daemon=True, name="board-command").start()
+        audio.on_wake = on_board_wake
 
     def on_brain(ok, kind, detail):
         from . import incidents
