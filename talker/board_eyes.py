@@ -132,6 +132,12 @@ class BoardEyes:
             self._done.notify_all()
 
     # -- called by the voice loop ---------------------------------------------------
+    def request(self, force: bool = True) -> None:
+        """The voice loop asks for a look whenever someone starts speaking. For the board's
+        camera that is not a reason to take a photo (as for an on-demand local camera): photos
+        are taken on {{look}} and on visual questions only."""
+        return None
+
     def look_now(self, timeout: Optional[float] = None, question: str = "") -> str:
         """A fresh photo's description. The voice loop's own timeout (meant for a local camera
         that is already running) is too short for capture + upload + description, so the

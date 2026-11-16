@@ -311,6 +311,7 @@ def test_board_eyes_waits_for_the_photo_and_gives_up_without_a_board():
 
     srv = Srv(True)
     eyes = BoardEyes(srv, lambda jpeg, q: "OBJECTS: a mug", timeout=2.0)
+    assert eyes.request(force=False) is None and srv.asked == []   # speech starting is no reason to look
     assert eyes.look_now(timeout=0.1) == "OBJECTS: a mug"          # the longer wait applies
     assert eyes.latest() == "OBJECTS: a mug" and eyes.last_jpeg == b"jpg"
     assert BoardEyes(Srv(False), lambda j, q: "x").look_now() == ""   # no board: nothing, at once
