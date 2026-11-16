@@ -354,3 +354,25 @@ def test_scan_command_keeps_the_photo_and_its_text(tmp_path):
     assert open(saved[:-4] + ".txt").read().startswith("Dear Clara")
     eyes.last_saved = None
     assert eyes.look_now() == "OBJECTS: a mug" and eyes.last_saved is None   # a plain look keeps nothing
+
+
+def test_qr_codes_in_a_board_photo_are_decoded_into_her_description():
+    import threading
+    cv2 = pytest.importorskip("cv2")
+    from talker.board_eyes import BoardEyes
+    qr = cv2.resize(cv2.QRCodeEncoder.create().encode("https://example.com/clara-test"), None,
+                    fx=8, fy=8, interpolation=cv2.INTER_NEAREST)
+    frame = np.full((1200, 1600), 200, np.uint8)
+    frame[400:400 + qr.shape[0], 700:700 + qr.shape[1]] = qr
+    jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+
+    class Srv:
+        photo_handler = photo_failed = None
+        connected = True
+        def take_photo(self, q):
+            threading.Timer(0.05, lambda: self.photo_handler(jpeg, q)).start()
+            return True
+    eyes = BoardEyes(Srv(), lambda j, q: "HELD: a white card with a QR code", timeout=5.0)
+    seen = eyes.look_now()
+    assert "HELD: a white card" in seen
+    assert "QR CODE (decoded exactly): https://example.com/clara-test" in seen

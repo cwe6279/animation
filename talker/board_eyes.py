@@ -91,6 +91,31 @@ def make_photo_describer(backend: str = "anthropic", claude_model: str = "claude
     return claude
 
 
+def read_qr_codes(jpeg: bytes) -> list:
+    """The text of every QR code in the photo, read on the host with OpenCV (free, about 50 ms at
+    1600x1200). A vision model can see that a QR code is there but cannot decode it."""
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return []
+        det = cv2.QRCodeDetector()
+        found = []
+        ok, texts, _, _ = det.detectAndDecodeMulti(img)
+        if ok:
+            found = [t for t in texts if t]
+        if not found:                              # small or far codes: try once at double size
+            big = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+            ok, texts, _, _ = det.detectAndDecodeMulti(big)
+            if ok:
+                found = [t for t in texts if t]
+        return list(dict.fromkeys(found))          # unique, in order
+    except Exception as e:
+        print(f"[eyes] QR reading failed: {e}")
+        return []
+
+
 class BoardEyes:
     """What the voice loop calls `vision` when the board is the camera: look_now() asks the board
     for a photo and returns its description ("" when no board is connected or it takes too long)."""
@@ -129,6 +154,10 @@ class BoardEyes:
             text = ""
             self.stats["failed"] += 1
             self.on_error(f"describing the photo failed: {str(e)[:160]}")
+        codes = read_qr_codes(jpeg)
+        if codes:
+            print(f"[eyes] QR code: {' | '.join(c[:80] for c in codes)}")
+            text = (text + "\n" if text else "") + "\n".join(f"QR CODE (decoded exactly): {c}" for c in codes)
         self.stats["last_ms"] = round((time.monotonic() - t0) * 1000)
         if save and self.save_dir:
             self.last_saved = self._keep(jpeg, text, save)
