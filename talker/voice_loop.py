@@ -157,7 +157,7 @@ class VoiceLoop:
         self.record_stop_words: List[str] = ["stop recording", "end recording", "stop the recording",
                                              "end the recording", "end voice note", "end the voice note"]
         self.record_dir: Optional[str] = None
-        self.record_max_s = 5 * 60.0          # then it stops by itself (--voice-note-max-min)
+        self.record_max_s = 15 * 60.0         # then it stops by itself (--voice-note-max-min)
         self._rec_wave = None                 # the open WAV file: audio goes to disk, not memory
         self._rec_base: Optional[str] = None
         self._rec_bytes = 0
@@ -1151,9 +1151,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--satellite-camera", action="store_true",
                    help="The board has a camera (XIAO ESP32S3 Sense): she looks through it on {{look}} and on visual "
                         "questions; one 1600x1200 photo per look, described on the host with --vision-backend")
-    p.add_argument("--voice-note-max-min", type=float, default=5.0,
+    p.add_argument("--voice-note-max-min", type=float, default=15.0,
                    help="'Start recording' keeps a voice note (audio and transcript, in captures/) until 'stop "
-                        "recording' or this many minutes (default 5); the audio goes to disk as it comes")
+                        "recording' or this many minutes (default 15); the audio goes to disk as it comes")
     p.add_argument("--satellite-idle", type=float, default=30.0,
                    help="Seconds the board keeps listening after her reply with nothing said before it goes "
                         "back to waiting for the wake word")
