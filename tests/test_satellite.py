@@ -390,3 +390,16 @@ def test_a_full_size_scan_goes_as_the_page_plus_four_detailed_quarters():
         assert q.shape[1] > 1024 and q.shape[0] > 768              # and they overlap
     small = cv2.imencode(".jpg", np.full((600, 800, 3), 200, np.uint8))[1].tobytes()
     assert document_views(small) == [small]
+
+
+def test_a_scan_is_cleaned_shadow_evened_out_before_the_model_reads_it():
+    cv2 = pytest.importorskip("cv2")
+    from talker.board_eyes import clean_document
+    page = np.full((600, 800), 230, np.uint8)
+    cv2.putText(page, "SNELLEN 20/40", (60, 300), cv2.FONT_HERSHEY_SIMPLEX, 2, 40, 4)
+    shadow = (np.linspace(1.0, 0.35, 800)[None, :] * np.ones((600, 1))).astype(np.float32)
+    photo = (page * shadow).astype(np.uint8)                       # dark right half, like the real one
+    out = cv2.imdecode(np.frombuffer(clean_document(cv2.imencode(".jpg", photo)[1].tobytes()), np.uint8), 0)
+    left, right = out[:, :200], out[:, 600:]
+    assert abs(float(np.median(left)) - float(np.median(right))) < 25   # paper even across the page
+    assert out.ndim == 2                                                # greyscale
