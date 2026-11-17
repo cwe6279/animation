@@ -151,3 +151,12 @@ def test_a_spoken_command_mid_conversation_runs_instead_of_the_brain():
     assert ran == ["scan this document"] and spk.spoken == []      # longest phrase wins, no brain
     loop.on_user_text("what's the weather")
     assert wait(lambda: spk.spoken)
+
+
+def test_the_visual_trigger_needs_a_question_for_her_not_just_the_word_look():
+    R = VoiceLoop.VISUAL_RE
+    for asked in ("what do you see", "look at this", "read this label", "what does this say", "what am I holding"):
+        assert R.search(asked), asked
+    for not_asked in ("now I'm going to have a look at it first", "let me see", "I read a book yesterday",
+                      "see you later", "hold on"):
+        assert not R.search(not_asked), not_asked     # a black photo of a covered lens, before

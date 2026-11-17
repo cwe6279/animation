@@ -712,9 +712,13 @@ class VoiceLoop:
 
     # Words that ask her to use her eyes: see / look / read something nearby, what someone holds
     # or wears, "what is this". Bare "this" and "that" are not here: they are in most sentences.
-    VISUAL_RE = re.compile(r"\b(see|look|watch|read|reading|written|label|sign|holding|hold|wearing|wear|"
-                           r"expression|face|colou?r|what am i|who am i|how many|show|showing|picture|drawing|"
-                           r"what(?:'s| is| are) (?:this|that|these|those)|is (?:this|that)|can you see)\b", re.I)
+    VISUAL_RE = re.compile(
+        r"\b(?:what do you see|what can you see|can you see|do you see|you see (?:this|that|it|me)|"
+        r"(?<!a )(?:look|looking) at (?:this|that|these|those|it|me|my)|take a look at|"
+        r"read (?:this|that|it|these|the)|what does (?:this|that|it) say|what(?:'s| is) written|"
+        r"what(?:'s| is| are) (?:this|that|these|those)|is (?:this|that) (?:a|an|the)|"
+        r"what am i (?:holding|wearing|doing)|who am i|how many|what colou?r|"
+        r"what(?:'s| is) (?:on|in) (?:this|that|the|my)|describe (?:this|that|what)|show you)\b", re.I)
 
     def brain_health(self, ok: bool, kind: str = "", detail: str = "") -> None:
         """Track whether the brain answers; a change of state is logged and recorded once."""
@@ -1707,8 +1711,10 @@ def main(argv=None) -> int:
         # Voice commands the board hears itself (its phrase list labels them): no LLM before the
         # shutter. "take a photo" keeps a photo, "scan this document" keeps a photo and its text,
         # both in captures/; then she says, briefly, what she got.
-        BOARD_COMMANDS = {"take a photo": ("scene", "photo"), "scan this document": ("document", "scan"),
-                          "scan this": ("document", "scan")}
+        BOARD_COMMANDS = {"take a photo": ("scene", "photo"), "take a picture": ("scene", "photo"),
+                          "scan this document": ("document", "scan"), "scan this": ("document", "scan"),
+                          "scan it": ("document", "scan"), "scan the page": ("document", "scan"),
+                          "scan the document": ("document", "scan"), "scan this page": ("document", "scan")}
 
         def say_when_quiet(text, within=15.0):
             deadline = time.monotonic() + within
