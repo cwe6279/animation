@@ -149,6 +149,22 @@ class VoiceLoop:
         self._dictation: List[str] = []
         self._dictation_last = 0.0
         self.on_dictation: Callable[[bool], None] = lambda on: None    # e.g. say "listening"
+        # Voice notes: "start recording" keeps the microphone audio and a transcript, and she says
+        # nothing until "stop recording" (anywhere in a sentence); then both are saved.
+        self.recording = False
+        self.record_start_words: List[str] = ["start recording", "record a voice note", "take a voice note",
+                                              "start a voice note"]
+        self.record_stop_words: List[str] = ["stop recording", "end recording", "stop the recording",
+                                             "end the recording", "end voice note", "end the voice note"]
+        self.record_dir: Optional[str] = None
+        self.record_max_s = 5 * 60.0          # then it stops by itself (--voice-note-max-min)
+        self._rec_wave = None                 # the open WAV file: audio goes to disk, not memory
+        self._rec_base: Optional[str] = None
+        self._rec_bytes = 0
+        self.record_stopped_by_limit = False
+        self._rec_text: List[str] = []
+        self._rec_started = 0.0
+        self.on_recording_saved: Callable[[Optional[str], float, str], None] = lambda path, secs, text: None
         # Session end: the brain writes itself a note (see memory_notes.py).
         self.on_session_end: Callable[[str], None] = lambda reason: None
         self._session_turns = 0
@@ -174,6 +190,15 @@ class VoiceLoop:
     def _process(self, pcm: bytes, t_in: Optional[float] = None) -> None:
         t_in = time.monotonic() if t_in is None else t_in     # when the mic heard this frame
         self._last_audio_in = time.monotonic()
+        if self.recording:
+            if self._rec_wave is not None:
+                try:
+                    self._rec_wave.writeframes(pcm)
+                    self._rec_bytes += len(pcm)
+                except Exception as e:
+                    self.on_event("error", f"voice note write failed: {e}")
+            if time.monotonic() - self._rec_started > self.record_max_s:
+                self.set_recording(False, "time limit")
         if self.paused or self.waiting or self.check_sleep():   # calibration, waiting mode, sleep hours
             self.stt.reset()
             self._barge_since = None
@@ -411,6 +436,20 @@ class VoiceLoop:
         if self.waiting:
             self.on_event("ignored", f"waiting mode: {text}")
             return
+        if self.recording:
+            cut = self._phrase_at(text, self.record_stop_words)
+            if cut is None:
+                self._rec_text.append(text)
+                self.on_event("recording", text)
+                return
+            before = " ".join(self._norm(text)[:cut]).strip()
+            if before:
+                self._rec_text.append(before)
+            self.set_recording(False, "stop words")
+            return
+        if self._phrase_at(text, self.record_start_words) is not None:
+            self.set_recording(True, "spoken")
+            return
         # Only with barge-in does the mic listen while she talks. Half-duplex is deaf
         # then, so an utterance is always the person, and one that answers her by
         # repeating her own words ("...somewhere you can speak freely?" "Yes, I can
@@ -473,6 +512,73 @@ class VoiceLoop:
         self._session_turns += 1
         self.on_event("you", text)
         threading.Thread(target=self._answer, args=(text,), daemon=True, name="llm-turn").start()
+
+    # ── voice notes ─────────────────────────────────────
+    def _phrase_at(self, text: str, phrases: List[str]) -> Optional[int]:
+        """Index of the first word where one of `phrases` appears in `text`, or None."""
+        words = self._norm(text)
+        for ph in phrases:
+            pw = self._norm(ph)
+            for i in range(len(words) - len(pw) + 1):
+                if pw and words[i:i + len(pw)] == pw:
+                    return i
+        return None
+
+    def set_recording(self, on: bool, reason: str = "") -> None:
+        if on == self.recording:
+            return
+        if on:
+            self._rec_text, self._rec_bytes = [], 0
+            self.record_stopped_by_limit = False
+            self._rec_started = time.monotonic()
+            self._open_recording()
+            self.recording = True
+            self.on_event("mode", f"recording a voice note ({reason})" if reason else "recording a voice note")
+            return
+        self.recording = False
+        self.record_stopped_by_limit = reason == "time limit"
+        secs = time.monotonic() - self._rec_started
+        text = " ".join(self._rec_text).strip()
+        path = self._close_recording(text)
+        self.on_event("mode", f"voice note: {secs:.0f} s" + (f", saved {path}" if path else ", not saved"))
+        try:
+            self.on_recording_saved(path, secs, text)
+        except Exception as e:
+            print(f"[loop] on_recording_saved: {e}")
+
+    def _open_recording(self) -> None:
+        """Open the WAV file now and write the audio as it arrives, so a long note costs no memory."""
+        self._rec_wave, self._rec_base = None, None
+        if not self.record_dir:
+            return
+        import wave
+        try:
+            os.makedirs(self.record_dir, exist_ok=True)
+            self._rec_base = os.path.join(self.record_dir, f"voice-note-{time.strftime('%Y%m%d-%H%M%S')}")
+            w = wave.open(self._rec_base + ".wav", "wb")
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(int(getattr(self.stt, "sample_rate", 16000) or 16000))
+            self._rec_wave = w
+        except OSError as e:
+            self.on_event("error", f"could not start the voice note: {e}")
+
+    def _close_recording(self, text: str) -> Optional[str]:
+        w, base = self._rec_wave, self._rec_base
+        self._rec_wave = None
+        if w is None or base is None:
+            return None
+        try:
+            w.close()
+            if self._rec_bytes == 0:
+                os.remove(base + ".wav")
+                return None
+            with open(base + ".txt", "w") as f:
+                f.write((text or "(nothing recognised)") + "\n")
+            return base + ".wav"
+        except OSError as e:
+            self.on_event("error", f"could not save the voice note: {e}")
+            return None
 
     # ── dictation ───────────────────────────────────────
     def _is_phrase(self, text: str, phrases: List[str]) -> bool:
@@ -544,8 +650,8 @@ class VoiceLoop:
         """Tell the brain something happened and let it speak up, but only when the room is
         quiet: not while it talks or thinks, not while someone is mid-sentence, not within
         a couple of seconds of either. Returns False to say: try again later."""
-        if self.waiting or self.paused or self.dictating or self.asleep:
-            return False                  # asleep: the news waits for the morning
+        if self.waiting or self.paused or self.dictating or self.recording or self.asleep:
+            return False                  # asleep: the news waits for the morning; a voice note: after it
         if not self.engaged and not (self.announce_wakes and self.wake_words):
             return False
         if self.speaker.is_busy or self._thinking:
@@ -1045,6 +1151,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--satellite-camera", action="store_true",
                    help="The board has a camera (XIAO ESP32S3 Sense): she looks through it on {{look}} and on visual "
                         "questions; one 1600x1200 photo per look, described on the host with --vision-backend")
+    p.add_argument("--voice-note-max-min", type=float, default=5.0,
+                   help="'Start recording' keeps a voice note (audio and transcript, in captures/) until 'stop "
+                        "recording' or this many minutes (default 5); the audio goes to disk as it comes")
     p.add_argument("--satellite-idle", type=float, default=30.0,
                    help="Seconds the board keeps listening after her reply with nothing said before it goes "
                         "back to waiting for the wake word")
@@ -1312,6 +1421,9 @@ def main(argv=None) -> int:
         tools.add("tasks", "the task ledger with each task's state", lambda _a: ledger.render())
         print(f"[errands] can: {m.errands_can or '(not said; list what the agent can do under \"errands\" in face.json)'}")
     extra_rules = action_rules(body.moves, sounds.names, tools.describe()) + assistant_rules(memory_on, errands_on, m.errands_can)
+    extra_rules += ("\n\nVoice notes: when the person says \"start recording\" you go quiet and their words are "
+                    f"recorded until they say \"stop recording\" (at most {args.voice_note_max_min:g} minutes); then "
+                    "you are told it was saved. You can record voice notes; never say you cannot.")
     if args.satellite and args.satellite_camera and not args.no_vision:
         extra_rules += ("\n\nYour camera is on the board you live in. Any QR code in a photo is decoded for you "
                         "and arrives as a line 'QR CODE (decoded exactly): ...': read it out or use it, and never send "
@@ -1612,6 +1724,34 @@ def main(argv=None) -> int:
             threading.Thread(target=work, daemon=True, name="board-command").start()
         audio.on_wake = on_board_wake
 
+    # Voice notes ("start recording" ... "stop recording"): audio and transcript in captures/.
+    loop.record_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "captures")
+    loop.record_max_s = max(0.25, args.voice_note_max_min) * 60.0
+
+    def note_saved(path, secs, text):
+        def work():
+            if path:
+                limit = " It stopped at the time limit." if loop.record_stopped_by_limit else ""
+                msg = (f"The voice note was saved: {secs:.0f} seconds.{limit} What was said: {text[:600] or 'nothing clear'}\n"
+                       "Say in one short sentence that the voice note is saved" + (" and that it hit the time limit." if limit else "."))
+            else:
+                msg = "The voice note could not be saved. Say so in a few words."
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline and not loop.announce(msg):
+                time.sleep(0.3)
+        threading.Thread(target=work, daemon=True, name="voice-note").start()
+    loop.on_recording_saved = note_saved
+    if satellite is not None:
+        # the board's own "start recording" phrase (its phrase list labels it), whatever else it hears
+        _board_wake = audio.on_wake
+
+        def board_wake(label):
+            if (label or "").strip().lower() == "start recording":
+                loop.set_recording(True, "board")
+                return
+            _board_wake(label)
+        audio.on_wake = board_wake
+
     def on_brain(ok, kind, detail):
         from . import incidents
         incidents.record("brain_ok" if ok else "brain_failed", problem=kind, detail=detail[:300])
@@ -1868,7 +2008,8 @@ def _wire_satellite(server, audio, loop, app, body=None) -> None:
     audio.schedule = app.schedule                  # emotions, timed on the timeline
     # "still speaking" until synthesis and audio end; a satellite also stays open while a photo
     # from the board's camera is on its way
-    audio.busy = lambda: app.is_busy or bool(getattr(loop.vision, "pending", lambda: False)())
+    audio.busy = lambda: (app.is_busy or loop.recording
+                          or bool(getattr(loop.vision, "pending", lambda: False)()))
     audio.on_abort = app.interrupt                 # its wake word while she talks = barge-in
     if app.pipeline is not None:
         app.pipeline.on_sentence = audio.note_sentence

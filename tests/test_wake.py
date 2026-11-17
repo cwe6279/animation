@@ -109,3 +109,34 @@ def test_end_marker_tells_a_satellite_board_to_idle():
     loop.on_user_text("stop listening please")
     assert wait(lambda: spk.spoken) and wait(lambda: ended)
     assert spk.spoken[0] == "Okay, I'll be quiet. "
+
+
+def test_voice_note_records_quietly_until_stop_and_saves_audio_and_text(tmp_path):
+    import wave
+    loop, spk, events, clk = make(None, llm=lambda t: iter(["should not answer"]))
+    loop.record_dir = str(tmp_path)
+    saved = []
+    loop.on_recording_saved = lambda path, secs, text: saved.append((path, text))
+    loop.on_user_text("Clara, start recording please")
+    assert loop.recording
+    loop._process(b"\x01\x00" * 1600)                  # 0.1 s of audio, straight to disk
+    loop.on_user_text("buy milk and call the plumber")
+    loop.on_user_text("that's all, stop recording")
+    assert not loop.recording and spk.spoken == []     # she said nothing while it recorded
+    path, text = saved[0]
+    assert text == "buy milk and call the plumber that's all"
+    with wave.open(path) as w:
+        assert w.getframerate() == 16000 and w.getnframes() == 1600
+    assert open(path[:-4] + ".txt").read().strip() == text
+
+
+def test_voice_note_stops_at_the_time_limit(tmp_path):
+    loop, spk, events, clk = make(None)
+    loop.record_dir, loop.record_max_s = str(tmp_path), 0.05
+    saved = []
+    loop.on_recording_saved = lambda path, secs, text: saved.append(path)
+    loop.set_recording(True, "board")
+    loop._process(b"\x01\x00" * 160)
+    time.sleep(0.1)
+    loop._process(b"\x01\x00" * 160)
+    assert not loop.recording and loop.record_stopped_by_limit and saved and saved[0].endswith(".wav")
