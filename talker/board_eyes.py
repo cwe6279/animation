@@ -37,9 +37,34 @@ DOCUMENT_PROMPT = (
 )
 
 
-def _prompt(question: str, mode: str = "scene") -> str:
+def document_views(jpeg: bytes, max_pixels: int = 1_150_000) -> list:
+    """For a scan: the whole page, then its four quarters (overlapping 6 % each way). The vision
+    models shrink an image to about 1.15 megapixels (Claude: also 1568 px on the long side), so a
+    2048x1536 photo reaches them at about 60 % and small print turns to mush; a quarter, about
+    1100x830, fits whole and keeps every pixel. Photos already small enough go as they are."""
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+        if img is None or img.shape[0] * img.shape[1] <= max_pixels:
+            return [jpeg]
+        h, w = img.shape[:2]
+        dy, dx = int(h * 0.06), int(w * 0.06)
+        quarters = [img[:h // 2 + dy, :w // 2 + dx], img[:h // 2 + dy, w // 2 - dx:],
+                    img[h // 2 - dy:, :w // 2 + dx], img[h // 2 - dy:, w // 2 - dx:]]
+        return [jpeg] + [cv2.imencode(".jpg", q, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes() for q in quarters]
+    except Exception:
+        return [jpeg]
+
+
+DOCUMENT_VIEWS_NOTE = ("The first image is the whole page; the next four are its quarters at full detail (top "
+                       "left, top right, bottom left, bottom right; they overlap a little): read the text from the "
+                       "quarters, in reading order across the page, and do not repeat the overlapping words.\n")
+
+
+def _prompt(question: str, mode: str = "scene", views: int = 1) -> str:
     if mode == "document":
-        return DOCUMENT_PROMPT
+        return (DOCUMENT_VIEWS_NOTE if views > 1 else "") + DOCUMENT_PROMPT
     q = (question or "").strip()
     return PHOTO_PROMPT + (f"\nThe person asked: {q}\nAnswer that too, on a last line starting ANSWER:." if q else "")
 
@@ -60,19 +85,21 @@ def make_photo_describer(backend: str = "anthropic", claude_model: str = "claude
             else:
                 from .brains.claude_chat import make_client
                 client["c"] = make_client()
+        images = document_views(jpeg) if mode == "document" else [jpeg]
         resp = client["c"].messages.create(
             model=claude_model, max_tokens=1500 if mode == "document" else 500,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                             "data": base64.b64encode(jpeg).decode()}},
-                {"type": "text", "text": _prompt(question, mode)}]}])
+                                             "data": base64.b64encode(im).decode()}} for im in images
+            ] + [{"type": "text", "text": _prompt(question, mode, len(images))}]}])
         return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
 
     def local(jpeg: bytes, question: str, mode: str = "scene") -> str:
+        images = document_views(jpeg) if mode == "document" else [jpeg]
         body = {"model": ollama_model, "stream": False, "think": False, "keep_alive": "30m",
                 "options": {"temperature": 0.2},
-                "messages": [{"role": "user", "content": _prompt(question, mode),
-                              "images": [base64.b64encode(jpeg).decode()]}]}
+                "messages": [{"role": "user", "content": _prompt(question, mode, len(images)),
+                              "images": [base64.b64encode(im).decode() for im in images]}]}
         req = urllib.request.Request(ollama_url.rstrip("/") + "/api/chat", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:

@@ -376,3 +376,17 @@ def test_qr_codes_in_a_board_photo_are_decoded_into_her_description():
     seen = eyes.look_now()
     assert "HELD: a white card" in seen
     assert "QR CODE (decoded exactly): https://example.com/clara-test" in seen
+
+
+def test_a_full_size_scan_goes_as_the_page_plus_four_detailed_quarters():
+    cv2 = pytest.importorskip("cv2")
+    from talker.board_eyes import document_views
+    big = cv2.imencode(".jpg", np.full((1536, 2048, 3), 200, np.uint8))[1].tobytes()
+    views = document_views(big)
+    assert len(views) == 5 and views[0] == big
+    for v in views[1:]:
+        q = cv2.imdecode(np.frombuffer(v, np.uint8), cv2.IMREAD_COLOR)
+        assert q.shape[0] * q.shape[1] <= 1_150_000                # reaches the model unshrunk
+        assert q.shape[1] > 1024 and q.shape[0] > 768              # and they overlap
+    small = cv2.imencode(".jpg", np.full((600, 800, 3), 200, np.uint8))[1].tobytes()
+    assert document_views(small) == [small]
