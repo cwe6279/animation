@@ -743,7 +743,9 @@ class VoiceLoop:
             print(f"[loop] on_reply_start: {e}")
         # A visual question: give the in-flight burst time to land first (capture ~0.5 s
         # + vision model ~2.3 s, minus what already elapsed while the visitor spoke).
-        if self.vision is not None and self.VISUAL_RE.search(text):
+        # (an event the host announces, e.g. "you just took a photo", is not a visual question:
+        #  it already carries what was seen, and looking again took a second photo)
+        if self.vision is not None and not text.startswith("(Event:") and self.VISUAL_RE.search(text):
             seen = self.vision.look_now(timeout=2.5)
             if seen:
                 self.add_context(f"right now you can see: {seen}")
