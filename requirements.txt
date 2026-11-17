@@ -35,6 +35,7 @@ openai>=1.0
 
 # Optional: vision (voice_loop.py --camera ...): camera capture for scene notes
 opencv-contrib-python-headless>=4.9   # the contrib build: includes the WeChat QR detector the board camera uses
+pillow>=10.0               # textured eyes and the camera change filter without OpenCV
 
 # Dev
 pytest>=8.0
