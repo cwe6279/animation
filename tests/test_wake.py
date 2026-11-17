@@ -140,3 +140,14 @@ def test_voice_note_stops_at_the_time_limit(tmp_path):
     time.sleep(0.1)
     loop._process(b"\x01\x00" * 160)
     assert not loop.recording and loop.record_stopped_by_limit and saved and saved[0].endswith(".wav")
+
+
+def test_a_spoken_command_mid_conversation_runs_instead_of_the_brain():
+    loop, spk, events, _ = make(None, llm=lambda t: iter(["brain answered"]))
+    ran = []
+    loop.spoken_commands = {"scan this": lambda: ran.append("scan this"),
+                            "scan this document": lambda: ran.append("scan this document")}
+    loop.on_user_text("okay Clara, scan this document please")
+    assert ran == ["scan this document"] and spk.spoken == []      # longest phrase wins, no brain
+    loop.on_user_text("what's the weather")
+    assert wait(lambda: spk.spoken)

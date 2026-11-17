@@ -31,7 +31,7 @@ import re
 import sys
 import threading
 import time
-from typing import Callable, Iterable, Iterator, List, Optional, Tuple, Any
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from .actions import strip_actions
 from .phoneme_scheduler import strip_tags
@@ -165,6 +165,10 @@ class VoiceLoop:
         self._rec_text: List[str] = []
         self._rec_started = 0.0
         self.on_recording_saved: Callable[[Optional[str], float, str], None] = lambda path, secs, text: None
+        # Spoken commands caught before the brain: phrase -> action ("scan this document", "take a
+        # photo"). The board hears these itself only while idle; mid-conversation its audio comes
+        # here, and the brain would only do a plain look.
+        self.spoken_commands: Dict[str, Callable[[], None]] = {}
         # Session end: the brain writes itself a note (see memory_notes.py).
         self.on_session_end: Callable[[str], None] = lambda reason: None
         self._session_turns = 0
@@ -450,6 +454,16 @@ class VoiceLoop:
         if self._phrase_at(text, self.record_start_words) is not None:
             self.set_recording(True, "spoken")
             return
+        for phrase in sorted(self.spoken_commands, key=len, reverse=True):   # longest first
+            if self._phrase_at(text, [phrase]) is not None:
+                self.on_event("you", text)
+                self.on_event("mode", f"command: {phrase}")
+                self._last_activity = self.clock()
+                try:
+                    self.spoken_commands[phrase]()
+                except Exception as e:
+                    self.on_event("error", f"command {phrase!r} failed: {e}")
+                return
         # Only with barge-in does the mic listen while she talks. Half-duplex is deaf
         # then, so an utterance is always the person, and one that answers her by
         # repeating her own words ("...somewhere you can speak freely?" "Yes, I can
@@ -1723,6 +1737,9 @@ def main(argv=None) -> int:
                                    f"{seen[:800]}\nSay in one short sentence that the photo is saved and what is in it.")
             threading.Thread(target=work, daemon=True, name="board-command").start()
         audio.on_wake = on_board_wake
+        # the same commands said mid-conversation (the board hears them itself only while idle)
+        for _phrase in BOARD_COMMANDS:
+            loop.spoken_commands[_phrase] = (lambda ph=_phrase: on_board_wake(ph))
 
     # Voice notes ("start recording" ... "stop recording"): audio and transcript in captures/.
     loop.record_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "captures")
