@@ -91,25 +91,49 @@ def make_photo_describer(backend: str = "anthropic", claude_model: str = "claude
     return claude
 
 
+WECHAT_QR_DIR = os.environ.get("WECHAT_QR_DIR", os.path.expanduser("~/.cache/talker/wechat_qr"))
+_wechat = {"det": None, "tried": False}
+
+
+def _wechat_detector():
+    """OpenCV's WeChat QR detector (opencv-contrib): far better at small, blurred or tilted codes.
+    With its two small CNN models in WECHAT_QR_DIR (detect.* and sr.*) it finds codes better
+    still; without them it falls back to its classic finder."""
+    if not _wechat["tried"]:
+        _wechat["tried"] = True
+        try:
+            import cv2
+            files = [os.path.join(WECHAT_QR_DIR, f) for f in
+                     ("detect.prototxt", "detect.caffemodel", "sr.prototxt", "sr.caffemodel")]
+            _wechat["det"] = (cv2.wechat_qrcode_WeChatQRCode(*files) if all(os.path.exists(f) for f in files)
+                              else cv2.wechat_qrcode_WeChatQRCode())
+        except Exception:
+            _wechat["det"] = None
+    return _wechat["det"]
+
+
 def read_qr_codes(jpeg: bytes) -> list:
-    """The text of every QR code in the photo, read on the host with OpenCV (free, about 50 ms at
-    1600x1200). A vision model can see that a QR code is there but cannot decode it."""
+    """The text of every QR code in the photo, read on the host (free, tens of ms at 1600x1200).
+    A vision model can see that a QR code is there but cannot decode it."""
     try:
         import cv2
         import numpy as np
-        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
+        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
         if img is None:
             return []
-        det = cv2.QRCodeDetector()
         found = []
-        ok, texts, _, _ = det.detectAndDecodeMulti(img)
-        if ok:
+        wechat = _wechat_detector()
+        if wechat is not None:
+            texts, _ = wechat.detectAndDecode(img)
             found = [t for t in texts if t]
-        if not found:                              # small or far codes: try once at double size
-            big = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-            ok, texts, _, _ = det.detectAndDecodeMulti(big)
-            if ok:
-                found = [t for t in texts if t]
+        if not found:
+            grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            det = cv2.QRCodeDetector()
+            for frame in (grey, cv2.resize(grey, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)):
+                ok, texts, _, _ = det.detectAndDecodeMulti(frame)
+                found = [t for t in texts if t] if ok else []
+                if found:
+                    break
         return list(dict.fromkeys(found))          # unique, in order
     except Exception as e:
         print(f"[eyes] QR reading failed: {e}")
@@ -161,6 +185,13 @@ class BoardEyes:
         self.stats["last_ms"] = round((time.monotonic() - t0) * 1000)
         if save and self.save_dir:
             self.last_saved = self._keep(jpeg, text, save)
+        elif self.save_dir:                      # the latest look, overwritten each time: what did she get?
+            try:
+                os.makedirs(self.save_dir, exist_ok=True)
+                with open(os.path.join(self.save_dir, "last-look.jpg"), "wb") as f:
+                    f.write(jpeg)
+            except OSError:
+                pass
         with self._done:
             self.last_jpeg = jpeg
             if text:

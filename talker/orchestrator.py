@@ -184,6 +184,31 @@ def make_claude_planner(model: str = "claude-haiku-4-5", can: str = "") -> Calla
 # ─────────────────────────────────────────────────────
 # ORCHESTRATOR
 # ─────────────────────────────────────────────────────
+_YES = re.compile(r"\b(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|approve[ds]?|please do|sounds good|"
+                  r"fine|confirm(ed)?|that's right|correct|absolutely|definitely|go for it|send it)\b", re.I)
+_NO = re.compile(r"\b(no|nope|don'?t|do not|not|never|stop|cancel|wait|hold on|hold off|deny|decline)\b", re.I)
+
+
+def owner_decision_allowed(approve: bool, turn_kind: str, said: str, said_age_s: float,
+                           window_s: float = 120.0) -> tuple:
+    """(allowed, why) for an {{approve}} / {{deny}} the character wrote. A decision is the owner's,
+    so it counts only in a reply to something the person just said, never in a reply to an event
+    (a startup announcement, a finished errand); an approval also needs a plain yes in the
+    person's own words and no no. The brain once approved a task that sends text messages, on
+    its own, while announcing that task at startup."""
+    if turn_kind != "person":
+        return False, "not a reply to the person (it answered an event)"
+    if not said or said_age_s > window_s:
+        return False, "the person has not just said anything"
+    if not approve:
+        return True, ""
+    if _NO.search(said):
+        return False, f"the person's words were not a yes: {said[:80]!r}"
+    if not _YES.search(said):
+        return False, f"no yes in the person's words: {said[:80]!r}"
+    return True, ""
+
+
 class Orchestrator:
     """Owns goals and their steps; ErrandRunner only carries single tasks to the agent."""
 

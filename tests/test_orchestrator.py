@@ -271,3 +271,18 @@ def test_a_step_that_never_reached_the_agent_is_sent_again(tmp_path):
     assert len(orch2.restore()) == 1
     spin(runner2)
     assert agent.order == ["t1"] and agent.last()["task"].startswith("look it up")
+
+
+def test_only_the_owners_own_yes_approves_a_task():
+    from talker.orchestrator import owner_decision_allowed as ok
+    # the incident: approving on her own while announcing the task at startup
+    assert ok(True, "event", "", 9999)[0] is False
+    assert ok(True, "event", "yes go ahead", 5)[0] is False          # a reply to an event, not to them
+    assert ok(True, "person", "yes, go ahead", 5)[0] is True
+    assert ok(True, "person", "okay do it", 5)[0] is True
+    assert ok(True, "person", "hello?", 5)[0] is False                # no yes in their words
+    assert ok(True, "person", "no, don't send it", 5)[0] is False
+    assert ok(True, "person", "wait, not yet", 5)[0] is False
+    assert ok(True, "person", "yes", 500)[0] is False                 # said long ago
+    assert ok(False, "person", "hmm", 5)[0] is True                   # saying no needs no special words
+    assert ok(False, "event", "", 9999)[0] is False

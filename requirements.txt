@@ -34,7 +34,7 @@ vosk>=0.3.45            # local streaming speech-to-text (small model auto-downl
 openai>=1.0
 
 # Optional: vision (voice_loop.py --camera ...): camera capture for scene notes
-opencv-python-headless>=4.9
+opencv-contrib-python-headless>=4.9   # the contrib build: includes the WeChat QR detector the board camera uses
 
 # Dev
 pytest>=8.0

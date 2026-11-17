@@ -1312,6 +1312,12 @@ def main(argv=None) -> int:
         tools.add("tasks", "the task ledger with each task's state", lambda _a: ledger.render())
         print(f"[errands] can: {m.errands_can or '(not said; list what the agent can do under \"errands\" in face.json)'}")
     extra_rules = action_rules(body.moves, sounds.names, tools.describe()) + assistant_rules(memory_on, errands_on, m.errands_can)
+    if args.satellite and args.satellite_camera and not args.no_vision:
+        extra_rules += ("\n\nYour camera is on the board you live in. Any QR code in a photo is decoded for you "
+                        "and arrives as a line 'QR CODE (decoded exactly): ...': read it out or use it, and never send "
+                        "a QR code to an errand to decode. If a photo shows a QR code but no such line, it was not "
+                        "readable: ask the person to hold it closer, flat and still, and look again. Saying \"take a "
+                        "photo\" or \"scan this document\" makes the board keep a photo (a scan also keeps its text).")
     if extra_rules:
         print(f"[voice] actions: moves={body.moves or '-'} sounds={sounds.names or '-'} tools={tools.names or '-'}"
               + (" note" if memory_on else "") + (" task" if errands_on else ""))
@@ -1392,7 +1398,8 @@ def main(argv=None) -> int:
         actions.register("note", note_handler)
     runner = None
     orch = None
-    last_you = {"text": ""}
+    last_you = {"text": "", "at": 0.0}
+    turn_from = {"kind": "person"}        # what the current reply answers: "person" or "event"
     if errands_on:
         # She manages the agent work (orchestrator.py): a request becomes a planned goal whose
         # steps are sent in order, chased, retried and approved; one announcement per goal.
@@ -1428,6 +1435,20 @@ def main(argv=None) -> int:
 
         def decision_handler(approve):
             def handle(a):
+                from .orchestrator import owner_decision_allowed
+                ok, why = owner_decision_allowed(approve, turn_from["kind"], last_you["text"],
+                                                 time.monotonic() - last_you["at"])
+                verb = "approve" if approve else "deny"
+                if not ok:
+                    print(f"[task] {{{{{verb} {a.name.strip()}}}}} ignored: {why}")
+                    from . import incidents
+                    incidents.record("decision_blocked", action=verb, goal=a.name.strip(), why=why)
+                    try:
+                        chat.add_context(f"Your {{{{{verb}}}}} did not count: only the person's own clear yes "
+                                         "or no decides a task. Nothing was approved or declined; ask them.")
+                    except Exception:
+                        pass
+                    return None
                 print(f"[task] {orch.decide(a.name.strip(), approve)}")
                 return None
             return handle
@@ -1687,7 +1708,10 @@ def main(argv=None) -> int:
 
         def remember_you(kind, text):
             if kind == "you":
-                last_you["text"] = text
+                last_you["text"], last_you["at"] = text, time.monotonic()
+                turn_from["kind"] = "person"
+            elif kind == "event":
+                turn_from["kind"] = "event"
             prev_event(kind, text)
         loop.on_event = remember_you
     if runner is not None:
